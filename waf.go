@@ -782,8 +782,8 @@ func main() {
 	}
 
 	initDb()
-	// readRule()
-	LoadEncryptedRules("hex")
+	readRule()
+	
 
 	
 	go statsPrinter()
