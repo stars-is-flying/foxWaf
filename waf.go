@@ -334,7 +334,6 @@ func handler(w http.ResponseWriter, req *http.Request) {
     }
 
     // 设置重要属性
-    proxyReq.ContentLength = req.ContentLength
     proxyReq.Host = req.Host
 
     // 拷贝请求头（优化版）
