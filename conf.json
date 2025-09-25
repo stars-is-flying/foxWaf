@@ -1,0 +1,14 @@
+{
+    "Server": {
+        "Addr": "0.0.0.0",
+        "Port": 8080
+    },
+    "Database": {
+        "Host": "127.0.0.1",
+        "Port": 3306,
+        "User": "waf",
+        "Password": "waf",
+        "DBName": "waf"
+    },
+    "isWriteDbAuto": true
+}
