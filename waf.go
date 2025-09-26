@@ -467,24 +467,8 @@ func attackWorker() {
 func handler(w http.ResponseWriter, req *http.Request) {
     atomic.AddUint64(&totalRequests, 1)
 
-    // 先检测是否攻击
-	attacked, log := isAttack(req)
-	if attacked {
-		atomic.AddUint64(&totalBlocked, 1) // 增加总拦截数
 
-		if cfg.IsWriteDbAuto {
-			attackChan <- *log
-			w.WriteHeader(http.StatusForbidden)
-			w.Write([]byte(interceptPage))
-		} else {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusForbidden)
-			json.NewEncoder(w).Encode(log)
-		}
-		return
-	}
-
-    // 查找目标站点
+	// 查找目标站点
     host := req.Host
     var targetURL string
     var enableHTTPS bool
@@ -502,6 +486,43 @@ func handler(w http.ResponseWriter, req *http.Request) {
         w.Write([]byte(NotFoundPage))
         return
     }
+	
+
+    // 先检测是否攻击
+	attacked, log := isAttack(req)
+	if attacked {
+		atomic.AddUint64(&totalBlocked, 1) // 增加总拦截数
+
+		if cfg.IsWriteDbAuto {
+			attackChan <- *log
+			w.WriteHeader(http.StatusForbidden)
+			w.Write([]byte(interceptPage))
+		} else {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			json.NewEncoder(w).Encode(log)
+		}
+		return
+	}
+
+    // // 查找目标站点
+    // host := req.Host
+    // var targetURL string
+    // var enableHTTPS bool
+
+    // for _, site := range sites {
+    //     if strings.EqualFold(site.Domain, host) && site.Status == 1 {
+    //         targetURL = site.TargetURL
+    //         enableHTTPS = site.EnableHTTPS
+    //         break
+    //     }
+    // }
+
+    // if targetURL == "" {
+    //     w.WriteHeader(http.StatusNotFound)
+    //     w.Write([]byte(NotFoundPage))
+    //     return
+    // }
 
     // 构造代理请求
     proxyReq, err := http.NewRequest(req.Method, targetURL+req.RequestURI, req.Body)
