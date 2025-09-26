@@ -18,18 +18,21 @@ import (
 	"time"
 	"log"
 	"crypto/tls"
-	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"math/big"
 	"math"
+	"io/ioutil"
+	"crypto/rand"
+	"github.com/golang-jwt/jwt/v5"
 	
 	
 
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/gin-gonic/gin"
+	"github.com/fatih/color"
 )
 
 import (
@@ -54,6 +57,7 @@ type Config struct {
 	Server        ServerConfig   `json:"server"`
 	Database      DatabaseConfig `json:"database"`
 	IsWriteDbAuto bool           `json:"isWriteDbAuto"`
+	Secure        string         `json:"secureentry"`
 }
 
 var cfg Config // 全局配置
@@ -101,6 +105,11 @@ type Site struct {
     CreatedAt   string // 可以用 time.Time
     UpdatedAt   string // 可以用 time.Time
 }
+
+//管理员信息
+var username string
+var password string
+var jsonTokenKey []byte
 
 var sites []Site
 var certificateMap = map[string]tls.Certificate{}
@@ -187,11 +196,68 @@ func boolToInt(b bool) int {
     return 0
 }
 
+// JWT 生成函数
+func generateToken(user string) (string, error) {
+	// 设置过期时间为 24 小时
+	expirationTime := time.Now().Add(24 * time.Hour)
+
+	claims := jwt.MapClaims{
+		"username": user,
+		"exp":      expirationTime.Unix(),
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString(jsonTokenKey)
+}
+
+// 登录处理
+func loginHandler(c *gin.Context) {
+	formUsername := c.PostForm("username")
+	formPassword := c.PostForm("password")
+
+	if formUsername != username || formPassword != password {
+		c.HTML(http.StatusUnauthorized, "login.html", gin.H{
+			"error": "用户名或密码错误",
+		})
+		return
+	}
+
+	// 生成 JWT
+	tokenString, err := generateToken(username)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "生成 token 失败"})
+		return
+	}
+
+	// 设置 Cookie，24 小时有效
+	c.SetCookie("auth_token", tokenString, 3600*24, "/", "", false, true)
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "登录成功",
+		"token":   tokenString,
+	})
+}
+
+
 func StartGinAPI() {
 	gin.SetMode(gin.ReleaseMode)
     r := gin.Default()
 
+
+	//safe login
+	login, _ := ioutil.ReadFile("./static/login.html")
+
+	//添加站点
     r.POST("/api/site/add", addSiteHandler)
+	//登录验证
+	r.POST("/login", loginHandler)
+
+	//登录页面
+	r.GET(cfg.Secure, func(ctx *gin.Context) {
+    ctx.Header("Content-Type", "text/html; charset=utf-8")
+    ctx.String(http.StatusOK, string(login))
+	})
+
 
     log.Println("Gin API 启动在 :8080")
     if err := r.Run(":8080"); err != nil {
@@ -199,185 +265,30 @@ func StartGinAPI() {
     }
 }
 
+// 定义三个变量，用于存储 HTML 内容
+var interceptPage string
+var NotFoundPage string
+var proxyErrorPage string
 
+// wafDir 是 HTML 文件存放目录
+var wafDir = "./static/waf"
 
-//-----------------拦截页面-------------------
-var interceptPage = `<!DOCTYPE html>
-<html lang="zh-CN">
+func loadWAFPage(filename string) string {
+    path := filepath.Join(wafDir, filename)
+    content, err := ioutil.ReadFile(path)
+    if err != nil {
+        log.Fatalf("加载文件 %s 失败: %v", filename, err)
+    }
+    return string(content)
+}
 
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>拦截提示</title>
-    <style>
-        body {
-            background: #fffafc;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            height: 100vh;
-            font-family: "Comic Sans MS", "Microsoft YaHei", sans-serif;
-            color: #444;
-        }
+// 初始化函数，程序启动时加载 HTML 文件
+func readWafHtml() {
+    interceptPage = loadWAFPage("intercept.html")
+    NotFoundPage = loadWAFPage("notfound.html")
+    proxyErrorPage = loadWAFPage("proxy_error.html")
+}
 
-        .rabbit {
-            font-size: 120px;
-            animation: bounce 0.8s infinite alternate;
-        }
-
-        @keyframes bounce {
-            from {
-                transform: translateY(0);
-            }
-
-            to {
-                transform: translateY(-8px);
-            }
-        }
-
-        .message {
-            margin-top: 20px;
-            font-size: 22px;
-            text-align: center;
-        }
-
-        .small {
-            font-size: 14px;
-            color: #888;
-            margin-top: 8px;
-        }
-    </style>
-</head>
-
-<body>
-    <div class="rabbit">（｀へ´）🦊</div>
-    <div class="message">
-        小狐狸发现可疑操作，已经生气地拦住啦！<br>
-        请不要再调皮哦～
-    </div>
-    <div class="small">WAF 安全防护页面</div>
-</body>
-
-</html>`
-
-// ------------------- 找不到站点 -------------------
-var NotFoundPage = `<!DOCTYPE html>
-<html lang="zh-CN">
-
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>错误提示</title>
-    <style>
-        body {
-            background: #fffafc;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            height: 100vh;
-            font-family: "Comic Sans MS", "Microsoft YaHei", sans-serif;
-            color: #444;
-        }
-
-        .rabbit {
-            font-size: 120px;
-            animation: bounce 0.8s infinite alternate;
-        }
-
-        @keyframes bounce {
-            from {
-                transform: translateY(0);
-            }
-
-            to {
-                transform: translateY(-8px);
-            }
-        }
-
-        .message {
-            margin-top: 20px;
-            font-size: 22px;
-            text-align: center;
-        }
-
-        .small {
-            font-size: 14px;
-            color: #888;
-            margin-top: 8px;
-        }
-    </style>
-</head>
-
-<body>
-    <div class="rabbit">( •́ _ •̀)?🦊</div>
-    <div class="message">
-        小狐狸很疑惑, 找不到原站！
-    </div>
-    <div class="small">WAF 安全防护页面</div>
-</body>
-
-</html>`
-
-// ------------------- 请求站点失败 -------------------
-var proxyErrorPage = `<!DOCTYPE html>
-<html lang="zh-CN">
-
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>请求失败提示</title>
-    <style>
-        body {
-            background: #fffafc;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            height: 100vh;
-            font-family: "Comic Sans MS", "Microsoft YaHei", sans-serif;
-            color: #444;
-        }
-
-        .rabbit {
-            font-size: 120px;
-            animation: bounce 0.8s infinite alternate;
-        }
-
-        @keyframes bounce {
-            from {
-                transform: translateY(0);
-            }
-
-            to {
-                transform: translateY(-8px);
-            }
-        }
-
-        .message {
-            margin-top: 20px;
-            font-size: 22px;
-            text-align: center;
-        }
-
-        .small {
-            font-size: 14px;
-            color: #888;
-            margin-top: 8px;
-        }
-    </style>
-</head>
-
-<body>
-    <div class="rabbit">(ಥ﹏ಥ)🦊</div>
-    <div class="message">
-        小狐狸在哭泣, 摸不到原站！
-    </div>
-    <div class="small">WAF 安全防护页面</div>
-</body>
-
-</html>`
 
 func statsPrinter() {
 	ticker := time.NewTicker(time.Second)
@@ -410,6 +321,22 @@ func GetBodyString(r *http.Request) (string, error) {
 	}
 	r.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 	return string(bodyBytes), nil
+}
+
+func generateRandomPassword(length int) (string, error) {
+	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	password := make([]byte, length)
+	charsetLen := byte(len(charset))
+
+	for i := 0; i < length; i++ {
+		b := make([]byte, 1)
+		if _, err := rand.Read(b); err != nil {
+			return "", err
+		}
+		password[i] = charset[b[0]%charsetLen]
+	}
+
+	return string(password), nil
 }
 
 func match(data string, judge Judge) string {
@@ -1020,6 +947,8 @@ func getCertificate(clientHello *tls.ClientHelloInfo) (*tls.Certificate, error) 
 }
 
 
+
+
 func ReverseProxy() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", handler)
@@ -1069,11 +998,30 @@ func ReadConfig() {
 	}
 }
 
+func setAdmin() {
+	username = "fox"
+	password, _ = generateRandomPassword(8)
+	tokenStr, err := generateRandomPassword(8)
+	if err != nil {
+    	tokenStr = "defaultToken"
+	}
+	jsonTokenKey = []byte(tokenStr)
+
+	// 创建蓝色输出
+	fmt.Print("\033[H\033[2J")
+	fmt.Println("------------------------账户信息---------------------------")
+	blue := color.New(color.FgHiBlue).SprintFunc()
+	fmt.Printf("账户密码为: %s:%s\n\n\n\n\n", blue(username), blue(password))
+	fmt.Println("-----------------------------------------------------------")
+}
+
 
 func main() {
+	setAdmin()
 	ReadConfig()
 	initDb()
 	readRule()
+	readWafHtml()
 	
 	go statsPrinter()
 	go StartGinAPI()

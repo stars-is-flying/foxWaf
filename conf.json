@@ -10,5 +10,6 @@
         "Password": "waf",
         "DBName": "waf"
     },
-    "isWriteDbAuto": true
+    "isWriteDbAuto": true,
+    "secureentry": "fox"
 }
