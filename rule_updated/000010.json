@@ -1,0 +1,13 @@
+{
+    "name": "/etc/passwd",
+    "id": "000010",
+    "method": "GET",
+    "description": "/etc/passwd",
+    "judge": [
+        {
+            "position": "uri",
+            "content": "/etc/passwd",
+            "rix": ""
+        }
+    ]
+}

@@ -165,7 +165,7 @@ var interceptPage = `<!DOCTYPE html>
 <body>
     <div class="rabbit">（｀へ´）🦊</div>
     <div class="message">
-        小狐狸发现可疑操作，已经生气气地拦住啦！<br>
+        小狐狸发现可疑操作，已经生气地拦住啦！<br>
         请不要再调皮哦～
     </div>
     <div class="small">WAF 安全防护页面</div>
@@ -592,7 +592,7 @@ func handler(w http.ResponseWriter, req *http.Request) {
 // ------------------- 规则加载 -------------------
 func readRule() {
 	RULES = make(map[string][]Rule)
-	ruleDir := "/rule_updated"
+	ruleDir := "./rule_updated"
 
 	filepath.WalkDir(ruleDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
