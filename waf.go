@@ -113,6 +113,184 @@ var db *sql.DB
 var totalRequests uint64
 var totalBlocked uint64
 
+//-----------------拦截页面-------------------
+var interceptPage = `<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>拦截提示</title>
+    <style>
+        body {
+            background: #fffafc;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            font-family: "Comic Sans MS", "Microsoft YaHei", sans-serif;
+            color: #444;
+        }
+
+        .rabbit {
+            font-size: 120px;
+            animation: bounce 0.8s infinite alternate;
+        }
+
+        @keyframes bounce {
+            from {
+                transform: translateY(0);
+            }
+
+            to {
+                transform: translateY(-8px);
+            }
+        }
+
+        .message {
+            margin-top: 20px;
+            font-size: 22px;
+            text-align: center;
+        }
+
+        .small {
+            font-size: 14px;
+            color: #888;
+            margin-top: 8px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="rabbit">（｀へ´）🦊</div>
+    <div class="message">
+        小狐狸发现可疑操作，已经生气气地拦住啦！<br>
+        请不要再调皮哦～
+    </div>
+    <div class="small">WAF 安全防护页面</div>
+</body>
+
+</html>`
+
+// ------------------- 找不到站点 -------------------
+var NotFoundPage = `<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>错误提示</title>
+    <style>
+        body {
+            background: #fffafc;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            font-family: "Comic Sans MS", "Microsoft YaHei", sans-serif;
+            color: #444;
+        }
+
+        .rabbit {
+            font-size: 120px;
+            animation: bounce 0.8s infinite alternate;
+        }
+
+        @keyframes bounce {
+            from {
+                transform: translateY(0);
+            }
+
+            to {
+                transform: translateY(-8px);
+            }
+        }
+
+        .message {
+            margin-top: 20px;
+            font-size: 22px;
+            text-align: center;
+        }
+
+        .small {
+            font-size: 14px;
+            color: #888;
+            margin-top: 8px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="rabbit">( •́ _ •̀)?🦊</div>
+    <div class="message">
+        小狐狸很疑惑, 找不到原站！
+    </div>
+    <div class="small">WAF 安全防护页面</div>
+</body>
+
+</html>`
+
+// ------------------- 请求站点失败 -------------------
+var proxyErrorPage = `<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>请求失败提示</title>
+    <style>
+        body {
+            background: #fffafc;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            font-family: "Comic Sans MS", "Microsoft YaHei", sans-serif;
+            color: #444;
+        }
+
+        .rabbit {
+            font-size: 120px;
+            animation: bounce 0.8s infinite alternate;
+        }
+
+        @keyframes bounce {
+            from {
+                transform: translateY(0);
+            }
+
+            to {
+                transform: translateY(-8px);
+            }
+        }
+
+        .message {
+            margin-top: 20px;
+            font-size: 22px;
+            text-align: center;
+        }
+
+        .small {
+            font-size: 14px;
+            color: #888;
+            margin-top: 8px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="rabbit">(ಥ﹏ಥ)🦊</div>
+    <div class="message">
+        小狐狸在哭泣, 摸不到原站！
+    </div>
+    <div class="small">WAF 安全防护页面</div>
+</body>
+
+</html>`
+
 func statsPrinter() {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
@@ -297,7 +475,7 @@ func handler(w http.ResponseWriter, req *http.Request) {
 		if cfg.IsWriteDbAuto {
 			attackChan <- *log
 			w.WriteHeader(http.StatusForbidden)
-			w.Write([]byte("Attack detected\n"))
+			w.Write([]byte(interceptPage))
 		} else {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusForbidden)
@@ -321,7 +499,7 @@ func handler(w http.ResponseWriter, req *http.Request) {
 
     if targetURL == "" {
         w.WriteHeader(http.StatusNotFound)
-        w.Write([]byte("Site not found\n"))
+        w.Write([]byte(NotFoundPage))
         return
     }
 
@@ -329,7 +507,8 @@ func handler(w http.ResponseWriter, req *http.Request) {
     proxyReq, err := http.NewRequest(req.Method, targetURL+req.RequestURI, req.Body)
     if err != nil {
         stdlog.Printf("创建反向代理请求失败: %v", err)
-        http.Error(w, "Bad Gateway", http.StatusBadGateway)
+        w.WriteHeader(http.StatusBadGateway)
+        w.Write([]byte(proxyErrorPage))
         return
     }
 
@@ -367,7 +546,8 @@ func handler(w http.ResponseWriter, req *http.Request) {
     resp, err := client.Do(proxyReq)
     if err != nil {
         stdlog.Printf("请求目标站点失败: %v", err)
-        http.Error(w, "Bad Gateway", http.StatusBadGateway)
+        w.WriteHeader(http.StatusBadGateway)
+        w.Write([]byte(proxyErrorPage))
         return
     }
     defer func() {
