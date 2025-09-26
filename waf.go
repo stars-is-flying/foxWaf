@@ -29,6 +29,7 @@ import (
 	
 
 	_ "github.com/go-sql-driver/mysql"
+	"github.com/gin-gonic/gin"
 )
 
 import (
@@ -112,6 +113,93 @@ var db *sql.DB
 // ------------------- 内存统计 -------------------
 var totalRequests uint64
 var totalBlocked uint64
+
+
+// ------------------- 添加站点接口 -------------------
+type AddSiteRequest struct {
+    Name        string `json:"name" binding:"required"`
+    Domain      string `json:"domain" binding:"required"`
+    TargetURL   string `json:"target_url" binding:"required"`
+    EnableHTTPS bool   `json:"enable_https"`
+    CertName    string `json:"cert_name"` // 可选，自动生成自签名
+}
+
+// addSiteHandler 添加站点并热更新内存
+func addSiteHandler(c *gin.Context) {
+    var req AddSiteRequest
+    if err := c.ShouldBindJSON(&req); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+
+    var certID interface{} = nil
+    if req.EnableHTTPS {
+        // 生成自签名证书并存数据库
+        certPEM, keyPEM, err := generateSelfSignedCert(req.Domain)
+        if err != nil {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("生成证书失败: %v", err)})
+            return
+        }
+        insertCert := `INSERT INTO certificates (name, cert_text, key_text) VALUES (?, ?, ?)`
+        result, err := db.Exec(insertCert, req.CertName, certPEM, keyPEM)
+        if err != nil {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("写入证书失败: %v", err)})
+            return
+        }
+        id, _ := result.LastInsertId()
+        certID = id
+
+        // 热加载证书到内存
+        cert, err := tls.X509KeyPair(certPEM, keyPEM)
+        if err != nil {
+            log.Printf("加载证书失败: %v", err)
+        } else {
+            certificateMap[req.Domain] = cert
+            log.Printf("新证书已加载: %s", req.Domain)
+        }
+    }
+
+    // 插入站点数据库
+    insertSite := `INSERT INTO sites (name, domain, target_url, enable_https, cert_id, status) VALUES (?, ?, ?, ?, ?, ?)`
+    _, err := db.Exec(insertSite, req.Name, req.Domain, req.TargetURL, boolToInt(req.EnableHTTPS), certID, 1)
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("写入站点失败: %v", err)})
+        return
+    }
+
+    // 热更新内存 sites 列表
+    newSite := Site{
+        Name:        req.Name,
+        Domain:      req.Domain,
+        TargetURL:   req.TargetURL,
+        EnableHTTPS: req.EnableHTTPS,
+        Status:      1,
+    }
+    sites = append(sites, newSite)
+
+    c.JSON(http.StatusOK, gin.H{"message": "站点添加成功"})
+}
+
+func boolToInt(b bool) int {
+    if b {
+        return 1
+    }
+    return 0
+}
+
+func StartGinAPI() {
+	gin.SetMode(gin.ReleaseMode)
+    r := gin.Default()
+
+    r.POST("/api/site/add", addSiteHandler)
+
+    log.Println("Gin API 启动在 :8080")
+    if err := r.Run(":8080"); err != nil {
+        log.Fatalf("Gin 启动失败: %v", err)
+    }
+}
+
+
 
 //-----------------拦截页面-------------------
 var interceptPage = `<!DOCTYPE html>
@@ -970,8 +1058,7 @@ func ReverseProxy() {
     }
 }
 
-
-func main() {
+func ReadConfig() {
 	confFile, err := os.ReadFile("conf.json")
 	if err != nil {
 		panic(fmt.Errorf("读取 conf.json 失败: %v", err))
@@ -980,14 +1067,16 @@ func main() {
 	if err := json.Unmarshal(confFile, &cfg); err != nil {
 		panic(fmt.Errorf("解析 conf.json 失败: %v", err))
 	}
+}
 
+
+func main() {
+	ReadConfig()
 	initDb()
 	readRule()
 	
-
-	
 	go statsPrinter()
-
+	go StartGinAPI()
 	ReverseProxy()
 
 }
