@@ -29,6 +29,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"sync"
 	"net"
+    "crypto/md5"
 	
 	
 
@@ -152,6 +153,522 @@ type AddSiteRequest struct {
     EnableHTTPS bool   `json:"enable_https"`
     CertName    string `json:"cert_name"` // 可选，自动生成自签名
 }
+
+
+
+
+//------------------------------静态缓存加速----------------------------------
+// ------------------- 静态文件缓存配置 -------------------
+type StaticCacheConfig struct {
+    Enable          bool          // 是否开启静态缓存
+    CacheDir        string        // 缓存目录
+    MaxCacheSize    int64         // 最大缓存大小（字节）
+    DefaultExpire   time.Duration // 默认缓存过期时间
+    CleanupInterval time.Duration // 缓存清理间隔
+}
+
+type CachedFile struct {
+    Content     []byte
+    ContentType string
+    Size        int64
+    LastModified time.Time
+    ExpireAt    time.Time
+}
+
+var staticCacheConfig = StaticCacheConfig{
+    Enable:          true,                    // 默认开启
+    CacheDir:        "./static_cache",        // 缓存目录
+    MaxCacheSize:    100 * 1024 * 1024,       // 100MB
+    DefaultExpire:   24 * time.Hour,          // 24小时
+    CleanupInterval: 1 * time.Hour,           // 1小时清理一次
+}
+
+var (
+    fileCache    = make(map[string]*CachedFile) // 内存缓存
+    cacheMutex   sync.RWMutex
+    currentCacheSize int64
+    cacheHits   uint64
+    cacheMisses uint64
+)
+
+// ------------------- 缓存管理函数 -------------------
+func initStaticCache() {
+    // 创建缓存目录
+    if staticCacheConfig.Enable {
+        err := os.MkdirAll(staticCacheConfig.CacheDir, 0755)
+        if err != nil {
+            stdlog.Printf("创建缓存目录失败: %v", err)
+            staticCacheConfig.Enable = false
+            return
+        }
+        
+        // 启动定期清理协程
+        go cacheCleanupWorker()
+        
+        stdlog.Printf("静态文件缓存已启用，缓存目录: %s", staticCacheConfig.CacheDir)
+    } else {
+        stdlog.Println("静态文件缓存已禁用")
+    }
+}
+
+// 检查是否为可缓存的静态文件
+func isCacheableStaticFile(path string) bool {
+    if !staticCacheConfig.Enable {
+        return false
+    }
+    
+    // 静态文件扩展名
+    cacheableExts := map[string]bool{
+        ".css":  true,
+        ".js":   true,
+        ".png":  true,
+        ".jpg":  true,
+        ".jpeg": true,
+        ".gif":  true,
+        ".svg":  true,
+        ".ico":  true,
+        ".woff": true,
+        ".woff2": true,
+        ".ttf":  true,
+        ".eot":  true,
+        ".pdf":  true,
+        ".txt":  true,
+        ".xml":  true,
+        ".json": true,
+    }
+    
+    ext := strings.ToLower(filepath.Ext(path))
+    return cacheableExts[ext]
+}
+
+// 获取内容类型
+func getContentType(filename string) string {
+    ext := strings.ToLower(filepath.Ext(filename))
+    contentTypes := map[string]string{
+        ".css":  "text/css; charset=utf-8",
+        ".js":   "application/javascript",
+        ".png":  "image/png",
+        ".jpg":  "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".gif":  "image/gif",
+        ".svg":  "image/svg+xml",
+        ".ico":  "image/x-icon",
+        ".woff": "font/woff",
+        ".woff2": "font/woff2",
+        ".ttf":  "font/ttf",
+        ".eot":  "application/vnd.ms-fontobject",
+        ".pdf":  "application/pdf",
+        ".txt":  "text/plain; charset=utf-8",
+        ".xml":  "application/xml",
+        ".json": "application/json",
+        ".html": "text/html; charset=utf-8",
+        ".htm":  "text/html; charset=utf-8",
+    }
+    
+    if contentType, ok := contentTypes[ext]; ok {
+        return contentType
+    }
+    return "application/octet-stream"
+}
+
+// 从缓存获取文件
+func getCachedFile(urlPath string) (*CachedFile, bool) {
+    if !staticCacheConfig.Enable {
+        return nil, false
+    }
+    
+    cacheKey := generateCacheKey(urlPath)
+    
+    cacheMutex.RLock()
+    cachedFile, exists := fileCache[cacheKey]
+    cacheMutex.RUnlock()
+    
+    if exists {
+        // 检查是否过期
+        if time.Now().Before(cachedFile.ExpireAt) {
+            atomic.AddUint64(&cacheHits, 1)
+            return cachedFile, true
+        } else {
+            // 过期了，从缓存中移除
+            removeFromCache(cacheKey)
+        }
+    }
+    
+    atomic.AddUint64(&cacheMisses, 1)
+    return nil, false
+}
+
+// 添加到缓存
+func addToCache(urlPath string, content []byte, contentType string) {
+    if !staticCacheConfig.Enable {
+        return
+    }
+    
+    fileSize := int64(len(content))
+    
+    // 检查是否超过最大缓存大小
+    if currentCacheSize+fileSize > staticCacheConfig.MaxCacheSize {
+        stdlog.Printf("缓存空间不足，跳过缓存: %s", urlPath)
+        return
+    }
+    
+    cacheKey := generateCacheKey(urlPath)
+    expireAt := time.Now().Add(staticCacheConfig.DefaultExpire)
+    
+    cachedFile := &CachedFile{
+        Content:     content,
+        ContentType: contentType,
+        Size:        fileSize,
+        LastModified: time.Now(),
+        ExpireAt:    expireAt,
+    }
+    
+    cacheMutex.Lock()
+    // 如果已存在，先移除旧的
+    if oldFile, exists := fileCache[cacheKey]; exists {
+        currentCacheSize -= oldFile.Size
+    }
+    
+    fileCache[cacheKey] = cachedFile
+    currentCacheSize += fileSize
+    cacheMutex.Unlock()
+    
+    // 异步保存到磁盘
+    go saveToDiskCache(cacheKey, content)
+}
+
+// 从缓存移除
+func removeFromCache(cacheKey string) {
+    cacheMutex.Lock()
+    defer cacheMutex.Unlock()
+    
+    if cachedFile, exists := fileCache[cacheKey]; exists {
+        currentCacheSize -= cachedFile.Size
+        delete(fileCache, cacheKey)
+        
+        // 同时删除磁盘缓存
+        go deleteDiskCache(cacheKey)
+    }
+}
+
+// 生成缓存键
+func generateCacheKey(urlPath string) string {
+    return fmt.Sprintf("url_%x", md5.Sum([]byte(urlPath)))
+}
+
+// 保存到磁盘缓存
+func saveToDiskCache(cacheKey string, content []byte) {
+    cacheFile := filepath.Join(staticCacheConfig.CacheDir, cacheKey)
+    err := ioutil.WriteFile(cacheFile, content, 0644)
+    if err != nil {
+        stdlog.Printf("保存磁盘缓存失败 %s: %v", cacheKey, err)
+    }
+}
+
+// 从磁盘加载缓存
+func loadFromDiskCache(cacheKey string) ([]byte, error) {
+    cacheFile := filepath.Join(staticCacheConfig.CacheDir, cacheKey)
+    return ioutil.ReadFile(cacheFile)
+}
+
+// 删除磁盘缓存
+func deleteDiskCache(cacheKey string) {
+    cacheFile := filepath.Join(staticCacheConfig.CacheDir, cacheKey)
+    os.Remove(cacheFile)
+}
+
+// 缓存清理工作器
+func cacheCleanupWorker() {
+    ticker := time.NewTicker(staticCacheConfig.CleanupInterval)
+    defer ticker.Stop()
+    
+    for range ticker.C {
+        cleanupExpiredCache()
+    }
+}
+
+// 清理过期缓存
+func cleanupExpiredCache() {
+    cacheMutex.Lock()
+    defer cacheMutex.Unlock()
+    
+    now := time.Now()
+    cleanedSize := int64(0)
+    cleanedCount := 0
+    
+    for key, cachedFile := range fileCache {
+        if now.After(cachedFile.ExpireAt) {
+            currentCacheSize -= cachedFile.Size
+            cleanedSize += cachedFile.Size
+            cleanedCount++
+            delete(fileCache, key)
+            
+            // 删除磁盘缓存
+            go deleteDiskCache(key)
+        }
+    }
+    
+    if cleanedCount > 0 {
+        stdlog.Printf("缓存清理完成: 清理了 %d 个文件, 释放了 %.2f MB", 
+            cleanedCount, float64(cleanedSize)/(1024*1024))
+    }
+}
+
+// ------------------- 修改主处理函数 -------------------
+func handler(w http.ResponseWriter, req *http.Request) {
+    atomic.AddUint64(&totalRequests, 1)
+
+    // 先检查静态文件缓存
+    if staticCacheConfig.Enable && req.Method == "GET" {
+        if cachedFile, found := getCachedFile(req.URL.Path); found {
+            // 设置缓存头
+            w.Header().Set("Content-Type", cachedFile.ContentType)
+            w.Header().Set("Content-Length", fmt.Sprintf("%d", cachedFile.Size))
+            w.Header().Set("Cache-Control", "public, max-age=3600") // 1小时浏览器缓存
+            w.Header().Set("X-Cache", "HIT")
+            
+            w.WriteHeader(http.StatusOK)
+            println("缓存加速！")
+            w.Write(cachedFile.Content)
+            return
+        }
+    }
+
+    // 查找目标站点
+    host := req.Host
+    var targetURL string
+    var enableHTTPS bool
+
+    for _, site := range sites {
+        if strings.EqualFold(site.Domain, host) && site.Status == 1 {
+            targetURL = site.TargetURL
+            enableHTTPS = site.EnableHTTPS
+            break
+        }
+    }
+
+    if targetURL == "" {
+        w.WriteHeader(http.StatusNotFound)
+        w.Write([]byte(NotFoundPage))
+        return
+    }
+
+    // 1. 先检查 ACL 规则
+    blocked, aclRule := aclManager.checkACL(req, host)
+    if blocked {
+        atomic.AddUint64(&totalBlocked, 1)
+        
+        stdlog.Printf("ACL 拦截: %s %s, 规则: %s", 
+            getClientIP(req), req.URL.Path, aclRule.Description)
+            
+        w.WriteHeader(http.StatusForbidden)
+        w.Write([]byte(aclBlock))
+        return
+    }
+
+    // 2. 再检查 WAF 规则
+    attacked, log := isAttack(req)
+    if attacked {
+        atomic.AddUint64(&totalBlocked, 1)
+
+        if cfg.IsWriteDbAuto {
+            attackChan <- *log
+            w.WriteHeader(http.StatusForbidden)
+            w.Write([]byte(interceptPage))
+        } else {
+            w.Header().Set("Content-Type", "application/json")
+            w.WriteHeader(http.StatusForbidden)
+            json.NewEncoder(w).Encode(log)
+        }
+        return
+    }
+
+    // 构造代理请求
+    proxyReq, err := http.NewRequest(req.Method, targetURL+req.RequestURI, req.Body)
+    if err != nil {
+        stdlog.Printf("创建反向代理请求失败: %v", err)
+        w.WriteHeader(http.StatusBadGateway)
+        w.Write([]byte(proxyErrorPage))
+        return
+    }
+
+    // 设置重要属性
+    proxyReq.Host = req.Host
+
+    // 拷贝请求头（优化版）
+    for k, v := range req.Header {
+        if k == "Accept-Encoding" {
+            continue
+        }
+        proxyReq.Header[k] = v
+    }
+
+    // 配置传输层
+    transport := &http.Transport{
+        MaxIdleConns:        100,
+        IdleConnTimeout:     90 * time.Second,
+        TLSHandshakeTimeout: 10 * time.Second,
+    }
+
+    if enableHTTPS {
+        transport.TLSClientConfig = &tls.Config{
+            InsecureSkipVerify: true,
+        }
+    }
+
+    client := &http.Client{
+        Transport: transport,
+        Timeout:   30 * time.Second,
+    }
+
+    // 发送请求
+    resp, err := client.Do(proxyReq)
+    if err != nil {
+        stdlog.Printf("请求目标站点失败: %v", err)
+        w.WriteHeader(http.StatusBadGateway)
+        w.Write([]byte(proxyErrorPage))
+        return
+    }
+    defer func() {
+        io.Copy(io.Discard, resp.Body)
+        resp.Body.Close()
+    }()
+
+    // 如果是静态文件且缓存启用，缓存响应
+    if staticCacheConfig.Enable && req.Method == "GET" && resp.StatusCode == 200 {
+        if isCacheableStaticFile(req.URL.Path) {
+            // 读取响应体
+            bodyBytes, err := io.ReadAll(resp.Body)
+            if err == nil {
+                // 重新设置响应体
+                resp.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+                
+                // 添加到缓存
+                contentType := resp.Header.Get("Content-Type")
+                if contentType == "" {
+                    contentType = getContentType(req.URL.Path)
+                }
+                addToCache(req.URL.Path, bodyBytes, contentType)
+                
+                // 设置缓存头
+                w.Header().Set("X-Cache", "MISS")
+            }
+        }
+    } else {
+        w.Header().Set("X-Cache", "BYPASS")
+    }
+
+    // 拷贝响应头
+    for k, v := range resp.Header {
+        w.Header()[k] = v
+    }
+
+    // 设置状态码并拷贝响应体
+    w.WriteHeader(resp.StatusCode)
+    _, err = io.Copy(w, resp.Body)
+    if err != nil {
+        stdlog.Printf("拷贝响应体失败: %v", err)
+    }
+}
+
+// ------------------- 缓存管理 API -------------------
+type CacheStatsResponse struct {
+    Enable          bool   `json:"enable"`
+    CacheHits       uint64 `json:"cache_hits"`
+    CacheMisses     uint64 `json:"cache_misses"`
+    HitRate         string `json:"hit_rate"`
+    CurrentSize     string `json:"current_size"`
+    MaxSize         string `json:"max_size"`
+    CachedFiles     int    `json:"cached_files"`
+}
+
+type CacheConfigRequest struct {
+    Enable   *bool  `json:"enable"`
+    MaxSizeMB *int  `json:"max_size_mb"`
+}
+
+// 获取缓存统计
+func getCacheStatsHandler(c *gin.Context) {
+    cacheMutex.RLock()
+    cachedFiles := len(fileCache)
+    currentSize := currentCacheSize
+    cacheMutex.RUnlock()
+    
+    hits := atomic.LoadUint64(&cacheHits)
+    misses := atomic.LoadUint64(&cacheMisses)
+    total := hits + misses
+    hitRate := "0%"
+    if total > 0 {
+        hitRate = fmt.Sprintf("%.2f%%", float64(hits)/float64(total)*100)
+    }
+    
+    stats := CacheStatsResponse{
+        Enable:      staticCacheConfig.Enable,
+        CacheHits:   hits,
+        CacheMisses: misses,
+        HitRate:     hitRate,
+        CurrentSize: fmt.Sprintf("%.2f MB", float64(currentSize)/(1024*1024)),
+        MaxSize:     fmt.Sprintf("%.2f MB", float64(staticCacheConfig.MaxCacheSize)/(1024*1024)),
+        CachedFiles: cachedFiles,
+    }
+    
+    c.JSON(http.StatusOK, stats)
+}
+
+// 更新缓存配置
+func updateCacheConfigHandler(c *gin.Context) {
+    var req CacheConfigRequest
+    if err := c.ShouldBindJSON(&req); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+    
+    if req.Enable != nil {
+        staticCacheConfig.Enable = *req.Enable
+        if staticCacheConfig.Enable {
+            initStaticCache()
+        }
+    }
+    
+    if req.MaxSizeMB != nil {
+        staticCacheConfig.MaxCacheSize = int64(*req.MaxSizeMB) * 1024 * 1024
+    }
+    
+    c.JSON(http.StatusOK, gin.H{
+        "message": "缓存配置更新成功",
+        "enable":  staticCacheConfig.Enable,
+        "max_size_mb": staticCacheConfig.MaxCacheSize / (1024 * 1024),
+    })
+}
+
+// 清空缓存
+func clearCacheHandler(c *gin.Context) {
+    cacheMutex.Lock()
+    fileCache = make(map[string]*CachedFile)
+    currentCacheSize = 0
+    cacheMutex.Unlock()
+    
+    // 清空磁盘缓存
+    if staticCacheConfig.Enable {
+        os.RemoveAll(staticCacheConfig.CacheDir)
+        os.MkdirAll(staticCacheConfig.CacheDir, 0755)
+    }
+    
+    atomic.StoreUint64(&cacheHits, 0)
+    atomic.StoreUint64(&cacheMisses, 0)
+    
+    c.JSON(http.StatusOK, gin.H{"message": "缓存已清空"})
+}
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -676,6 +1193,11 @@ func StartGinAPI() {
     r.GET("/api/acl/rules", getACLRulesHandler)
     r.DELETE("/api/acl/rules/:id", deleteACLRuleHandler)
 
+    //-------------------缓存加速----------------------
+    r.GET("/api/cache/stats", getCacheStatsHandler)
+    r.POST("/api/cache/config", updateCacheConfigHandler)
+    r.POST("/api/cache/clear", clearCacheHandler)
+
 
 	//safe login
 	login, _ := ioutil.ReadFile("./static/login.html")
@@ -932,7 +1454,7 @@ func isAttack(req *http.Request) (bool, *AttackLog) {
 		formValues = tryBase64Decode(formValues)
 	}
 
-	// debugPrintRequest(rawURL, head, body)
+	debugPrintRequest(rawURL, head, body)
 
     var rules []Rule
 	if methodRules, ok := RULES[req.Method]; ok {
@@ -1028,142 +1550,142 @@ func attackWorker() {
 
 
 
-func handler(w http.ResponseWriter, req *http.Request) {
-    atomic.AddUint64(&totalRequests, 1)
+// func handler(w http.ResponseWriter, req *http.Request) {
+//     atomic.AddUint64(&totalRequests, 1)
 
 
-	// 查找目标站点
-    host := req.Host
-    var targetURL string
-    var enableHTTPS bool
+// 	// 查找目标站点
+//     host := req.Host
+//     var targetURL string
+//     var enableHTTPS bool
 
-    for _, site := range sites {
-        if strings.EqualFold(site.Domain, host) && site.Status == 1 {
-            targetURL = site.TargetURL
-            enableHTTPS = site.EnableHTTPS
-            break
-        }
-    }
+//     for _, site := range sites {
+//         if strings.EqualFold(site.Domain, host) && site.Status == 1 {
+//             targetURL = site.TargetURL
+//             enableHTTPS = site.EnableHTTPS
+//             break
+//         }
+//     }
 
-    if targetURL == "" {
-        w.WriteHeader(http.StatusNotFound)
-        w.Write([]byte(NotFoundPage))
-        return
-    }
+//     if targetURL == "" {
+//         w.WriteHeader(http.StatusNotFound)
+//         w.Write([]byte(NotFoundPage))
+//         return
+//     }
 
-	blocked, aclRule := aclManager.checkACL(req, host)
-    if blocked {
-        atomic.AddUint64(&totalBlocked, 1)
+// 	blocked, aclRule := aclManager.checkACL(req, host)
+//     if blocked {
+//         atomic.AddUint64(&totalBlocked, 1)
         
-        stdlog.Printf("ACL 拦截: %s %s, 规则: %s", 
-            getClientIP(req), req.URL.Path, aclRule.Description)
+//         stdlog.Printf("ACL 拦截: %s %s, 规则: %s", 
+//             getClientIP(req), req.URL.Path, aclRule.Description)
             
-        w.WriteHeader(http.StatusForbidden)
-		w.Write([]byte(aclBlock))
-        return
-    }
+//         w.WriteHeader(http.StatusForbidden)
+// 		w.Write([]byte(aclBlock))
+//         return
+//     }
 	
 
-    // 先检测是否攻击
-	attacked, log := isAttack(req)
-	if attacked {
-		atomic.AddUint64(&totalBlocked, 1) // 增加总拦截数
+//     // 先检测是否攻击
+// 	attacked, log := isAttack(req)
+// 	if attacked {
+// 		atomic.AddUint64(&totalBlocked, 1) // 增加总拦截数
 
-		if cfg.IsWriteDbAuto {
-			attackChan <- *log
-			w.WriteHeader(http.StatusForbidden)
-			w.Write([]byte(interceptPage))
-		} else {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusForbidden)
-			json.NewEncoder(w).Encode(log)
-		}
-		return
-	}
+// 		if cfg.IsWriteDbAuto {
+// 			attackChan <- *log
+// 			w.WriteHeader(http.StatusForbidden)
+// 			w.Write([]byte(interceptPage))
+// 		} else {
+// 			w.Header().Set("Content-Type", "application/json")
+// 			w.WriteHeader(http.StatusForbidden)
+// 			json.NewEncoder(w).Encode(log)
+// 		}
+// 		return
+// 	}
 
-    // // 查找目标站点
-    // host := req.Host
-    // var targetURL string
-    // var enableHTTPS bool
+//     // // 查找目标站点
+//     // host := req.Host
+//     // var targetURL string
+//     // var enableHTTPS bool
 
-    // for _, site := range sites {
-    //     if strings.EqualFold(site.Domain, host) && site.Status == 1 {
-    //         targetURL = site.TargetURL
-    //         enableHTTPS = site.EnableHTTPS
-    //         break
-    //     }
-    // }
+//     // for _, site := range sites {
+//     //     if strings.EqualFold(site.Domain, host) && site.Status == 1 {
+//     //         targetURL = site.TargetURL
+//     //         enableHTTPS = site.EnableHTTPS
+//     //         break
+//     //     }
+//     // }
 
-    // if targetURL == "" {
-    //     w.WriteHeader(http.StatusNotFound)
-    //     w.Write([]byte(NotFoundPage))
-    //     return
-    // }
+//     // if targetURL == "" {
+//     //     w.WriteHeader(http.StatusNotFound)
+//     //     w.Write([]byte(NotFoundPage))
+//     //     return
+//     // }
 
-    // 构造代理请求
-    proxyReq, err := http.NewRequest(req.Method, targetURL+req.RequestURI, req.Body)
-    if err != nil {
-        stdlog.Printf("创建反向代理请求失败: %v", err)
-        w.WriteHeader(http.StatusBadGateway)
-        w.Write([]byte(proxyErrorPage))
-        return
-    }
+//     // 构造代理请求
+//     proxyReq, err := http.NewRequest(req.Method, targetURL+req.RequestURI, req.Body)
+//     if err != nil {
+//         stdlog.Printf("创建反向代理请求失败: %v", err)
+//         w.WriteHeader(http.StatusBadGateway)
+//         w.Write([]byte(proxyErrorPage))
+//         return
+//     }
 
-    // 设置重要属性
-    proxyReq.Host = req.Host
+//     // 设置重要属性
+//     proxyReq.Host = req.Host
 
-    // 拷贝请求头（优化版）
-    for k, v := range req.Header {
-        // 跳过一些需要特殊处理的头部
-        if k == "Accept-Encoding" {
-            continue
-        }
-        proxyReq.Header[k] = v
-    }
+//     // 拷贝请求头（优化版）
+//     for k, v := range req.Header {
+//         // 跳过一些需要特殊处理的头部
+//         if k == "Accept-Encoding" {
+//             continue
+//         }
+//         proxyReq.Header[k] = v
+//     }
 
-    // 配置传输层
-    transport := &http.Transport{
-        MaxIdleConns:        100,
-        IdleConnTimeout:     90 * time.Second,
-        TLSHandshakeTimeout: 10 * time.Second,
-    }
+//     // 配置传输层
+//     transport := &http.Transport{
+//         MaxIdleConns:        100,
+//         IdleConnTimeout:     90 * time.Second,
+//         TLSHandshakeTimeout: 10 * time.Second,
+//     }
 
-    if enableHTTPS {
-        transport.TLSClientConfig = &tls.Config{
-            InsecureSkipVerify: true,
-        }
-    }
+//     if enableHTTPS {
+//         transport.TLSClientConfig = &tls.Config{
+//             InsecureSkipVerify: true,
+//         }
+//     }
 
-    client := &http.Client{
-        Transport: transport,
-        Timeout:   30 * time.Second,
-    }
+//     client := &http.Client{
+//         Transport: transport,
+//         Timeout:   30 * time.Second,
+//     }
 
-    // 发送请求
-    resp, err := client.Do(proxyReq)
-    if err != nil {
-        stdlog.Printf("请求目标站点失败: %v", err)
-        w.WriteHeader(http.StatusBadGateway)
-        w.Write([]byte(proxyErrorPage))
-        return
-    }
-    defer func() {
-        io.Copy(io.Discard, resp.Body)
-        resp.Body.Close()
-    }()
+//     // 发送请求
+//     resp, err := client.Do(proxyReq)
+//     if err != nil {
+//         stdlog.Printf("请求目标站点失败: %v", err)
+//         w.WriteHeader(http.StatusBadGateway)
+//         w.Write([]byte(proxyErrorPage))
+//         return
+//     }
+//     defer func() {
+//         io.Copy(io.Discard, resp.Body)
+//         resp.Body.Close()
+//     }()
 
-    // 拷贝响应头
-    for k, v := range resp.Header {
-        w.Header()[k] = v
-    }
+//     // 拷贝响应头
+//     for k, v := range resp.Header {
+//         w.Header()[k] = v
+//     }
 
-    // 设置状态码并拷贝响应体
-    w.WriteHeader(resp.StatusCode)
-    _, err = io.Copy(w, resp.Body)
-    if err != nil {
-        stdlog.Printf("拷贝响应体失败: %v", err)
-    }
-}
+//     // 设置状态码并拷贝响应体
+//     w.WriteHeader(resp.StatusCode)
+//     _, err = io.Copy(w, resp.Body)
+//     if err != nil {
+//         stdlog.Printf("拷贝响应体失败: %v", err)
+//     }
+// }
 
 // ------------------- 规则加载 -------------------
 func readRule() {
@@ -1588,6 +2110,9 @@ func main() {
 	readRule()
 	readWafHtml()
 	readBase64()
+
+    // 初始化静态文件缓存
+    initStaticCache()
 	
 	go statsPrinter()
 	go StartGinAPI()
