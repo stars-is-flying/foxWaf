@@ -718,12 +718,14 @@ func loadWAFPage(filename string) string {
 var interceptPage string
 var NotFoundPage string
 var proxyErrorPage string
+var aclBlock string
 
 
 func readWafHtml() {
     interceptPage = loadWAFPage("intercept.html")
     NotFoundPage = loadWAFPage("notfound.html")
     proxyErrorPage = loadWAFPage("proxy_error.html")
+	aclBlock = loadWAFPage("aclBlock.html")
 }
 
 
@@ -1057,7 +1059,7 @@ func handler(w http.ResponseWriter, req *http.Request) {
             getClientIP(req), req.URL.Path, aclRule.Description)
             
         w.WriteHeader(http.StatusForbidden)
-        w.Write([]byte(interceptPage))
+		w.Write([]byte(aclBlock))
         return
     }
 	
@@ -1587,7 +1589,7 @@ func main() {
 	readWafHtml()
 	readBase64()
 	
-	//go statsPrinter()
+	go statsPrinter()
 	go StartGinAPI()
 	ReverseProxy()
 
