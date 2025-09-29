@@ -26,6 +26,7 @@ import (
 	"math"
 	"io/ioutil"
 	"crypto/rand"
+	"unicode/utf8"
 	"github.com/golang-jwt/jwt/v5"
 	
 	
@@ -122,6 +123,9 @@ var db *sql.DB
 // ------------------- 内存统计 -------------------
 var totalRequests uint64
 var totalBlocked uint64
+
+
+
 
 
 // ------------------- 添加站点接口 -------------------
@@ -246,6 +250,7 @@ func StartGinAPI() {
 
 	//safe login
 	login, _ := ioutil.ReadFile("./static/login.html")
+	//waf
 
 	//添加站点
     r.POST("/api/site/add", addSiteHandler)
@@ -266,9 +271,7 @@ func StartGinAPI() {
 }
 
 // 定义三个变量，用于存储 HTML 内容
-var interceptPage string
-var NotFoundPage string
-var proxyErrorPage string
+
 
 // wafDir 是 HTML 文件存放目录
 var wafDir = "./static/waf"
@@ -283,6 +286,11 @@ func loadWAFPage(filename string) string {
 }
 
 // 初始化函数，程序启动时加载 HTML 文件
+var interceptPage string
+var NotFoundPage string
+var proxyErrorPage string
+
+
 func readWafHtml() {
     interceptPage = loadWAFPage("intercept.html")
     NotFoundPage = loadWAFPage("notfound.html")
@@ -303,7 +311,7 @@ func statsPrinter() {
 
 // ------------------- 工具函数 -------------------
 func MultiDecode(raw string) string {
-	for i := 0; i < 5; i++ {
+	for i := 0; i < maxUrlDepth; i++ {
 		decoded, err := url.QueryUnescape(raw)
 		if err != nil || decoded == raw {
 			break
@@ -375,86 +383,196 @@ func GetFormValues(req *http.Request) string {
 	return sb.String()
 }
 
+
+//---------base64Decode------------------
+var maxDepth = 2
+var isActivateBase64 = true
+
+
+//---------urlDecode-----------------------
+
+var maxUrlDepth = 2
+var isActivateUrlDecode = true
+
+
+
+// 如果是合法 base64 就解码，否则原样返回
+func tryBase64Decode(s string) string {
+
+    // 限制：单次解码后替换长度不得超过此值（字节）
+    const maxDecodedSize = 10 * 1024 * 1024 // 10MB，可按需调整
+
+    for depth := 0; depth < maxDepth; depth++ {
+        // 找到所有匹配的开始/结束索引
+        idxs := base64Regex.FindAllStringIndex(s, -1)
+        if len(idxs) == 0 {
+            break
+        }
+
+        changed := false
+        // 从后向前替换，避免索引偏移问题
+        for i := len(idxs) - 1; i >= 0; i-- {
+            start, end := idxs[i][0], idxs[i][1]
+            if start >= end || start < 0 || end > len(s) {
+                continue
+            }
+            match := s[start:end]
+
+            // 尝试解码
+            decodedBytes, err := base64.StdEncoding.DecodeString(match)
+            if err != nil {
+                // 解码失败就跳过（保留原文）
+                continue
+            }
+
+            // 防护：解码后不要太大
+            if len(decodedBytes) > maxDecodedSize {
+                continue
+            }
+
+            // 仅在解码后是合法 UTF-8 的情况下替换（避免把二进制填入文本）
+            if !utf8.Valid(decodedBytes) {
+                // 若确实想替换二进制也可去掉此判断
+                continue
+            }
+
+            // 替换该片段
+            s = s[:start] + string(decodedBytes) + s[end:]
+            changed = true
+        }
+
+        if !changed {
+            break
+        }
+        // 如果 changed 为真，下一轮会再次在新的字符串中查找（支持嵌套 Base64）
+    }
+
+    return s
+}
+
+var base64Regex *regexp.Regexp
+
+func readBase64() {
+    // ^ 和 $ 限制必须整个字符串都是 base64
+    base64Regex = regexp.MustCompile("(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?")
+}
+
+
+// 工具：输出 URL 编码和 Base64 编码后的请求
+func debugPrintRequest(rawURL, head, body string) {
+    println(rawURL)
+	println(head)
+	println(body)
+}
+
+
 // ------------------- 攻击检测 -------------------
 func isAttack(req *http.Request) (bool, *AttackLog) {
-	rawURL := MultiDecode(req.URL.String())
+    
 
-	// 构建 headers
-	var sb strings.Builder
-	for key, values := range req.Header {
-		for _, v := range values {
-			sb.WriteString(fmt.Sprintf("%s: %s\n", key, v))
-		}
-	}
+    // headers
+    var sb strings.Builder
+    for key, values := range req.Header {
+        for _, v := range values {
+            sb.WriteString(fmt.Sprintf("%s: %s\n", key, v))
+        }
+    }
+    
+    
+
+    // body
+    isBodyNull := req.ContentLength == 0
+    body, err := GetBodyString(req)
+    if err != nil {
+        body = ""
+    }
+
+
+
+	rawURL := req.URL.String()
 	head := sb.String()
-
-	isBodyNull := req.ContentLength == 0
-	body, err := GetBodyString(req)
-	if err != nil {
-		body = ""
-	}
-
 	paramValues := GetParamValues(req)
 	formValues := GetFormValues(req)
-
-	var rules []Rule
-	if methodRules, ok := RULES[req.Method]; ok {
-		rules = append(rules, methodRules...)
+	if isActivateUrlDecode {
+		rawURL = MultiDecode(rawURL)
+		head = MultiDecode(head)
+		body = MultiDecode(body)
+		paramValues = MultiDecode(paramValues)
+		formValues = MultiDecode(formValues)
 	}
-	if anyRules, ok := RULES["any"]; ok {
-		rules = append(rules, anyRules...)
-	}
+    
 
-	for _, rule := range rules {
-		allMatched := true
-		matchedValues := make([]string, 0, len(rule.Judges))
-
-		for _, judge := range rule.Judges {
-			var target string
-			switch judge.Position {
-			case "uri":
-				target = rawURL
-			case "request_header":
-				target = head
-			case "request_body":
-				if isBodyNull {
-					allMatched = false
-					continue
-				}
-				target = body
-			case "parameter_value":
-				target = paramValues
-			case "form_values":
-				target = formValues
-			default:
-				allMatched = false
-				continue
-			}
-
-			matchedStr := match(target, judge)
-			if matchedStr == "" {
-				allMatched = false
-				break
-			}
-			matchedValues = append(matchedValues, matchedStr)
-		}
-
-		if allMatched {
-			log := AttackLog{
-				Method:       req.Method,
-				URL:          rawURL,
-				Headers:      head,
-				Body:         body,
-				RuleName:     rule.Name,
-				RuleID:       rule.ID,
-				MatchedValue: strings.Join(matchedValues, "; "),
-			}
-			return true, &log
-		}
+	if isActivateBase64 {
+		rawURL = tryBase64Decode(rawURL)
+		head = tryBase64Decode(head)
+    	body = tryBase64Decode(body)
+		paramValues = tryBase64Decode(paramValues)
+		formValues = tryBase64Decode(formValues)
 	}
 
-	return false, nil
+	debugPrintRequest(rawURL, head, body)
+
+    // 规则列表
+    var rules []Rule
+    if methodRules, ok := RULES[req.Method]; ok {
+        rules = append(rules, methodRules...)
+    }
+    if anyRules, ok := RULES["any"]; ok {
+        rules = append(rules, anyRules...)
+    }
+
+    for _, rule := range rules {
+        allMatched := true
+        matchedValues := make([]string, 0, len(rule.Judges))
+
+        for _, judge := range rule.Judges {
+            var target string
+            switch judge.Position {
+            case "uri":
+                target = rawURL
+            case "request_header":
+                target = head
+            case "request_body":
+                if isBodyNull {
+                    allMatched = false
+                    continue
+                }
+                target = body
+            case "parameter_value":
+                target = paramValues
+            case "form_values":
+                target = formValues
+            default:
+                allMatched = false
+                continue
+            }
+
+            matchedStr := match(target, judge)
+            if matchedStr == "" {
+                allMatched = false
+                break
+            }
+            matchedValues = append(matchedValues, matchedStr)
+        }
+
+        if allMatched {
+            log := AttackLog{
+                Method:       req.Method,
+                URL:          rawURL,
+                Headers:      head,
+                Body:         body,
+                RuleName:     rule.Name,
+                RuleID:       rule.ID,
+                MatchedValue: strings.Join(matchedValues, "; "),
+            }
+            return true, &log
+        }
+    }
+
+    return false, nil
 }
+
+
 
 // ------------------- Worker -------------------
 func attackWorker() {
@@ -1022,6 +1140,7 @@ func main() {
 	initDb()
 	readRule()
 	readWafHtml()
+	readBase64()
 	
 	go statsPrinter()
 	go StartGinAPI()
