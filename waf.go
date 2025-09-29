@@ -16,7 +16,6 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
-	"log"
 	"crypto/tls"
 	"crypto/rsa"
 	"crypto/x509"
@@ -180,10 +179,10 @@ func addSiteHandler(c *gin.Context) {
         // 热加载证书到内存
         cert, err := tls.X509KeyPair(certPEM, keyPEM)
         if err != nil {
-            log.Printf("加载证书失败: %v", err)
+            stdlog.Printf("加载证书失败: %v", err)
         } else {
             certificateMap[req.Domain] = cert
-            log.Printf("新证书已加载: %s", req.Domain)
+            stdlog.Printf("新证书已加载: %s", req.Domain)
         }
     }
 
@@ -279,9 +278,9 @@ func StartGinAPI() {
 	})
 
 
-    log.Println("Gin API 启动在 :8080")
+    stdlog.Println("Gin API 启动在 :8080")
     if err := r.Run(":8080"); err != nil {
-        log.Fatalf("Gin 启动失败: %v", err)
+        stdlog.Fatalf("Gin 启动失败: %v", err)
     }
 }
 
@@ -295,7 +294,7 @@ func loadWAFPage(filename string) string {
     path := filepath.Join(wafDir, filename)
     content, err := ioutil.ReadFile(path)
     if err != nil {
-        log.Fatalf("加载文件 %s 失败: %v", filename, err)
+        stdlog.Fatalf("加载文件 %s 失败: %v", filename, err)
     }
     return string(content)
 }
@@ -817,7 +816,7 @@ func initDb() {
 	db.SetConnMaxLifetime(time.Minute * 5)
 
 	if err := db.Ping(); err != nil {
-		panic(fmt.Errorf("Ping 数据库失败: %v", err))
+    panic(fmt.Errorf("ping数据库失败: %w", err))
 	}
 
 	_, _ = db.Exec("DROP TABLE IF EXISTS attacks;")
@@ -946,20 +945,20 @@ func initCertificatesFromDB() error {
 	for rows.Next() {
 		var domain, certText, keyText string
 		if err := rows.Scan(&domain, &certText, &keyText); err != nil {
-			log.Printf("读取证书数据失败: %v", err)
+			stdlog.Printf("读取证书数据失败: %v", err)
 			continue
 		}
 
 		// 从文本加载证书
 		cert, err := tls.X509KeyPair([]byte(certText), []byte(keyText))
 		if err != nil {
-			log.Printf("加载证书失败 %s: %v", domain, err)
+			stdlog.Printf("加载证书失败 %s: %v", domain, err)
 			continue
 		}
 
 		certificateMap[domain] = cert
 		certificateCount++
-		log.Printf("已加载证书: %s", domain)
+		stdlog.Printf("已加载证书: %s", domain)
 	}
 
 	if err := rows.Err(); err != nil {
@@ -967,9 +966,9 @@ func initCertificatesFromDB() error {
 	}
 
 	if certificateCount == 0 {
-		log.Println("警告: 没有从数据库加载任何证书")
+		stdlog.Println("警告: 没有从数据库加载任何证书")
 	} else {
-		log.Printf("成功从数据库加载 %d 个证书", certificateCount)
+		stdlog.Printf("成功从数据库加载 %d 个证书", certificateCount)
 	}
 
 	return nil
@@ -1058,21 +1057,21 @@ func getCertificate(clientHello *tls.ClientHelloInfo) (*tls.Certificate, error) 
     serverName := clientHello.ServerName
     
     if cert, ok := certificateMap[serverName]; ok {
-        log.Printf("使用证书: %s", serverName)
+        stdlog.Printf("使用证书: %s", serverName)
         return &cert, nil
     }
 
     // 如果没有找到精确匹配，尝试通配符匹配
     for domain, cert := range certificateMap {
         if matchesWildcard(serverName, domain) {
-            log.Printf("使用通配符证书: %s -> %s", serverName, domain)
+            stdlog.Printf("使用通配符证书: %s -> %s", serverName, domain)
             return &cert, nil
     }
     }
 
     // 返回默认证书（第一个证书）
     for _, cert := range certificateMap {
-        log.Printf("使用默认证书 for: %s", serverName)
+        stdlog.Printf("使用默认证书 for: %s", serverName)
         return &cert, nil
     }
 
@@ -1107,16 +1106,16 @@ func ReverseProxy() {
 
 	// 并行启动
 	go func() {
-		log.Println("HTTP on :80")
+		stdlog.Println("HTTP on :80")
 		if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("HTTP启动失败: %v", err)
+			stdlog.Fatalf("HTTP启动失败: %v", err)
 		}
 	}()
 
 
-	log.Println("HTTPS on :443")
+	stdlog.Println("HTTPS on :443")
     if err := httpsSrv.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
-        log.Fatalf("HTTPS启动失败: %v", err)
+        stdlog.Fatalf("HTTPS启动失败: %v", err)
     }
 }
 
