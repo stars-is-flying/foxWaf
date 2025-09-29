@@ -125,6 +125,21 @@ var totalRequests uint64
 var totalBlocked uint64
 
 
+//---------base64Decode------------------
+var maxDepth = 2
+var isActivateBase64 = true
+
+
+//---------urlDecode-----------------------
+
+var maxUrlDepth = 2
+var isActivateUrlDecode = true
+
+
+// 百分比（0~100）控制要用多少规则
+var RuleMatchRate int = 100 // 默认 100% 使用
+
+
 
 
 
@@ -384,15 +399,6 @@ func GetFormValues(req *http.Request) string {
 }
 
 
-//---------base64Decode------------------
-var maxDepth = 2
-var isActivateBase64 = true
-
-
-//---------urlDecode-----------------------
-
-var maxUrlDepth = 2
-var isActivateUrlDecode = true
 
 
 
@@ -512,14 +518,23 @@ func isAttack(req *http.Request) (bool, *AttackLog) {
 
 	debugPrintRequest(rawURL, head, body)
 
-    // 规则列表
     var rules []Rule
-    if methodRules, ok := RULES[req.Method]; ok {
-        rules = append(rules, methodRules...)
-    }
-    if anyRules, ok := RULES["any"]; ok {
-        rules = append(rules, anyRules...)
-    }
+	if methodRules, ok := RULES[req.Method]; ok {
+		rules = append(rules, methodRules...)
+	}
+	if anyRules, ok := RULES["any"]; ok {
+		rules = append(rules, anyRules...)
+	}
+
+	if RuleMatchRate < 100 && RuleMatchRate > 0 && len(rules) > 0 {
+		// 算要用多少条
+		limit := len(rules) * RuleMatchRate / 100
+		if limit < 1 {
+			limit = 1
+		}
+		rules = rules[:limit]
+	}
+
 
     for _, rule := range rules {
         allMatched := true
