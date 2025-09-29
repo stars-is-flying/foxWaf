@@ -6,8 +6,8 @@
     "judge": [
         {
             "position": "uri",
-            "content": "/etc/passwd",
-            "rix": ""
+            "content": "alert",
+            "rix": "alert\\(.+\\)"
         }
     ]
 }

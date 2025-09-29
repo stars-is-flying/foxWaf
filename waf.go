@@ -27,6 +27,8 @@ import (
 	"crypto/rand"
 	"unicode/utf8"
 	"github.com/golang-jwt/jwt/v5"
+	"sync"
+	"net"
 	
 	
 
@@ -151,6 +153,413 @@ type AddSiteRequest struct {
     CertName    string `json:"cert_name"` // 可选，自动生成自签名
 }
 
+
+
+
+//------------------ACL------------------
+type ACLRule struct {
+    ID          int    `json:"id"`
+    Type        string `json:"type"` // "global" 或 "host"
+    Host        string `json:"host"` // 对于 host 类型有效
+    RuleType    string `json:"rule_type"` // "ip", "country", "user_agent", "referer", "path"
+    Pattern     string `json:"pattern"`
+    Action      string `json:"action"` // "allow" 或 "block"
+    Description string `json:"description"`
+    Enabled     bool   `json:"enabled"`
+}
+type ACLManager struct {
+    rules     []ACLRule
+    ipRules   map[string][]ACLRule // IP 规则缓存
+    regexCache map[string]*regexp.Regexp
+    mutex     sync.RWMutex
+}
+
+var aclManager *ACLManager
+
+func initACL() {
+    aclManager = &ACLManager{
+        rules:     make([]ACLRule, 0),
+        ipRules:   make(map[string][]ACLRule),
+        regexCache: make(map[string]*regexp.Regexp),
+    }
+    
+    // 从数据库加载 ACL 规则
+    loadACLRulesFromDB()
+}
+
+func loadACLRulesFromDB() {
+    aclManager.mutex.Lock()
+    defer aclManager.mutex.Unlock()
+
+    query := `
+        SELECT id, type, host, rule_type, pattern, action, description, enabled 
+        FROM acl_rules 
+        WHERE enabled = 1
+        ORDER BY type DESC, id ASC
+    `
+    
+    rows, err := db.Query(query)
+    if err != nil {
+        // 如果表不存在，创建表
+        if strings.Contains(err.Error(), "doesn't exist") {
+            createACLTable()
+            return
+        }
+        stdlog.Printf("加载 ACL 规则失败: %v", err)
+        return
+    }
+    defer rows.Close()
+
+    aclManager.rules = make([]ACLRule, 0)
+    aclManager.ipRules = make(map[string][]ACLRule)
+
+    for rows.Next() {
+        var rule ACLRule
+        err := rows.Scan(
+            &rule.ID, &rule.Type, &rule.Host, &rule.RuleType, 
+            &rule.Pattern, &rule.Action, &rule.Description, &rule.Enabled,
+        )
+        if err != nil {
+            stdlog.Printf("读取 ACL 规则失败: %v", err)
+            continue
+        }
+        aclManager.rules = append(aclManager.rules, rule)
+
+        // 缓存 IP 规则以便快速查找
+        if rule.RuleType == "ip" {
+            aclManager.ipRules[rule.Pattern] = append(aclManager.ipRules[rule.Pattern], rule)
+        }
+    }
+
+    stdlog.Printf("加载了 %d 条 ACL 规则", len(aclManager.rules))
+}
+
+func createACLTable() {
+    createTable := `
+        CREATE TABLE IF NOT EXISTS acl_rules (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            type VARCHAR(20) NOT NULL DEFAULT 'global' COMMENT '规则类型: global, host',
+            host VARCHAR(255) DEFAULT NULL COMMENT '针对的域名',
+            rule_type VARCHAR(50) NOT NULL COMMENT '规则类型: ip, country, user_agent, referer, path',
+            pattern TEXT NOT NULL COMMENT '匹配模式',
+            action VARCHAR(10) NOT NULL COMMENT '动作: allow, block',
+            description TEXT COMMENT '规则描述',
+            enabled TINYINT(1) NOT NULL DEFAULT 1 COMMENT '是否启用',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            INDEX idx_type (type),
+            INDEX idx_host (host),
+            INDEX idx_rule_type (rule_type),
+            INDEX idx_enabled (enabled)
+        )
+    `
+    
+    _, err := db.Exec(createTable)
+    if err != nil {
+        stdlog.Printf("创建 ACL 表失败: %v", err)
+        return
+    }
+
+    // 插入一些默认规则
+    insertDefaultRules()
+}
+
+func insertDefaultRules() {
+    defaultRules := []ACLRule{
+        {
+            Type:        "global",
+            RuleType:    "ip",
+            Pattern:     "192.168.150.1",
+            Action:      "block",
+            Description: "阻止特定内部 IP",
+            Enabled:     true,
+        },
+        {
+            Type:        "global", 
+            RuleType:    "path",
+            Pattern:     "^/admin",
+            Action:      "block",
+            Description: "阻止访问 admin 路径",
+            Enabled:     true,
+        },
+        {
+            Type:        "host",
+            Host:        "kabubu.com",
+            RuleType:    "user_agent",
+            Pattern:     "(?i)bot|crawler|spider",
+            Action:      "block",
+            Description: "阻止爬虫访问 kabubu.com",
+            Enabled:     true,
+        },
+    }
+
+    insertQuery := `
+        INSERT INTO acl_rules (type, host, rule_type, pattern, action, description, enabled)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    `
+
+    for _, rule := range defaultRules {
+        _, err := db.Exec(
+            insertQuery,
+            rule.Type, rule.Host, rule.RuleType, rule.Pattern, 
+            rule.Action, rule.Description, rule.Enabled,
+        )
+        if err != nil {
+            stdlog.Printf("插入默认 ACL 规则失败: %v", err)
+        }
+    }
+
+    stdlog.Println("ACL 默认规则已插入")
+}
+
+// ------------------- ACL 匹配逻辑 -------------------
+func (a *ACLManager) checkACL(req *http.Request, host string) (bool, *ACLRule) {
+    a.mutex.RLock()
+    defer a.mutex.RUnlock()
+
+    clientIP := getClientIP(req)
+    userAgent := req.UserAgent()
+    referer := req.Referer()
+    path := req.URL.Path
+
+    // 先检查全局规则，再检查 host 特定规则
+    ruleSets := [][]ACLRule{
+        a.getRulesByType("global", ""),
+        a.getRulesByType("host", host),
+    }
+
+    for _, rules := range ruleSets {
+        for _, rule := range rules {
+            if a.matchRule(rule, clientIP, userAgent, referer, path) {
+                return rule.Action == "block", &rule
+            }
+        }
+    }
+
+    return false, nil
+}
+
+func (a *ACLManager) getRulesByType(ruleType, host string) []ACLRule {
+    var result []ACLRule
+    for _, rule := range a.rules {
+        if rule.Type == ruleType {
+            if ruleType == "global" || (ruleType == "host" && rule.Host == host) {
+                result = append(result, rule)
+            }
+        }
+    }
+    return result
+}
+
+func (a *ACLManager) matchRule(rule ACLRule, ip, userAgent, referer, path string) bool {
+    switch rule.RuleType {
+    case "ip":
+        return a.matchIP(ip, rule.Pattern)
+    case "user_agent":
+        return a.matchRegex(userAgent, rule.Pattern)
+    case "referer":
+        return a.matchRegex(referer, rule.Pattern) 
+    case "path":
+        return a.matchRegex(path, rule.Pattern)
+    case "country":
+        // 这里可以集成 IP 地理定位库
+        return false
+    }
+    return false
+}
+
+func (a *ACLManager) matchIP(clientIP, pattern string) bool {
+    if pattern == clientIP {
+        return true
+    }
+    
+    // 支持 CIDR 格式
+    if strings.Contains(pattern, "/") {
+        _, ipNet, err := net.ParseCIDR(pattern)
+        if err == nil {
+            return ipNet.Contains(net.ParseIP(clientIP))
+        }
+    }
+    
+    // 支持通配符
+    if strings.Contains(pattern, "*") {
+        regexPattern := strings.ReplaceAll(regexp.QuoteMeta(pattern), "\\*", ".*")
+        return a.matchRegex(clientIP, regexPattern)
+    }
+    
+    return false
+}
+
+func (a *ACLManager) matchRegex(text, pattern string) bool {
+    if text == "" {
+        return false
+    }
+
+    // 检查缓存
+    if re, exists := a.regexCache[pattern]; exists {
+        return re.MatchString(text)
+    }
+
+    // 编译新正则
+    re, err := regexp.Compile(pattern)
+    if err != nil {
+        stdlog.Printf("ACL 正则编译失败: %s, 错误: %v", pattern, err)
+        return false
+    }
+
+    a.regexCache[pattern] = re
+    return re.MatchString(text)
+}
+
+// ------------------- 工具函数 -------------------
+func getClientIP(req *http.Request) string {
+    // 检查 X-Forwarded-For
+    if forwarded := req.Header.Get("X-Forwarded-For"); forwarded != "" {
+        ips := strings.Split(forwarded, ",")
+        if len(ips) > 0 {
+            return strings.TrimSpace(ips[0])
+        }
+    }
+    
+    // 检查 X-Real-IP
+    if realIP := req.Header.Get("X-Real-IP"); realIP != "" {
+        return realIP
+    }
+    
+    // 使用 RemoteAddr
+    host, _, err := net.SplitHostPort(req.RemoteAddr)
+    if err != nil {
+        return req.RemoteAddr
+    }
+    return host
+}
+
+// ------------------- ACL API 接口 -------------------
+type AddACLRuleRequest struct {
+    Type        string `json:"type" binding:"required"`
+    Host        string `json:"host"`
+    RuleType    string `json:"rule_type" binding:"required"`
+    Pattern     string `json:"pattern" binding:"required"`
+    Action      string `json:"action" binding:"required"`
+    Description string `json:"description"`
+    Enabled     bool   `json:"enabled"`
+}
+
+func addACLRuleHandler(c *gin.Context) {
+    var req AddACLRuleRequest
+    if err := c.ShouldBindJSON(&req); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+
+    // 验证参数
+    if req.Type != "global" && req.Type != "host" {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "type 必须是 global 或 host"})
+        return
+    }
+    
+    if req.Action != "allow" && req.Action != "block" {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "action 必须是 allow 或 block"})
+        return
+    }
+
+    if req.Type == "host" && req.Host == "" {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "host 类型必须指定 host"})
+        return
+    }
+
+    // 插入数据库
+    query := `
+        INSERT INTO acl_rules (type, host, rule_type, pattern, action, description, enabled)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    `
+    
+    result, err := db.Exec(
+        query, 
+        req.Type, req.Host, req.RuleType, req.Pattern, 
+        req.Action, req.Description, req.Enabled,
+    )
+    
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("插入规则失败: %v", err)})
+        return
+    }
+
+    id, _ := result.LastInsertId()
+    
+    // 热更新内存规则
+    aclManager.mutex.Lock()
+    newRule := ACLRule{
+        ID:          int(id),
+        Type:        req.Type,
+        Host:        req.Host,
+        RuleType:    req.RuleType,
+        Pattern:     req.Pattern,
+        Action:      req.Action,
+        Description: req.Description,
+        Enabled:     req.Enabled,
+    }
+    aclManager.rules = append(aclManager.rules, newRule)
+    
+    // 更新 IP 规则缓存
+    if newRule.RuleType == "ip" {
+        aclManager.ipRules[newRule.Pattern] = append(aclManager.ipRules[newRule.Pattern], newRule)
+    }
+    aclManager.mutex.Unlock()
+
+    c.JSON(http.StatusOK, gin.H{
+        "message": "ACL 规则添加成功",
+        "id":      id,
+    })
+}
+
+func getACLRulesHandler(c *gin.Context) {
+    aclManager.mutex.RLock()
+    defer aclManager.mutex.RUnlock()
+
+    c.JSON(http.StatusOK, gin.H{
+        "rules": aclManager.rules,
+        "count": len(aclManager.rules),
+    })
+}
+
+func deleteACLRuleHandler(c *gin.Context) {
+    id := c.Param("id")
+    
+    _, err := db.Exec("DELETE FROM acl_rules WHERE id = ?", id)
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("删除规则失败: %v", err)})
+        return
+    }
+
+    // 热更新内存规则
+    aclManager.mutex.Lock()
+    for i, rule := range aclManager.rules {
+        if fmt.Sprintf("%d", rule.ID) == id {
+            aclManager.rules = append(aclManager.rules[:i], aclManager.rules[i+1:]...)
+            break
+        }
+    }
+    
+    // 清理 IP 规则缓存
+    for pattern, rules := range aclManager.ipRules {
+        newRules := make([]ACLRule, 0)
+        for _, rule := range rules {
+            if fmt.Sprintf("%d", rule.ID) != id {
+                newRules = append(newRules, rule)
+            }
+        }
+        aclManager.ipRules[pattern] = newRules
+    }
+    aclManager.mutex.Unlock()
+
+    c.JSON(http.StatusOK, gin.H{"message": "规则删除成功"})
+}
+
+// ------------------- 修改主处理函数 -------------------
+
+
+
 // addSiteHandler 添加站点并热更新内存
 func addSiteHandler(c *gin.Context) {
     var req AddSiteRequest
@@ -260,6 +669,12 @@ func loginHandler(c *gin.Context) {
 func StartGinAPI() {
 	gin.SetMode(gin.ReleaseMode)
     r := gin.Default()
+
+
+	//---------ACL------------
+	r.POST("/api/acl/rules", addACLRuleHandler)
+    r.GET("/api/acl/rules", getACLRulesHandler)
+    r.DELETE("/api/acl/rules/:id", deleteACLRuleHandler)
 
 
 	//safe login
@@ -515,7 +930,7 @@ func isAttack(req *http.Request) (bool, *AttackLog) {
 		formValues = tryBase64Decode(formValues)
 	}
 
-	debugPrintRequest(rawURL, head, body)
+	// debugPrintRequest(rawURL, head, body)
 
     var rules []Rule
 	if methodRules, ok := RULES[req.Method]; ok {
@@ -631,6 +1046,18 @@ func handler(w http.ResponseWriter, req *http.Request) {
     if targetURL == "" {
         w.WriteHeader(http.StatusNotFound)
         w.Write([]byte(NotFoundPage))
+        return
+    }
+
+	blocked, aclRule := aclManager.checkACL(req, host)
+    if blocked {
+        atomic.AddUint64(&totalBlocked, 1)
+        
+        stdlog.Printf("ACL 拦截: %s %s, 规则: %s", 
+            getClientIP(req), req.URL.Path, aclRule.Description)
+            
+        w.WriteHeader(http.StatusForbidden)
+        w.Write([]byte(interceptPage))
         return
     }
 	
@@ -918,6 +1345,10 @@ func initDb() {
 	fmt.Printf("读取到 %d 条站点记录\n", len(sites))
 	fmt.Printf("加载了 %d 个证书\n", len(certificateMap))
 
+	initACL()
+    
+    fmt.Println("ACL 管理器已初始化")
+
 	for i := 0; i < workerCount; i++ {
 		go attackWorker()
 	}
@@ -1156,7 +1587,7 @@ func main() {
 	readWafHtml()
 	readBase64()
 	
-	go statsPrinter()
+	//go statsPrinter()
 	go StartGinAPI()
 	ReverseProxy()
 
