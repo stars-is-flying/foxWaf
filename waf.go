@@ -1549,6 +1549,44 @@ func authMiddleware() gin.HandlerFunc {
     }
 }
 
+
+// ------------------- 统计数据结构 -------------------
+type StatsResponse struct {
+    TotalRequests    uint64  `json:"total_requests"`
+    BlockedRequests  uint64  `json:"blocked_requests"`
+    CacheHitRate     string  `json:"cache_hit_rate"`
+    TotalRules       int     `json:"total_rules"`
+    TotalSites       int     `json:"total_sites"`
+}
+
+// ------------------- 获取统计数据的API -------------------
+func getStatsHandler(c *gin.Context) {
+    // 计算缓存命中率
+    hits := atomic.LoadUint64(&cacheHits)
+    misses := atomic.LoadUint64(&cacheMisses)
+    total := hits + misses
+    hitRate := "0%"
+    if total > 0 {
+        hitRate = fmt.Sprintf("%.2f%%", float64(hits)/float64(total)*100)
+    }
+
+    // 计算总规则数
+    totalRules := 0
+    for _, rules := range RULES {
+        totalRules += len(rules)
+    }
+
+    stats := StatsResponse{
+        TotalRequests:    atomic.LoadUint64(&totalRequests),
+        BlockedRequests:  atomic.LoadUint64(&totalBlocked),
+        CacheHitRate:     hitRate,
+        TotalRules:       totalRules,
+        TotalSites:       len(sites),
+    }
+
+    c.JSON(http.StatusOK, stats)
+}
+
 var login,loginError,notFound,panle []byte
 
 func readGinHtml() {
@@ -1557,6 +1595,7 @@ func readGinHtml() {
     notFound, _ = ioutil.ReadFile("./static/404.html")
     panle, _ = ioutil.ReadFile("./static/panle.html")
 }
+
 
 // 在需要认证的路由中使用中间件
 func StartGinAPI() {
@@ -1586,6 +1625,10 @@ func StartGinAPI() {
 
         // 添加站点
         authGroup.POST("/api/site/add", addSiteHandler)
+
+
+        //// ------------------- waf信息统计 -------------------
+        authGroup.GET("/api/stats", getStatsHandler)
     }
 
     // 统一返回404页面
