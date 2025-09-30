@@ -1509,10 +1509,8 @@ func loginHandler(c *gin.Context) {
     // 设置 Cookie，24 小时有效
     c.SetCookie("auth_token", tokenString, 3600*24, "/", "", false, true)
 
-    c.JSON(http.StatusOK, gin.H{
-        "message": "登录成功",
-        "token":   tokenString,
-    })
+    c.Header("Content-Type", "text/html; charset=utf-8")
+    c.String(http.StatusOK, string(panle))
 }
 
 
@@ -1551,6 +1549,14 @@ func authMiddleware() gin.HandlerFunc {
     }
 }
 
+var login,loginError,notFound,panle []byte
+
+func readGinHtml() {
+    login, _ = ioutil.ReadFile("./static/login.html")
+    loginError, _ = ioutil.ReadFile("./static/loginError.html")
+    notFound, _ = ioutil.ReadFile("./static/404.html")
+    panle, _ = ioutil.ReadFile("./static/panle.html")
+}
 
 // 在需要认证的路由中使用中间件
 func StartGinAPI() {
@@ -1595,13 +1601,7 @@ func StartGinAPI() {
 }
 
 
-var login,loginError,notFound []byte
 
-func readGinHtml() {
-    login, _ = ioutil.ReadFile("./static/login.html")
-    loginError, _ = ioutil.ReadFile("./static/loginError.html")
-    notFound, _ = ioutil.ReadFile("./static/404.html")
-}
 
 // func StartGinAPI() {
 // 	gin.SetMode(gin.ReleaseMode)
