@@ -121,11 +121,11 @@ go run main.go
 {
   "server": {
     "addr": "监听地址",
-    "port": 监听端口
+    "port": "监听端口"
   },
   "database": {
     "host": "数据库主机",
-    "port": 数据库端口,
+    "port": "数据库端口",
     "user": "数据库用户", 
     "password": "数据库密码",
     "dbname": "数据库名"
