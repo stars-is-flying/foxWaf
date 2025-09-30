@@ -1587,6 +1587,206 @@ func getStatsHandler(c *gin.Context) {
     c.JSON(http.StatusOK, stats)
 }
 
+// ------------------- 站点信息响应结构 -------------------
+type SiteInfoResponse struct {
+    ID          int    `json:"id"`
+    Name        string `json:"name"`
+    Domain      string `json:"domain"`
+    TargetURL   string `json:"target_url"`
+    EnableHTTPS bool   `json:"enable_https"`
+    CertID      *int   `json:"cert_id,omitempty"`
+    Status      int    `json:"status"`
+    CreatedAt   string `json:"created_at"`
+    UpdatedAt   string `json:"updated_at"`
+}
+
+// ------------------- 删除站点请求 -------------------
+type DeleteSiteRequest struct {
+    ID int `json:"id" binding:"required"`
+}
+
+// ------------------- 上传证书请求 -------------------
+type UploadCertRequest struct {
+    Name     string `json:"name" binding:"required"`
+    CertText string `json:"cert_text" binding:"required"`
+    KeyText  string `json:"key_text" binding:"required"`
+}
+
+// ------------------- 获取站点信息接口 -------------------
+func getSitesHandler(c *gin.Context) {
+    aclManager.mutex.RLock()
+    defer aclManager.mutex.RUnlock()
+
+    var sitesResponse []SiteInfoResponse
+    for _, site := range sites {
+        var certID *int
+        if site.CERTID.Valid {
+            certIDValue := int(site.CERTID.Int64)
+            certID = &certIDValue
+        }
+
+        sitesResponse = append(sitesResponse, SiteInfoResponse{
+            ID:          site.ID,
+            Name:        site.Name,
+            Domain:      site.Domain,
+            TargetURL:   site.TargetURL,
+            EnableHTTPS: site.EnableHTTPS,
+            CertID:      certID,
+            Status:      site.Status,
+            CreatedAt:   site.CreatedAt,
+            UpdatedAt:   site.UpdatedAt,
+        })
+    }
+
+    c.JSON(http.StatusOK, gin.H{
+        "sites": sitesResponse,
+        "count": len(sitesResponse),
+    })
+}
+
+// ------------------- 删除站点接口 -------------------
+func deleteSiteHandler(c *gin.Context) {
+    var req DeleteSiteRequest
+    if err := c.ShouldBindJSON(&req); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+
+    // 从数据库删除站点
+    _, err := db.Exec("DELETE FROM sites WHERE id = ?", req.ID)
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("删除站点失败: %v", err)})
+        return
+    }
+
+    // 热更新内存 sites 列表
+    aclManager.mutex.Lock()
+    for i, site := range sites {
+        if site.ID == req.ID {
+            // 如果站点启用了HTTPS，从证书映射中移除
+            if site.EnableHTTPS {
+                delete(certificateMap, site.Domain)
+                stdlog.Printf("已移除证书映射: %s", site.Domain)
+            }
+            
+            // 从slices中删除
+            sites = append(sites[:i], sites[i+1:]...)
+            break
+        }
+    }
+    aclManager.mutex.Unlock()
+
+    c.JSON(http.StatusOK, gin.H{"message": "站点删除成功"})
+}
+
+// ------------------- 上传证书接口 -------------------
+func uploadCertHandler(c *gin.Context) {
+    var req UploadCertRequest
+    if err := c.ShouldBindJSON(&req); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+
+    // 验证证书格式
+    _, err := tls.X509KeyPair([]byte(req.CertText), []byte(req.KeyText))
+    if err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("证书格式无效: %v", err)})
+        return
+    }
+
+    // 插入证书到数据库
+    insertCert := `INSERT INTO certificates (name, cert_text, key_text) VALUES (?, ?, ?)`
+    result, err := db.Exec(insertCert, req.Name, req.CertText, req.KeyText)
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("保存证书失败: %v", err)})
+        return
+    }
+
+    certID, _ := result.LastInsertId()
+
+    // 热加载证书到内存（但不立即关联到任何站点）
+    cert, err := tls.X509KeyPair([]byte(req.CertText), []byte(req.KeyText))
+    if err != nil {
+        stdlog.Printf("加载证书失败: %v", err)
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "证书加载失败"})
+        return
+    }
+
+    // 这里不直接添加到certificateMap，因为证书需要关联到具体域名
+    // 证书会在站点启用HTTPS时通过cert_id关联加载
+
+    c.JSON(http.StatusOK, gin.H{
+        "message": "证书上传成功",
+        "cert_id": certID,
+        "cert":    cert, // 这里只是返回确认，实际使用时可以移除
+    })
+}
+
+// ------------------- 更新站点证书接口（辅助功能） -------------------
+type UpdateSiteCertRequest struct {
+    SiteID int `json:"site_id" binding:"required"`
+    CertID int `json:"cert_id" binding:"required"`
+}
+
+func updateSiteCertHandler(c *gin.Context) {
+    var req UpdateSiteCertRequest
+    if err := c.ShouldBindJSON(&req); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+
+    // 查询站点和证书信息
+    var domain, certText, keyText string
+    query := `
+        SELECT s.domain, c.cert_text, c.key_text 
+        FROM sites s, certificates c 
+        WHERE s.id = ? AND c.id = ? AND s.enable_https = 1
+    `
+    err := db.QueryRow(query, req.SiteID, req.CertID).Scan(&domain, &certText, &keyText)
+    if err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "站点或证书不存在，或站点未启用HTTPS"})
+        return
+    }
+
+    // 更新站点的证书ID
+    _, err = db.Exec("UPDATE sites SET cert_id = ? WHERE id = ?", req.CertID, req.SiteID)
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("更新站点证书失败: %v", err)})
+        return
+    }
+
+    // 热加载证书到内存
+    cert, err := tls.X509KeyPair([]byte(certText), []byte(keyText))
+    if err != nil {
+        stdlog.Printf("加载证书失败: %v", err)
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "证书加载失败"})
+        return
+    }
+
+    // 更新证书映射
+    aclManager.mutex.Lock()
+    certificateMap[domain] = cert
+    aclManager.mutex.Unlock()
+
+    stdlog.Printf("证书已热加载: %s", domain)
+
+    c.JSON(http.StatusOK, gin.H{"message": "站点证书更新成功"})
+}
+
+// ------------------- 重新加载所有证书（用于初始化或手动刷新） -------------------
+func reloadAllCertificatesHandler(c *gin.Context) {
+    err := initCertificatesFromDB()
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("重新加载证书失败: %v", err)})
+        return
+    }
+
+    c.JSON(http.StatusOK, gin.H{
+        "message": "证书重新加载成功",
+        "loaded_certificates": len(certificateMap),
+    })
+}
+
 var login,loginError,notFound,panle []byte
 
 func readGinHtml() {
@@ -1625,7 +1825,13 @@ func StartGinAPI() {
 
         // 添加站点
         authGroup.POST("/api/site/add", addSiteHandler)
+        authGroup.GET("/api/sites", getSitesHandler)           
+        authGroup.POST("/api/site/delete", deleteSiteHandler)  
 
+        // 证书管理
+        authGroup.POST("/api/cert/upload", uploadCertHandler)              
+        authGroup.POST("/api/site/update-cert", updateSiteCertHandler)     
+        authGroup.POST("/api/cert/reload", reloadAllCertificatesHandler)  
 
         //// ------------------- waf信息统计 -------------------
         authGroup.GET("/api/stats", getStatsHandler)
