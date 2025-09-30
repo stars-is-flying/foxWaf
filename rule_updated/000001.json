@@ -1,23 +1,13 @@
 {
-    "name": "UploadShell_02",
-    "id": "000001",
-    "method": "any",
-    "description": "Upload Webshell Attack",
+    "name": "/etc/passwd",
+    "id": "000010",
+    "method": "GET",
+    "description": "/etc/passwd",
     "judge": [
         {
-            "position": "request_header",
-            "content": "multipart",
-            "rix": "multipart"
-        },
-        {
-            "position": "request_body",
-            "content": "content-disposition,filename",
-            "rix": "\\bcontent-disposition:.*?\\bfilename\\s*=[^\\n]*?\\.(?:as|php|jsp|cer|cdx)"
-        },
-        {
-            "position": "request_body",
-            "content": "$_post",
-            "rix": "\\$_post"
+            "position": "uri",
+            "content": "alert",
+            "rix": "alert\\(.+\\)"
         }
     ]
 }

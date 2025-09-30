@@ -1,18 +1,21 @@
 {
-    "name": "upload_webshell_filename*",
+    "name": "SQL注入检测",
     "id": "000002",
     "method": "any",
-    "description": "upload webshell file filename*",
+    "description": "检测SQL注入攻击",
+    "relation": "and",
     "judge": [
         {
-            "position": "request_header",
-            "content": "multipart/form-data",
-            "rix": ""
+            "position": "uri",
+            "rix": "union.*select"
         },
         {
             "position": "request_body",
-            "content": "filename*",
-            "rix": "\\b(filename\\*)(\\s*?)=(\\s*?)(.*?)(\\.?:js(p|w|v)|php|py|pl|as(p|v)|pht|cer|cdx)"
+            "rix": "insert.*into"
+        },
+        {
+            "position": "parameter_value",
+            "rix": "drop.*table"
         }
     ]
 }

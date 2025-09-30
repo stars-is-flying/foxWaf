@@ -79,6 +79,7 @@ type Rule struct {
 	Description string  `json:"description"`
 	ID          string  `json:"id"`
 	Method      string  `json:"method"`
+    Relation    string  `json:"relation"`
 	Judges      []Judge `json:"judge"`
 }
 
@@ -1744,9 +1745,8 @@ func debugPrintRequest(rawURL, head, body string) {
 
 
 // ------------------- 攻击检测 -------------------
+// ------------------- 攻击检测 -------------------
 func isAttack(req *http.Request) (bool, *AttackLog) {
-    
-
     // headers
     var sb strings.Builder
     for key, values := range req.Header {
@@ -1755,8 +1755,6 @@ func isAttack(req *http.Request) (bool, *AttackLog) {
         }
     }
     
-    
-
     // body
     isBodyNull := req.ContentLength == 0
     body, err := GetBodyString(req)
@@ -1764,84 +1762,48 @@ func isAttack(req *http.Request) (bool, *AttackLog) {
         body = ""
     }
 
-
-
-	rawURL := req.URL.String()
-	head := sb.String()
-	paramValues := GetParamValues(req)
-	formValues := GetFormValues(req)
-	if isActivateUrlDecode {
-		rawURL = MultiDecode(rawURL)
-		head = MultiDecode(head)
-		body = MultiDecode(body)
-		paramValues = MultiDecode(paramValues)
-		formValues = MultiDecode(formValues)
-	}
+    rawURL := req.URL.String()
+    head := sb.String()
+    paramValues := GetParamValues(req)
+    formValues := GetFormValues(req)
     
-
-	if isActivateBase64 {
-		rawURL = tryBase64Decode(rawURL)
-		head = tryBase64Decode(head)
-    	body = tryBase64Decode(body)
-		paramValues = tryBase64Decode(paramValues)
-		formValues = tryBase64Decode(formValues)
-	}
-
-	// debugPrintRequest(rawURL, head, body)
+    if isActivateUrlDecode {
+        rawURL = MultiDecode(rawURL)
+        head = MultiDecode(head)
+        body = MultiDecode(body)
+        paramValues = MultiDecode(paramValues)
+        formValues = MultiDecode(formValues)
+    }
+    
+    if isActivateBase64 {
+        rawURL = tryBase64Decode(rawURL)
+        head = tryBase64Decode(head)
+        body = tryBase64Decode(body)
+        paramValues = tryBase64Decode(paramValues)
+        formValues = tryBase64Decode(formValues)
+    }
 
     var rules []Rule
-	if methodRules, ok := RULES[req.Method]; ok {
-		rules = append(rules, methodRules...)
-	}
-	if anyRules, ok := RULES["any"]; ok {
-		rules = append(rules, anyRules...)
-	}
+    if methodRules, ok := RULES[req.Method]; ok {
+        rules = append(rules, methodRules...)
+    }
+    if anyRules, ok := RULES["any"]; ok {
+        rules = append(rules, anyRules...)
+    }
 
-	if RuleMatchRate < 100 && RuleMatchRate > 0 && len(rules) > 0 {
-		// 算要用多少条
-		limit := len(rules) * RuleMatchRate / 100
-		if limit < 1 {
-			limit = 1
-		}
-		rules = rules[:limit]
-	}
-
+    if RuleMatchRate < 100 && RuleMatchRate > 0 && len(rules) > 0 {
+        limit := len(rules) * RuleMatchRate / 100
+        if limit < 1 {
+            limit = 1
+        }
+        rules = rules[:limit]
+    }
 
     for _, rule := range rules {
-        allMatched := true
-        matchedValues := make([]string, 0, len(rule.Judges))
-
-        for _, judge := range rule.Judges {
-            var target string
-            switch judge.Position {
-            case "uri":
-                target = rawURL
-            case "request_header":
-                target = head
-            case "request_body":
-                if isBodyNull {
-                    allMatched = false
-                    continue
-                }
-                target = body
-            case "parameter_value":
-                target = paramValues
-            case "form_values":
-                target = formValues
-            default:
-                allMatched = false
-                continue
-            }
-
-            matchedStr := match(target, judge)
-            if matchedStr == "" {
-                allMatched = false
-                break
-            }
-            matchedValues = append(matchedValues, matchedStr)
-        }
-
-        if allMatched {
+        // 获取匹配结果
+        matched, matchedValues := evaluateRule(rule, rawURL, head, body, paramValues, formValues, isBodyNull)
+        
+        if matched {
             log := AttackLog{
                 Method:       req.Method,
                 URL:          rawURL,
@@ -1856,6 +1818,82 @@ func isAttack(req *http.Request) (bool, *AttackLog) {
     }
 
     return false, nil
+}
+
+// 评估单条规则
+func evaluateRule(rule Rule, rawURL, head, body, paramValues, formValues string, isBodyNull bool) (bool, []string) {
+    if len(rule.Judges) == 0 {
+        return false, nil
+    }
+    
+    var matchedValues []string
+    var matchResults []bool
+    
+    // 评估每个judge
+    for _, judge := range rule.Judges {
+        var target string
+        switch judge.Position {
+        case "uri":
+            target = rawURL
+        case "request_header":
+            target = head
+        case "request_body":
+            if isBodyNull {
+                matchResults = append(matchResults, false)
+                continue
+            }
+            target = body
+        case "parameter_value":
+            target = paramValues
+        case "form_values":
+            target = formValues
+        default:
+            matchResults = append(matchResults, false)
+            continue
+        }
+
+        matchedStr := match(target, judge)
+        if matchedStr != "" {
+            matchResults = append(matchResults, true)
+            matchedValues = append(matchedValues, matchedStr)
+        } else {
+            matchResults = append(matchResults, false)
+        }
+    }
+    
+    // 根据relation判断最终结果
+    var finalResult bool
+    switch strings.ToLower(rule.Relation) {
+    case "or":
+        // OR关系：任意一个匹配即为真
+        finalResult = false
+        for _, result := range matchResults {
+            if result {
+                finalResult = true
+                break
+            }
+        }
+    case "and":
+        // AND关系：全部匹配才为真
+        finalResult = true
+        for _, result := range matchResults {
+            if !result {
+                finalResult = false
+                break
+            }
+        }
+    default:
+        // 默认使用AND关系（向后兼容）
+        finalResult = true
+        for _, result := range matchResults {
+            if !result {
+                finalResult = false
+                break
+            }
+        }
+    }
+    
+    return finalResult, matchedValues
 }
 
 
