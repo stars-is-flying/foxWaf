@@ -119,19 +119,19 @@ go run main.go
 
 ```json
 {
-  \"server\": {
-    \"addr\": \"监听地址\",
-    \"port\": 监听端口
+  "server": {
+    "addr": "监听地址",
+    "port": 监听端口
   },
-  \"database\": {
-    \"host\": \"数据库主机\",
-    \"port\": 数据库端口,
-    \"user\": \"数据库用户\", 
-    \"password\": \"数据库密码\",
-    \"dbname\": \"数据库名\"
+  "database": {
+    "host": "数据库主机",
+    "port": 数据库端口,
+    "user": "数据库用户", 
+    "password": "数据库密码",
+    "dbname": "数据库名"
   },
-  \"isWriteDbAuto\": \"是否自动写入攻击日志\",
-  \"secureentry\": \"管理界面入口路径\"
+  "isWriteDbAuto": "是否自动写入攻击日志",
+  "secureentry": "管理界面入口路径"
 }
 ```
 
@@ -141,16 +141,16 @@ go run main.go
 
 ```json
 {
-  \"name\": \"SQL注入检测\",
-  \"description\": \"检测SQL注入攻击\",
-  \"id\": \"sql-injection-001\",
-  \"method\": \"any\",
-  \"relation\": \"or\",
-  \"judge\": [
+  "name": "SQL注入检测",
+  "description": "检测SQL注入攻击",
+  "id": "sql-injection-001",
+  "method": "any",
+  "relation": "or",
+  "judge": [
     {
-      \"position\": \"uri\",
-      \"content\": \"union select\",
-      \"rix\": \"(?i)union\\\\s+select\"
+      "position": "uri",
+      "content": "union select",
+      "rix": "(?i)union\\\\s+select"
     }
   ]
 }
@@ -215,7 +215,7 @@ COPY static ./static
 COPY rule_updated ./rule_updated
 COPY conf.json .
 EXPOSE 80 443 8080
-CMD [\"./waf-proxy\"]
+CMD ["./waf-proxy"]
 ```
 
 ## 性能调优
@@ -224,7 +224,7 @@ CMD [\"./waf-proxy\"]
 ```go
 staticCacheConfig = StaticCacheConfig{
     Enable:          true,
-    CacheDir:        \"./static_cache\", 
+    CacheDir:        "./static_cache", 
     MaxCacheSize:    100 * 1024 * 1024, // 100MB
     DefaultExpire:   24 * time.Hour,
     CleanupInterval: 1 * time.Hour,
