@@ -32,7 +32,7 @@ import (
     "crypto/md5"
 	
 	
-
+    
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/gin-gonic/gin"
 	"github.com/fatih/color"
@@ -141,6 +141,9 @@ var isActivateUrlDecode = true
 // 百分比（0~100）控制要用多少规则
 var RuleMatchRate int = 100 // 默认 100% 使用
 
+
+//------------注入防开发者模式-----------------
+var EnableAntiDevTools = true
 
 
 
@@ -303,8 +306,16 @@ func addToCache(urlPath string, content []byte, contentType string) {
     if !staticCacheConfig.Enable {
         return
     }
+
+    var finalContent = content
     
-    fileSize := int64(len(content))
+    // 只有在启用防开发者工具且是HTML内容时才注入脚本
+    if EnableAntiDevTools && isHTMLContent(contentType) {
+        modifiedContent := injectAntiDevTools(string(content))
+        finalContent = []byte(modifiedContent)
+    }
+    
+    fileSize := int64(len(finalContent))
     
     // 检查是否超过最大缓存大小
     if currentCacheSize+fileSize > staticCacheConfig.MaxCacheSize {
@@ -316,7 +327,7 @@ func addToCache(urlPath string, content []byte, contentType string) {
     expireAt := time.Now().Add(staticCacheConfig.DefaultExpire)
     
     cachedFile := &CachedFile{
-        Content:     content,
+        Content:     finalContent,
         ContentType: contentType,
         Size:        fileSize,
         LastModified: time.Now(),
@@ -334,9 +345,8 @@ func addToCache(urlPath string, content []byte, contentType string) {
     cacheMutex.Unlock()
     
     // 异步保存到磁盘
-    go saveToDiskCache(cacheKey, content)
+    go saveToDiskCache(cacheKey, finalContent)
 }
-
 // 从缓存移除
 func removeFromCache(cacheKey string) {
     cacheMutex.Lock()
@@ -414,25 +424,283 @@ func cleanupExpiredCache() {
     }
 }
 
+
+
+var antiDevToolsScript = `
+<script>
+(function() {
+    'use strict';
+    
+    var devToolsOpened = false;
+    var checkInterval = null;
+    
+    // 检测开发者工具是否开启的多种方法
+    function detectDevTools() {
+        var widthThreshold = window.outerWidth - window.innerWidth > 160;
+        var heightThreshold = window.outerHeight - window.innerHeight > 160;
+        
+        // 方法1: 窗口大小差异检测
+        if (widthThreshold || heightThreshold) {
+            return true;
+        }
+        
+        // 方法2: 调试器检测
+        var start = performance.now();
+        debugger;
+        var end = performance.now();
+        if (end - start > 100) {
+            return true;
+        }
+        
+        // 方法3: 控制台检测
+        var element = new Image();
+        Object.defineProperty(element, 'id', {
+            get: function() {
+                return true;
+            }
+        });
+        console.log(element);
+        
+        // 方法4: 性能监测
+        var perfData = window.performance.memory;
+        if (perfData && perfData.usedJSHeapSize > 100000000) { // 100MB
+            return true;
+        }
+        
+        return false;
+    }
+    
+    // 关闭开发者工具的方法
+    function closeDevTools() {
+        try {
+            // 方法1: 触发窗口调整（可能关闭开发者工具）
+            window.resizeTo(window.screen.availWidth, window.screen.availHeight);
+            
+            // 方法2: 尝试 blur 和 focus
+            window.blur();
+            window.focus();
+            
+            // 方法3: 打开新窗口并关闭当前（激进方法）
+            // var newWindow = window.open(window.location.href, '_self');
+            // if (newWindow) {
+            //     window.close();
+            // }
+            
+            // 方法4: 重载页面
+            // window.location.reload();
+            
+        } catch(e) {
+            // 静默处理错误
+        }
+    }
+    
+    // 强制关闭开发者工具
+    function forceCloseDevTools() {
+        if (detectDevTools()) {
+            devToolsOpened = true;
+            console.log('开发者工具已检测到，正在尝试关闭...');
+            closeDevTools();
+            
+            // 如果检测到多次，采取更激进的措施
+            setTimeout(function() {
+                if (detectDevTools()) {
+                    console.log('开发者工具仍然开启，尝试重载页面...');
+                    window.location.reload();
+                }
+            }, 1000);
+        }
+    }
+    
+    // 按键阻止
+    function blockShortcuts(e) {
+        var blockedKeys = [
+            {key: 'F12', ctrl: false, shift: false},
+            {key: 'I', ctrl: true, shift: true},
+            {key: 'J', ctrl: true, shift: true}, 
+            {key: 'C', ctrl: true, shift: true},
+            {key: 'U', ctrl: true, shift: false},
+            {key: 'S', ctrl: true, shift: true} // Ctrl+Shift+S
+        ];
+        
+        for (var i = 0; i < blockedKeys.length; i++) {
+            var shortcut = blockedKeys[i];
+            if (e.key === shortcut.key && 
+                e.ctrlKey === shortcut.ctrl && 
+                e.shiftKey === shortcut.shift) {
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+                
+                // 立即检测并尝试关闭开发者工具
+                setTimeout(forceCloseDevTools, 100);
+                return false;
+            }
+        }
+        
+        // 单独检测 F12
+        if (e.key === 'F12') {
+            e.preventDefault();
+            e.stopPropagation();
+            e.stopImmediatePropagation();
+            setTimeout(forceCloseDevTools, 100);
+            return false;
+        }
+        
+        return true;
+    }
+    
+    // 右键阻止
+    function blockContextMenu(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        return false;
+    }
+    
+    // 定期检测函数
+    function periodicCheck() {
+        if (detectDevTools()) {
+            console.log('定期检测：发现开发者工具已开启');
+            forceCloseDevTools();
+        }
+    }
+    
+    // 初始化保护
+    function initProtection() {
+        // 立即检测一次
+        setTimeout(function() {
+            forceCloseDevTools();
+        }, 500);
+        
+        // 每5秒定期检测
+        checkInterval = setInterval(periodicCheck, 5000);
+        
+        // 添加事件监听
+        document.addEventListener('keydown', blockShortcuts, true);
+        document.addEventListener('contextmenu', blockContextMenu, true);
+        
+        // 监听窗口大小变化（开发者工具可能改变窗口）
+        var lastWidth = window.innerWidth;
+        var lastHeight = window.innerHeight;
+        
+        window.addEventListener('resize', function() {
+            var widthDiff = Math.abs(window.innerWidth - lastWidth);
+            var heightDiff = Math.abs(window.innerHeight - lastHeight);
+            
+            if (widthDiff > 100 || heightDiff > 100) {
+                setTimeout(forceCloseDevTools, 300);
+            }
+            
+            lastWidth = window.innerWidth;
+            lastHeight = window.innerHeight;
+        });
+        
+        // 监听页面可见性变化
+        document.addEventListener('visibilitychange', function() {
+            if (!document.hidden) {
+                setTimeout(forceCloseDevTools, 1000);
+            }
+        });
+        
+        // 控制台干扰
+        if (window.console) {
+            var methods = ['log', 'warn', 'error', 'info', 'debug', 'clear'];
+            methods.forEach(function(method) {
+                if (console[method]) {
+                    var original = console[method];
+                    console[method] = function() {
+                        // 记录到后台（可选）
+                        // logToServer('Console used: ' + method, arguments);
+                        
+                        try {
+                            original.apply(console, arguments);
+                        } catch(e) {
+                            // 静默失败
+                        }
+                    };
+                }
+            });
+            
+            // 重写 console 对象本身
+            Object.defineProperty(window, 'console', {
+                value: console,
+                writable: false,
+                configurable: false
+            });
+        }
+        
+        // 防止在新窗口打开开发者工具
+        window.open = function() {
+            return null;
+        };
+    }
+    
+    // 页面加载完成后初始化
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initProtection);
+    } else {
+        initProtection();
+    }
+    
+    // 提供清理函数（可选）
+    window.disableAntiDevTools = function() {
+        if (checkInterval) {
+            clearInterval(checkInterval);
+        }
+        document.removeEventListener('keydown', blockShortcuts, true);
+        document.removeEventListener('contextmenu', blockContextMenu, true);
+    };
+    
+})();
+</script>
+`
+
+// 检查是否为 HTML 内容
+func isHTMLContent(contentType string) bool {
+    if contentType == "" {
+        return false
+    }
+    return strings.Contains(strings.ToLower(contentType), "text/html")
+}
+
+// 智能注入脚本（避免重复注入）
+func injectAntiDevTools(htmlContent string) string {
+    // 检查是否已经包含防开发者工具脚本
+    if strings.Contains(htmlContent, "blockShortcuts") || 
+       strings.Contains(htmlContent, "checkDebugger") {
+        return htmlContent
+    }
+    
+    // 在 </body> 前注入
+    if strings.Contains(htmlContent, "</body>") {
+        return strings.Replace(htmlContent, "</body>", antiDevToolsScript + "</body>", 1)
+    }
+    
+    // 在 </html> 前注入
+    if strings.Contains(htmlContent, "</html>") {
+        return strings.Replace(htmlContent, "</html>", antiDevToolsScript + "</html>", 1)
+    }
+    
+    // 直接追加
+    return htmlContent + antiDevToolsScript
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 // ------------------- 修改主处理函数 -------------------
 func handler(w http.ResponseWriter, req *http.Request) {
     atomic.AddUint64(&totalRequests, 1)
-
-    // 先检查静态文件缓存
-    if staticCacheConfig.Enable && req.Method == "GET" {
-        if cachedFile, found := getCachedFile(req.URL.Path); found {
-            // 设置缓存头
-            w.Header().Set("Content-Type", cachedFile.ContentType)
-            w.Header().Set("Content-Length", fmt.Sprintf("%d", cachedFile.Size))
-            w.Header().Set("Cache-Control", "public, max-age=3600") // 1小时浏览器缓存
-            w.Header().Set("X-Cache", "HIT")
-            
-            w.WriteHeader(http.StatusOK)
-            println("缓存加速！")
-            w.Write(cachedFile.Content)
-            return
-        }
-    }
 
     // 查找目标站点
     host := req.Host
@@ -481,6 +749,29 @@ func handler(w http.ResponseWriter, req *http.Request) {
             json.NewEncoder(w).Encode(log)
         }
         return
+    }
+
+    // 先检查静态文件缓存
+    if staticCacheConfig.Enable && req.Method == "GET" {
+        if cachedFile, found := getCachedFile(req.URL.Path); found {
+            // 设置缓存头
+            w.Header().Set("Content-Type", cachedFile.ContentType)
+            w.Header().Set("Content-Length", fmt.Sprintf("%d", cachedFile.Size))
+            w.Header().Set("Cache-Control", "public, max-age=3600") // 1小时浏览器缓存
+            w.Header().Set("X-Cache", "HIT")
+            
+            // 如果是 HTML 内容且启用了防开发者工具，需要重新注入脚本
+            if EnableAntiDevTools && isHTMLContent(cachedFile.ContentType) {
+                modifiedBody := injectAntiDevTools(string(cachedFile.Content))
+                w.Header().Set("Content-Length", fmt.Sprintf("%d", len(modifiedBody)))
+                w.WriteHeader(http.StatusOK)
+                w.Write([]byte(modifiedBody))
+            } else {
+                w.WriteHeader(http.StatusOK)
+                w.Write(cachedFile.Content)
+            }
+            return
+        }
     }
 
     // 构造代理请求
@@ -534,40 +825,82 @@ func handler(w http.ResponseWriter, req *http.Request) {
         resp.Body.Close()
     }()
 
-    // 如果是静态文件且缓存启用，缓存响应
-    if staticCacheConfig.Enable && req.Method == "GET" && resp.StatusCode == 200 {
-        if isCacheableStaticFile(req.URL.Path) {
-            // 读取响应体
-            bodyBytes, err := io.ReadAll(resp.Body)
-            if err == nil {
-                // 重新设置响应体
-                resp.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
-                
-                // 添加到缓存
-                contentType := resp.Header.Get("Content-Type")
-                if contentType == "" {
-                    contentType = getContentType(req.URL.Path)
-                }
-                addToCache(req.URL.Path, bodyBytes, contentType)
-                
-                // 设置缓存头
-                w.Header().Set("X-Cache", "MISS")
-            }
-        }
-    } else {
-        w.Header().Set("X-Cache", "BYPASS")
-    }
-
     // 拷贝响应头
     for k, v := range resp.Header {
+        // 跳过原始的内容长度头，因为我们可能会修改内容
+        if k == "Content-Length" {
+            continue
+        }
         w.Header()[k] = v
     }
 
-    // 设置状态码并拷贝响应体
-    w.WriteHeader(resp.StatusCode)
-    _, err = io.Copy(w, resp.Body)
-    if err != nil {
-        stdlog.Printf("拷贝响应体失败: %v", err)
+    // 获取内容类型
+    contentType := resp.Header.Get("Content-Type")
+
+    // 处理响应体 - 支持防开发者工具注入
+    if EnableAntiDevTools && isHTMLContent(contentType) && resp.StatusCode == 200 {
+        // 读取响应体
+        bodyBytes, err := io.ReadAll(resp.Body)
+        if err != nil {
+            stdlog.Printf("读取响应体失败: %v", err)
+            w.WriteHeader(http.StatusInternalServerError)
+            return
+        }
+
+        // 注入防开发者工具脚本
+        modifiedBody := injectAntiDevTools(string(bodyBytes))
+
+        // 更新 Content-Length
+        w.Header().Set("Content-Length", fmt.Sprintf("%d", len(modifiedBody)))
+
+        // 如果是静态文件且缓存启用，缓存修改后的内容
+        if staticCacheConfig.Enable && req.Method == "GET" {
+            if isCacheableStaticFile(req.URL.Path) {
+                addToCache(req.URL.Path, []byte(modifiedBody), contentType)
+                w.Header().Set("X-Cache", "MISS")
+            }
+        } else {
+            w.Header().Set("X-Cache", "BYPASS")
+        }
+
+        // 设置状态码并写入修改后的响应
+        w.WriteHeader(resp.StatusCode)
+        _, err = w.Write([]byte(modifiedBody))
+        if err != nil {
+            stdlog.Printf("写入响应失败: %v", err)
+        }
+
+    } else {
+        // 非 HTML 内容或功能关闭，直接处理
+        if staticCacheConfig.Enable && req.Method == "GET" && resp.StatusCode == 200 {
+            if isCacheableStaticFile(req.URL.Path) {
+                // 读取响应体
+                bodyBytes, err := io.ReadAll(resp.Body)
+                if err == nil {
+                    // 重新设置响应体
+                    resp.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+                    
+                    // 添加到缓存
+                    actualContentType := resp.Header.Get("Content-Type")
+                    if actualContentType == "" {
+                        actualContentType = getContentType(req.URL.Path)
+                    }
+                    addToCache(req.URL.Path, bodyBytes, actualContentType)
+                    
+                    // 设置缓存头
+                    w.Header().Set("X-Cache", "MISS")
+                }
+            }
+        } else {
+            w.Header().Set("X-Cache", "BYPASS")
+        }
+
+        // 设置状态码并直接拷贝响应体
+        w.WriteHeader(resp.StatusCode)
+        _, err = io.Copy(w, resp.Body)
+        if err != nil {
+            stdlog.Printf("拷贝响应体失败: %v", err)
+        }
     }
 }
 
@@ -1454,7 +1787,7 @@ func isAttack(req *http.Request) (bool, *AttackLog) {
 		formValues = tryBase64Decode(formValues)
 	}
 
-	debugPrintRequest(rawURL, head, body)
+	// debugPrintRequest(rawURL, head, body)
 
     var rules []Rule
 	if methodRules, ok := RULES[req.Method]; ok {
@@ -1550,142 +1883,6 @@ func attackWorker() {
 
 
 
-// func handler(w http.ResponseWriter, req *http.Request) {
-//     atomic.AddUint64(&totalRequests, 1)
-
-
-// 	// 查找目标站点
-//     host := req.Host
-//     var targetURL string
-//     var enableHTTPS bool
-
-//     for _, site := range sites {
-//         if strings.EqualFold(site.Domain, host) && site.Status == 1 {
-//             targetURL = site.TargetURL
-//             enableHTTPS = site.EnableHTTPS
-//             break
-//         }
-//     }
-
-//     if targetURL == "" {
-//         w.WriteHeader(http.StatusNotFound)
-//         w.Write([]byte(NotFoundPage))
-//         return
-//     }
-
-// 	blocked, aclRule := aclManager.checkACL(req, host)
-//     if blocked {
-//         atomic.AddUint64(&totalBlocked, 1)
-        
-//         stdlog.Printf("ACL 拦截: %s %s, 规则: %s", 
-//             getClientIP(req), req.URL.Path, aclRule.Description)
-            
-//         w.WriteHeader(http.StatusForbidden)
-// 		w.Write([]byte(aclBlock))
-//         return
-//     }
-	
-
-//     // 先检测是否攻击
-// 	attacked, log := isAttack(req)
-// 	if attacked {
-// 		atomic.AddUint64(&totalBlocked, 1) // 增加总拦截数
-
-// 		if cfg.IsWriteDbAuto {
-// 			attackChan <- *log
-// 			w.WriteHeader(http.StatusForbidden)
-// 			w.Write([]byte(interceptPage))
-// 		} else {
-// 			w.Header().Set("Content-Type", "application/json")
-// 			w.WriteHeader(http.StatusForbidden)
-// 			json.NewEncoder(w).Encode(log)
-// 		}
-// 		return
-// 	}
-
-//     // // 查找目标站点
-//     // host := req.Host
-//     // var targetURL string
-//     // var enableHTTPS bool
-
-//     // for _, site := range sites {
-//     //     if strings.EqualFold(site.Domain, host) && site.Status == 1 {
-//     //         targetURL = site.TargetURL
-//     //         enableHTTPS = site.EnableHTTPS
-//     //         break
-//     //     }
-//     // }
-
-//     // if targetURL == "" {
-//     //     w.WriteHeader(http.StatusNotFound)
-//     //     w.Write([]byte(NotFoundPage))
-//     //     return
-//     // }
-
-//     // 构造代理请求
-//     proxyReq, err := http.NewRequest(req.Method, targetURL+req.RequestURI, req.Body)
-//     if err != nil {
-//         stdlog.Printf("创建反向代理请求失败: %v", err)
-//         w.WriteHeader(http.StatusBadGateway)
-//         w.Write([]byte(proxyErrorPage))
-//         return
-//     }
-
-//     // 设置重要属性
-//     proxyReq.Host = req.Host
-
-//     // 拷贝请求头（优化版）
-//     for k, v := range req.Header {
-//         // 跳过一些需要特殊处理的头部
-//         if k == "Accept-Encoding" {
-//             continue
-//         }
-//         proxyReq.Header[k] = v
-//     }
-
-//     // 配置传输层
-//     transport := &http.Transport{
-//         MaxIdleConns:        100,
-//         IdleConnTimeout:     90 * time.Second,
-//         TLSHandshakeTimeout: 10 * time.Second,
-//     }
-
-//     if enableHTTPS {
-//         transport.TLSClientConfig = &tls.Config{
-//             InsecureSkipVerify: true,
-//         }
-//     }
-
-//     client := &http.Client{
-//         Transport: transport,
-//         Timeout:   30 * time.Second,
-//     }
-
-//     // 发送请求
-//     resp, err := client.Do(proxyReq)
-//     if err != nil {
-//         stdlog.Printf("请求目标站点失败: %v", err)
-//         w.WriteHeader(http.StatusBadGateway)
-//         w.Write([]byte(proxyErrorPage))
-//         return
-//     }
-//     defer func() {
-//         io.Copy(io.Discard, resp.Body)
-//         resp.Body.Close()
-//     }()
-
-//     // 拷贝响应头
-//     for k, v := range resp.Header {
-//         w.Header()[k] = v
-//     }
-
-//     // 设置状态码并拷贝响应体
-//     w.WriteHeader(resp.StatusCode)
-//     _, err = io.Copy(w, resp.Body)
-//     if err != nil {
-//         stdlog.Printf("拷贝响应体失败: %v", err)
-//     }
-// }
 
 // ------------------- 规则加载 -------------------
 func readRule() {
@@ -2117,5 +2314,4 @@ func main() {
 	go statsPrinter()
 	go StartGinAPI()
 	ReverseProxy()
-
 }
