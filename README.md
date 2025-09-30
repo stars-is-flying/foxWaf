@@ -69,19 +69,19 @@ CREATE DATABASE waf_proxy;
 创建 `conf.json` 文件：
 ```json
 {
-  \"server\": {
-    \"addr\": \"0.0.0.0\",
-    \"port\": 8080
+  "server": {
+    "addr": "0.0.0.0",
+    "port": 8080
   },
-  \"database\": {
-    \"host\": \"localhost\",
-    \"port\": 3306,
-    \"user\": \"root\",
-    \"password\": \"your_password\",
-    \"dbname\": \"waf_proxy\"
+  "database": {
+    "host": "localhost",
+    "port": 3306,
+    "user": "root",
+    "password": "your_password",
+    "dbname": "waf_proxy"
   },
-  \"isWriteDbAuto\": true,
-  \"secureentry\": \"/admin\"
+  "isWriteDbAuto": true,
+  "secureentry": "admin"
 }
 ```
 
