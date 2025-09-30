@@ -1490,70 +1490,160 @@ func generateToken(user string) (string, error) {
 
 // 登录处理
 func loginHandler(c *gin.Context) {
-	formUsername := c.PostForm("username")
-	formPassword := c.PostForm("password")
+    formUsername := c.PostForm("username")
+    formPassword := c.PostForm("password")
 
-	if formUsername != username || formPassword != password {
-		c.HTML(http.StatusUnauthorized, "login.html", gin.H{
-			"error": "用户名或密码错误",
-		})
-		return
-	}
+    if formUsername != username || formPassword != password {
+        c.Header("Content-Type", "text/html; charset=utf-8")
+        c.String(http.StatusOK, string(loginError))
+        return
+    }
 
-	// 生成 JWT
-	tokenString, err := generateToken(username)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "生成 token 失败"})
-		return
-	}
+    // 生成 JWT
+    tokenString, err := generateToken(username)
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "生成 token 失败"})
+        return
+    }
 
-	// 设置 Cookie，24 小时有效
-	c.SetCookie("auth_token", tokenString, 3600*24, "/", "", false, true)
+    // 设置 Cookie，24 小时有效
+    c.SetCookie("auth_token", tokenString, 3600*24, "/", "", false, true)
 
-	c.JSON(http.StatusOK, gin.H{
-		"message": "登录成功",
-		"token":   tokenString,
-	})
+    c.JSON(http.StatusOK, gin.H{
+        "message": "登录成功",
+        "token":   tokenString,
+    })
 }
 
 
+// 认证中间件
+func authMiddleware() gin.HandlerFunc {
+    return func(c *gin.Context) {
+        // 获取cookie中的token
+        tokenString, err := c.Cookie("auth_token")
+        if err != nil {
+            // 没有token，重定向到登录页面
+            c.Header("Content-Type", "text/html; charset=utf-8")
+            c.String(http.StatusOK, string(login))
+            c.Abort()
+            return
+        }
+
+        // 解析和验证token
+        token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+            // 验证签名方法
+            if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+                return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+            }
+            return jsonTokenKey, nil
+        })
+
+        if err != nil || !token.Valid {
+            // token无效，重定向到登录页面
+            c.Header("Content-Type", "text/html; charset=utf-8")
+            c.String(http.StatusOK, string(login))
+            c.Abort()
+            return
+        }
+
+        // token验证通过，继续处理请求
+        c.Next()
+    }
+}
+
+
+// 在需要认证的路由中使用中间件
 func StartGinAPI() {
-	gin.SetMode(gin.ReleaseMode)
+    gin.SetMode(gin.ReleaseMode)
     r := gin.Default()
 
+    // 公开路由（不需要认证）
+    r.POST("/login", loginHandler)
+    r.GET(cfg.Secure, func(ctx *gin.Context) {
+        ctx.Header("Content-Type", "text/html; charset=utf-8")
+        ctx.String(http.StatusOK, string(login))
+    })
 
-	//---------ACL------------
-	r.POST("/api/acl/rules", addACLRuleHandler)
-    r.GET("/api/acl/rules", getACLRulesHandler)
-    r.DELETE("/api/acl/rules/:id", deleteACLRuleHandler)
+    // 需要认证的路由组
+    authGroup := r.Group("/")
+    authGroup.Use(authMiddleware())
+    {
+        //---------ACL------------
+        authGroup.POST("/api/acl/rules", addACLRuleHandler)
+        authGroup.GET("/api/acl/rules", getACLRulesHandler)
+        authGroup.DELETE("/api/acl/rules/:id", deleteACLRuleHandler)
 
-    //-------------------缓存加速----------------------
-    r.GET("/api/cache/stats", getCacheStatsHandler)
-    r.POST("/api/cache/config", updateCacheConfigHandler)
-    r.POST("/api/cache/clear", clearCacheHandler)
+        //-------------------缓存加速----------------------
+        authGroup.GET("/api/cache/stats", getCacheStatsHandler)
+        authGroup.POST("/api/cache/config", updateCacheConfigHandler)
+        authGroup.POST("/api/cache/clear", clearCacheHandler)
 
+        // 添加站点
+        authGroup.POST("/api/site/add", addSiteHandler)
+    }
 
-	//safe login
-	login, _ := ioutil.ReadFile("./static/login.html")
-	//waf
-
-	//添加站点
-    r.POST("/api/site/add", addSiteHandler)
-	//登录验证
-	r.POST("/login", loginHandler)
-
-	//登录页面
-	r.GET(cfg.Secure, func(ctx *gin.Context) {
-    ctx.Header("Content-Type", "text/html; charset=utf-8")
-    ctx.String(http.StatusOK, string(login))
-	})
-
+    // 统一返回404页面
+    r.NoRoute(func(ctx *gin.Context) {
+        ctx.Header("Content-Type", "text/html; charset=utf-8")
+        ctx.String(http.StatusNotFound, string(notFound))
+    })
 
     stdlog.Println("Gin API 启动在 :8080")
     if err := r.Run(":8080"); err != nil {
         stdlog.Fatalf("Gin 启动失败: %v", err)
     }
 }
+
+
+var login,loginError,notFound []byte
+
+func readGinHtml() {
+    login, _ = ioutil.ReadFile("./static/login.html")
+    loginError, _ = ioutil.ReadFile("./static/loginError.html")
+    notFound, _ = ioutil.ReadFile("./static/404.html")
+}
+
+// func StartGinAPI() {
+// 	gin.SetMode(gin.ReleaseMode)
+//     r := gin.Default()
+
+
+// 	//---------ACL------------
+// 	r.POST("/api/acl/rules", addACLRuleHandler)
+//     r.GET("/api/acl/rules", getACLRulesHandler)
+//     r.DELETE("/api/acl/rules/:id", deleteACLRuleHandler)
+
+//     //-------------------缓存加速----------------------
+//     r.GET("/api/cache/stats", getCacheStatsHandler)
+//     r.POST("/api/cache/config", updateCacheConfigHandler)
+//     r.POST("/api/cache/clear", clearCacheHandler)
+
+
+// 	//waf
+
+// 	//添加站点
+//     r.POST("/api/site/add", addSiteHandler)
+// 	//登录验证
+// 	r.POST("/login", loginHandler)
+
+// 	//登录页面
+// 	r.GET(cfg.Secure, func(ctx *gin.Context) {
+//     ctx.Header("Content-Type", "text/html; charset=utf-8")
+//     ctx.String(http.StatusOK, string(login))
+// 	})
+
+//     //------------404-----------------------
+//     r.NoRoute(func(ctx *gin.Context) {
+//         ctx.Header("Content-Type", "text/html; charset=utf-8")
+//         ctx.String(http.StatusNotFound, string(notFound))
+//     })
+
+
+//     stdlog.Println("Gin API 启动在 :8080")
+//     if err := r.Run(":8080"); err != nil {
+//         stdlog.Fatalf("Gin 启动失败: %v", err)
+//     }
+// }
 
 // 定义三个变量，用于存储 HTML 内容
 
@@ -2345,6 +2435,7 @@ func main() {
 	readRule()
 	readWafHtml()
 	readBase64()
+    readGinHtml()
 
     // 初始化静态文件缓存
     initStaticCache()

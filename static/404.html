@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>页面未找到 - 404</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: linear-gradient(135deg, #c8f5f5 0%, #a8e6e6 25%, #88d7d7 50%, #68c8c8 75%, #48b9b9 100%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            font-family: "Comic Sans MS", "Microsoft YaHei", sans-serif;
+            color: #444;
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* 背景动画元素 */
+        .floating-elements {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .floating-element {
+            position: absolute;
+            background: rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            animation: float 6s ease-in-out infinite;
+        }
+
+        .floating-element:nth-child(1) {
+            width: 60px;
+            height: 60px;
+            top: 10%;
+            left: 10%;
+            animation-delay: 0s;
+        }
+
+        .floating-element:nth-child(2) {
+            width: 40px;
+            height: 40px;
+            top: 20%;
+            right: 15%;
+            animation-delay: 1s;
+        }
+
+        .floating-element:nth-child(3) {
+            width: 80px;
+            height: 80px;
+            bottom: 15%;
+            left: 15%;
+            animation-delay: 2s;
+        }
+
+        .floating-element:nth-child(4) {
+            width: 50px;
+            height: 50px;
+            bottom: 25%;
+            right: 10%;
+            animation-delay: 3s;
+        }
+
+        @keyframes float {
+
+            0%,
+            100% {
+                transform: translateY(0) rotate(0deg);
+            }
+
+            50% {
+                transform: translateY(-20px) rotate(180deg);
+            }
+        }
+
+        .fox-container {
+            position: relative;
+            z-index: 2;
+        }
+
+        .fox {
+            font-size: 140px;
+            animation: bounce 0.8s infinite alternate, glow 2s ease-in-out infinite alternate;
+            filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.5));
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .fox:hover {
+            transform: scale(1.1) rotate(5deg);
+        }
+
+        @keyframes bounce {
+            from {
+                transform: translateY(0);
+            }
+
+            to {
+                transform: translateY(-15px);
+            }
+        }
+
+        @keyframes glow {
+            from {
+                filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.5));
+            }
+
+            to {
+                filter: drop-shadow(0 0 20px rgba(255, 255, 255, 0.8));
+            }
+        }
+
+        
+    </style>
+</head>
+<body>
+    <div class="fox">🦊</div>
+    <div class="error-box">
+        <div class="error-icon" style="text-align: center;font-size: large;">❓</div>
+        <h2>页面未找到 - 404</h2>
+    </div>
+</body>
+</html>
