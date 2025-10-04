@@ -1,13 +1,21 @@
 {
-    "name": "/etc/passwd",
-    "id": "000010",
-    "method": "GET",
-    "description": "/etc/passwd",
+    "name": "SQL注入检测",
+    "id": "000001",
+    "method": "any",
+    "description": "检测SQL注入攻击",
+    "relation": "and",
     "judge": [
         {
             "position": "uri",
-            "content": "alert",
-            "rix": "alert\\(.+\\)"
+            "rix": "union.*select"
+        },
+        {
+            "position": "request_body",
+            "rix": "insert.*into"
+        },
+        {
+            "position": "parameter_value",
+            "rix": "drop.*table"
         }
     ]
 }

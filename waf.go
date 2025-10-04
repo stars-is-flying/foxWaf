@@ -30,6 +30,7 @@ import (
 	"sync"
 	"net"
     "crypto/md5"
+    "strconv"
 	
 	
     
@@ -194,6 +195,271 @@ var (
     cacheHits   uint64
     cacheMisses uint64
 )
+
+
+
+//-------------------站点心跳------------------------
+// 站点健康状态结构
+type SiteHealth struct {
+    SiteID    int    `json:"site_id"`
+    Domain    string `json:"domain"`
+    IsAlive   bool   `json:"is_alive"`
+    Status    int    `json:"status"`
+    Latency   int64  `json:"latency"` // 毫秒
+    LastCheck string `json:"last_check"`
+    ErrorMsg  string `json:"error_msg,omitempty"`
+}
+
+// 全局健康状态映射
+var siteHealthMap = make(map[int]*SiteHealth)
+var healthMutex sync.RWMutex
+
+// 更健壮的健康检查函数，支持GET和HEAD方法
+func checkSiteHealthEnhanced(site Site) *SiteHealth {
+    health := &SiteHealth{
+        SiteID:    site.ID,
+        Domain:    site.Domain,
+        LastCheck: time.Now().Format("2006-01-02 15:04:05"),
+    }
+
+    start := time.Now()
+    
+    // 直接使用 target_url
+    testURL := site.TargetURL
+
+    // 创建HTTP客户端，设置超时
+    client := &http.Client{
+        Timeout: 5 * time.Second,
+    }
+
+    println(testURL)
+    // 先尝试HEAD请求
+    req, err := http.NewRequest("HEAD", testURL, nil)
+    if err != nil {
+        health.IsAlive = false
+        health.ErrorMsg = fmt.Sprintf("创建HEAD请求失败: %v", err)
+        health.Latency = time.Since(start).Milliseconds()
+        return health
+    }
+
+    // 添加请求头
+    req.Header.Set("User-Agent", "LittleFox-WAF-HealthCheck/1.0")
+    if site.Domain != "" {
+        req.Header.Set("Host", site.Domain)
+    }
+
+    resp, err := client.Do(req)
+    if err != nil {
+        // HEAD失败，尝试GET请求
+        stdlog.Printf("HEAD请求失败，尝试GET: %s - %v", site.Name, err)
+        req, err = http.NewRequest("GET", testURL, nil)
+        if err != nil {
+            health.IsAlive = false
+            health.ErrorMsg = fmt.Sprintf("创建GET请求失败: %v", err)
+            health.Latency = time.Since(start).Milliseconds()
+            return health
+        }
+        
+        req.Header.Set("User-Agent", "LittleFox-WAF-HealthCheck/1.0")
+        if site.Domain != "" {
+            req.Header.Set("Host", site.Domain)
+        }
+        
+        resp, err = client.Do(req)
+        if err != nil {
+            health.IsAlive = false
+            health.ErrorMsg = fmt.Sprintf("GET请求也失败: %v", err)
+            health.Latency = time.Since(start).Milliseconds()
+            return health
+        }
+        defer resp.Body.Close()
+    } else {
+        defer resp.Body.Close()
+    }
+
+    health.Latency = time.Since(start).Milliseconds()
+    
+    // 判断HTTP状态码
+    if resp.StatusCode >= 200 && resp.StatusCode < 400 {
+        health.IsAlive = true
+        health.Status = resp.StatusCode
+    } else {
+        health.IsAlive = false
+        health.Status = resp.StatusCode
+        health.ErrorMsg = fmt.Sprintf("HTTP状态码: %d", resp.StatusCode)
+    }
+
+    return health
+}
+
+// 批量健康检查 - 使用增强版本
+func performHealthChecks() {
+    // aclManager.mutex.RLock()
+    // sitesCopy := make([]Site, len(sites))
+    // copy(sitesCopy, sites)
+    // aclManager.mutex.RUnlock()
+
+    for _, site := range sites {
+        // 只检查启用的站点
+        if site.Status == 1 {
+            health := checkSiteHealthEnhanced(site)
+            
+            healthMutex.Lock()
+            siteHealthMap[site.ID] = health
+            healthMutex.Unlock()
+            
+            status := "正常"
+            if !health.IsAlive {
+                status = "异常"
+            }
+            stdlog.Printf("健康检查: %s (%s) -> %s - 状态: %s, 延迟: %dms", 
+                site.Name, site.Domain, site.TargetURL, status, health.Latency)
+        } else {
+            // 对于停用的站点，标记为未知状态
+            healthMutex.Lock()
+            siteHealthMap[site.ID] = &SiteHealth{
+                SiteID:    site.ID,
+                Domain:    site.Domain,
+                IsAlive:   false,
+                Status:    0,
+                Latency:   0,
+                LastCheck: time.Now().Format("2006-01-02 15:04:05"),
+                ErrorMsg:  "站点已停用",
+            }
+            healthMutex.Unlock()
+        }
+    }
+}
+
+// 启动定时健康检查
+func startHealthChecker() {
+    // 立即执行一次检查
+    performHealthChecks()
+    
+    // 每10秒执行一次检查
+    ticker := time.NewTicker(10 * time.Second)
+    defer ticker.Stop()
+    
+    for range ticker.C {
+        performHealthChecks()
+    }
+}
+
+
+// ------------------- 健康状态API接口 -------------------
+func getSiteHealthHandler(c *gin.Context) {
+    healthMutex.RLock()
+    defer healthMutex.RUnlock()
+    
+    // 返回所有站点的健康状态
+    healthStatus := make(map[int]*SiteHealth)
+    for id, health := range siteHealthMap {
+        healthStatus[id] = health
+    }
+    
+    c.JSON(http.StatusOK, gin.H{
+        "health_status": healthStatus,
+        "timestamp":     time.Now().Format("2006-01-02 15:04:05"),
+    })
+}
+
+// 健康检查函数 - 直接请求 target_url
+func checkSiteHealth(site Site) *SiteHealth {
+    health := &SiteHealth{
+        SiteID:    site.ID,
+        Domain:    site.Domain,
+        LastCheck: time.Now().Format("2006-01-02 15:04:05"),
+    }
+
+    start := time.Now()
+    
+    // 直接使用 target_url，不需要构建URL
+    testURL := site.TargetURL
+
+    // 创建HTTP客户端，设置超时
+    client := &http.Client{
+        Timeout: 5 * time.Second,
+    }
+
+    // 发送HEAD请求检查站点
+    req, err := http.NewRequest("HEAD", testURL, nil)
+    if err != nil {
+        health.IsAlive = false
+        health.ErrorMsg = fmt.Sprintf("创建请求失败: %v", err)
+        health.Latency = time.Since(start).Milliseconds()
+        return health
+    }
+
+    // 添加一些基本的请求头
+    req.Header.Set("User-Agent", "LittleFox-WAF-HealthCheck/1.0")
+    // 添加Host头，模拟真实请求
+    if site.Domain != "" {
+        req.Header.Set("Host", site.Domain)
+    }
+
+    resp, err := client.Do(req)
+    if err != nil {
+        health.IsAlive = false
+        health.ErrorMsg = fmt.Sprintf("请求失败: %v", err)
+        health.Latency = time.Since(start).Milliseconds()
+        return health
+    }
+    defer resp.Body.Close()
+
+    health.Latency = time.Since(start).Milliseconds()
+    
+    // 判断HTTP状态码
+    if resp.StatusCode >= 200 && resp.StatusCode < 400 {
+        health.IsAlive = true
+        health.Status = resp.StatusCode
+    } else {
+        health.IsAlive = false
+        health.Status = resp.StatusCode
+        health.ErrorMsg = fmt.Sprintf("HTTP状态码: %d", resp.StatusCode)
+    }
+
+    return health
+}
+
+// ------------------- 单个站点健康检查接口 -------------------
+func checkSingleSiteHealthHandler(c *gin.Context) {
+    siteIDStr := c.Param("id")
+    siteID, err := strconv.Atoi(siteIDStr)
+    if err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "无效的站点ID"})
+        return
+    }
+    
+    // 查找站点
+    aclManager.mutex.RLock()
+    var targetSite Site
+    found := false
+    for _, site := range sites {
+        if site.ID == siteID {
+            targetSite = site
+            found = true
+            break
+        }
+    }
+    aclManager.mutex.RUnlock()
+    
+    if !found {
+        c.JSON(http.StatusNotFound, gin.H{"error": "站点不存在"})
+        return
+    }
+    
+    // 执行健康检查
+    health := checkSiteHealth(targetSite)
+    
+    // 更新全局状态
+    healthMutex.Lock()
+    siteHealthMap[siteID] = health
+    healthMutex.Unlock()
+    
+    c.JSON(http.StatusOK, gin.H{
+        "health": health,
+    })
+}
 
 // ------------------- 缓存管理函数 -------------------
 func initStaticCache() {
@@ -1835,6 +2101,10 @@ func StartGinAPI() {
 
         //// ------------------- waf信息统计 -------------------
         authGroup.GET("/api/stats", getStatsHandler)
+
+        //// -------------------心跳------------------------------
+        authGroup.GET("/health", getSiteHealthHandler)
+        authGroup.GET("/health/:id", checkSingleSiteHealthHandler)
     }
 
     // 统一返回404页面
@@ -2691,5 +2961,9 @@ func main() {
 	
 	go statsPrinter()
 	go StartGinAPI()
+    go startHealthChecker()
 	ReverseProxy()
-}
+}  // 心跳监测总请求书为啥还要增加， 不应该是不过 WAFma
+
+
+
