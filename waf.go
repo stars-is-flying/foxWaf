@@ -232,7 +232,7 @@ func checkSiteHealthEnhanced(site Site) *SiteHealth {
         Timeout: 5 * time.Second,
     }
 
-    println(testURL)
+    // println(testURL)
     // 先尝试HEAD请求
     req, err := http.NewRequest("HEAD", testURL, nil)
     if err != nil {
@@ -251,7 +251,7 @@ func checkSiteHealthEnhanced(site Site) *SiteHealth {
     resp, err := client.Do(req)
     if err != nil {
         // HEAD失败，尝试GET请求
-        stdlog.Printf("HEAD请求失败，尝试GET: %s - %v", site.Name, err)
+        // stdlog.Printf("HEAD请求失败，尝试GET: %s - %v", site.Name, err)
         req, err = http.NewRequest("GET", testURL, nil)
         if err != nil {
             health.IsAlive = false
@@ -308,12 +308,12 @@ func performHealthChecks() {
             siteHealthMap[site.ID] = health
             healthMutex.Unlock()
             
-            status := "正常"
-            if !health.IsAlive {
-                status = "异常"
-            }
-            stdlog.Printf("健康检查: %s (%s) -> %s - 状态: %s, 延迟: %dms", 
-                site.Name, site.Domain, site.TargetURL, status, health.Latency)
+            // status := "正常"
+            // if !health.IsAlive {
+            //     status = "异常"
+            // }
+            // stdlog.Printf("健康检查: %s (%s) -> %s - 状态: %s, 延迟: %dms", 
+            //     site.Name, site.Domain, site.TargetURL, status, health.Latency)
         } else {
             // 对于停用的站点，标记为未知状态
             healthMutex.Lock()
@@ -2119,55 +2119,6 @@ func StartGinAPI() {
     }
 }
 
-
-
-
-// func StartGinAPI() {
-// 	gin.SetMode(gin.ReleaseMode)
-//     r := gin.Default()
-
-
-// 	//---------ACL------------
-// 	r.POST("/api/acl/rules", addACLRuleHandler)
-//     r.GET("/api/acl/rules", getACLRulesHandler)
-//     r.DELETE("/api/acl/rules/:id", deleteACLRuleHandler)
-
-//     //-------------------缓存加速----------------------
-//     r.GET("/api/cache/stats", getCacheStatsHandler)
-//     r.POST("/api/cache/config", updateCacheConfigHandler)
-//     r.POST("/api/cache/clear", clearCacheHandler)
-
-
-// 	//waf
-
-// 	//添加站点
-//     r.POST("/api/site/add", addSiteHandler)
-// 	//登录验证
-// 	r.POST("/login", loginHandler)
-
-// 	//登录页面
-// 	r.GET(cfg.Secure, func(ctx *gin.Context) {
-//     ctx.Header("Content-Type", "text/html; charset=utf-8")
-//     ctx.String(http.StatusOK, string(login))
-// 	})
-
-//     //------------404-----------------------
-//     r.NoRoute(func(ctx *gin.Context) {
-//         ctx.Header("Content-Type", "text/html; charset=utf-8")
-//         ctx.String(http.StatusNotFound, string(notFound))
-//     })
-
-
-//     stdlog.Println("Gin API 启动在 :8080")
-//     if err := r.Run(":8080"); err != nil {
-//         stdlog.Fatalf("Gin 启动失败: %v", err)
-//     }
-// }
-
-// 定义三个变量，用于存储 HTML 内容
-
-
-// wafDir 是 HTML 文件存放目录
 var wafDir = "./static/waf"
 
 func loadWAFPage(filename string) string {
@@ -2963,7 +2914,7 @@ func main() {
 	go StartGinAPI()
     go startHealthChecker()
 	ReverseProxy()
-}  // 心跳监测总请求书为啥还要增加， 不应该是不过 WAFma
+}
 
 
 
