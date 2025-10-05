@@ -111,6 +111,444 @@ type Site struct {
     UpdatedAt   string // 可以用 time.Time
 }
 
+// ------------------- 攻击日志查询参数 -------------------
+type AttackLogQuery struct {
+    Page      int       `form:"page" binding:"min=1"`
+    PageSize  int       `form:"page_size" binding:"min=1,max=100"`
+    Method    string    `form:"method"`
+    RuleName  string    `form:"rule_name"`
+    RuleID    string    `form:"rule_id"`
+    StartTime string    `form:"start_time"`
+    EndTime   string    `form:"end_time"`
+    Search    string    `form:"search"`
+}
+
+// ------------------- 攻击日志响应结构 -------------------
+type AttackLogResponse struct {
+    ID           int       `json:"id"`
+    Method       string    `json:"method"`
+    URL          string    `json:"url"`
+    Headers      string    `json:"headers"`
+    Body         string    `json:"body"`
+    RuleName     string    `json:"rule_name"`
+    RuleID       string    `json:"rule_id"`
+    MatchedValue string    `json:"matched_value"`
+    CreatedAt    string    `json:"created_at"`
+    
+    // 解码后的字段（可选展示）
+    URLDecoded     string `json:"url_decoded,omitempty"`
+    HeadersDecoded string `json:"headers_decoded,omitempty"`
+    BodyDecoded    string `json:"body_decoded,omitempty"`
+}
+
+// ------------------- 攻击日志分页响应 -------------------
+type AttackLogPageResponse struct {
+    Logs       []AttackLogResponse `json:"logs"`
+    Total      int                 `json:"total"`
+    Page       int                 `json:"page"`
+    PageSize   int                 `json:"page_size"`
+    TotalPages int                 `json:"total_pages"`
+}
+
+// ------------------- 攻击统计响应 -------------------
+type AttackStatsResponse struct {
+    TotalAttacks    int            `json:"total_attacks"`
+    TodayAttacks    int            `json:"today_attacks"`
+    TopRules        []RuleStat     `json:"top_rules"`
+    TopMethods      []MethodStat   `json:"top_methods"`
+    HourlyStats     []HourlyStat   `json:"hourly_stats"`
+}
+
+type RuleStat struct {
+    RuleName string `json:"rule_name"`
+    RuleID   string `json:"rule_id"`
+    Count    int    `json:"count"`
+}
+
+type MethodStat struct {
+    Method string `json:"method"`
+    Count  int    `json:"count"`
+}
+
+type HourlyStat struct {
+    Hour  string `json:"hour"`
+    Count int    `json:"count"`
+}
+
+
+// ------------------- 删除攻击日志请求 -------------------
+type DeleteAttackLogsRequest struct {
+    IDs    []int  `json:"ids"`              // 指定ID删除
+    Before string `json:"before"`           // 删除指定时间之前的记录
+    All    bool   `json:"all"`              // 删除所有记录
+}
+
+
+// ------------------- 删除攻击日志接口 -------------------
+func deleteAttackLogsHandler(c *gin.Context) {
+    var req DeleteAttackLogsRequest
+    if err := c.ShouldBindJSON(&req); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+
+    var result sql.Result
+    var err error
+
+    if req.All {
+        // 删除所有记录
+        result, err = db.Exec("DELETE FROM attacks")
+    } else if len(req.IDs) > 0 {
+        // 删除指定ID的记录
+        query := "DELETE FROM attacks WHERE id IN (" + strings.Repeat("?,", len(req.IDs)-1) + "?)"
+        args := make([]interface{}, len(req.IDs))
+        for i, id := range req.IDs {
+            args[i] = id
+        }
+        result, err = db.Exec(query, args...)
+    } else if req.Before != "" {
+        // 删除指定时间之前的记录
+        result, err = db.Exec("DELETE FROM attacks WHERE created_at < ?", req.Before)
+    } else {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "请提供删除条件"})
+        return
+    }
+
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("删除失败: %v", err)})
+        return
+    }
+
+    rowsAffected, _ := result.RowsAffected()
+    c.JSON(http.StatusOK, gin.H{
+        "message":       "攻击日志删除成功",
+        "rows_affected": rowsAffected,
+    })
+
+}
+
+// ------------------- 导出攻击日志接口 -------------------
+func exportAttackLogsHandler(c *gin.Context) {
+    var query AttackLogQuery
+    if err := c.ShouldBindQuery(&query); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+
+    // 构建查询条件（与getAttackLogsHandler相同）
+    whereClause := "WHERE 1=1"
+    args := []interface{}{}
+
+    if query.Method != "" {
+        whereClause += " AND method = ?"
+        args = append(args, query.Method)
+    }
+
+    if query.RuleName != "" {
+        whereClause += " AND rule_name LIKE ?"
+        args = append(args, "%"+query.RuleName+"%")
+    }
+
+    if query.StartTime != "" {
+        whereClause += " AND created_at >= ?"
+        args = append(args, query.StartTime)
+    }
+
+    if query.EndTime != "" {
+        whereClause += " AND created_at <= ?"
+        args = append(args, query.EndTime)
+    }
+
+    // 查询数据
+    dataQuery := fmt.Sprintf(`
+        SELECT method, url, headers, body, rule_name, rule_id, matched_value, created_at 
+        FROM attacks %s 
+        ORDER BY created_at DESC
+    `, whereClause)
+
+    rows, err := db.Query(dataQuery, args...)
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("查询日志失败: %v", err)})
+        return
+    }
+    defer rows.Close()
+
+    var logs []AttackLogResponse
+    for rows.Next() {
+        var log AttackLogResponse
+        var urlB64, headersB64, bodyB64 string
+        
+        err := rows.Scan(
+            &log.Method, &urlB64, &headersB64, &bodyB64,
+            &log.RuleName, &log.RuleID, &log.MatchedValue, &log.CreatedAt,
+        )
+        if err != nil {
+            continue
+        }
+
+        // Base64 解码
+        if urlDecoded, err := base64.StdEncoding.DecodeString(urlB64); err == nil {
+            log.URL = string(urlDecoded)
+        }
+        if headersDecoded, err := base64.StdEncoding.DecodeString(headersB64); err == nil {
+            log.Headers = string(headersDecoded)
+        }
+        if bodyDecoded, err := base64.StdEncoding.DecodeString(bodyB64); err == nil {
+            log.Body = string(bodyDecoded)
+        }
+
+        logs = append(logs, log)
+    }
+
+    // 设置响应头
+    c.Header("Content-Type", "text/csv")
+    c.Header("Content-Disposition", "attachment; filename=attack_logs.csv")
+    c.Header("Pragma", "no-cache")
+    c.Header("Expires", "0")
+
+    // 写入CSV
+    writer := csv.NewWriter(c.Writer)
+    defer writer.Flush()
+
+    // 写入表头
+    writer.Write([]string{
+        "时间", "方法", "规则名称", "规则ID", "匹配内容", "URL", "请求头", "请求体",
+    })
+
+    // 写入数据
+    for _, log := range logs {
+        writer.Write([]string{
+            log.CreatedAt,
+            log.Method,
+            log.RuleName,
+            log.RuleID,
+            log.MatchedValue,
+            truncateString(log.URL, 100),        // 截断长文本
+            truncateString(log.Headers, 100),
+            truncateString(log.Body, 100),
+        })
+    }
+}
+
+// 截断字符串
+func truncateString(s string, length int) string {
+    if len(s) <= length {
+        return s
+    }
+    return s[:length] + "..."
+}
+
+
+// ------------------- 获取攻击统计接口 -------------------
+func getAttackStatsHandler(c *gin.Context) {
+    var stats AttackStatsResponse
+
+    // 总攻击次数
+    err := db.QueryRow("SELECT COUNT(*) FROM attacks").Scan(&stats.TotalAttacks)
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("查询总攻击数失败: %v", err)})
+        return
+    }
+
+    // 今日攻击次数
+    today := time.Now().Format("2006-01-02")
+    err = db.QueryRow("SELECT COUNT(*) FROM attacks WHERE DATE(created_at) = ?", today).Scan(&stats.TodayAttacks)
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("查询今日攻击数失败: %v", err)})
+        return
+    }
+
+    // 最常触发的规则
+    rows, err := db.Query(`
+        SELECT rule_name, rule_id, COUNT(*) as count 
+        FROM attacks 
+        GROUP BY rule_name, rule_id 
+        ORDER BY count DESC 
+        LIMIT 10
+    `)
+    if err == nil {
+        defer rows.Close()
+        for rows.Next() {
+            var rule RuleStat
+            rows.Scan(&rule.RuleName, &rule.RuleID, &rule.Count)
+            stats.TopRules = append(stats.TopRules, rule)
+        }
+    }
+
+    // 攻击方法分布
+    rows, err = db.Query(`
+        SELECT method, COUNT(*) as count 
+        FROM attacks 
+        GROUP BY method 
+        ORDER BY count DESC
+    `)
+    if err == nil {
+        defer rows.Close()
+        for rows.Next() {
+            var method MethodStat
+            rows.Scan(&method.Method, &method.Count)
+            stats.TopMethods = append(stats.TopMethods, method)
+        }
+    }
+
+    // 24小时攻击趋势
+    rows, err = db.Query(`
+        SELECT DATE_FORMAT(created_at, '%Y-%m-%d %H:00:00') as hour, COUNT(*) as count 
+        FROM attacks 
+        WHERE created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
+        GROUP BY hour 
+        ORDER BY hour
+    `)
+    if err == nil {
+        defer rows.Close()
+        for rows.Next() {
+            var hourly HourlyStat
+            rows.Scan(&hourly.Hour, &hourly.Count)
+            stats.HourlyStats = append(stats.HourlyStats, hourly)
+        }
+    }
+
+    c.JSON(http.StatusOK, stats);
+}
+
+// ------------------- 获取攻击日志接口 -------------------
+func getAttackLogsHandler(c *gin.Context) {
+    var query AttackLogQuery
+    if err := c.ShouldBindQuery(&query); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+
+    // 设置默认值
+    if query.Page == 0 {
+        query.Page = 1
+    }
+    if query.PageSize == 0 {
+        query.PageSize = 20
+    }
+
+    // 构建查询条件
+    whereClause := "WHERE 1=1"
+    args := []interface{}{}
+    argIndex := 1
+
+    if query.Method != "" {
+        whereClause += fmt.Sprintf(" AND method = ?")
+        args = append(args, query.Method)
+        argIndex++
+    }
+
+    if query.RuleName != "" {
+        whereClause += fmt.Sprintf(" AND rule_name LIKE ?")
+        args = append(args, "%"+query.RuleName+"%")
+        argIndex++
+    }
+
+    if query.RuleID != "" {
+        whereClause += fmt.Sprintf(" AND rule_id = ?")
+        args = append(args, query.RuleID)
+        argIndex++
+    }
+
+    if query.StartTime != "" {
+        whereClause += fmt.Sprintf(" AND created_at >= ?")
+        args = append(args, query.StartTime)
+        argIndex++
+    }
+
+    if query.EndTime != "" {
+        whereClause += fmt.Sprintf(" AND created_at <= ?")
+        args = append(args, query.EndTime)
+        argIndex++
+    }
+
+    if query.Search != "" {
+        whereClause += fmt.Sprintf(" AND (matched_value LIKE ? OR rule_name LIKE ?)")
+        args = append(args, "%"+query.Search+"%", "%"+query.Search+"%")
+        argIndex += 2
+    }
+
+    // 查询总数
+    countQuery := fmt.Sprintf("SELECT COUNT(*) FROM attacks %s", whereClause)
+    var total int
+    err := db.QueryRow(countQuery, args...).Scan(&total)
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("查询总数失败: %v", err)})
+        return
+    }
+
+    // 查询数据
+    dataQuery := fmt.Sprintf(`
+        SELECT id, method, url, headers, body, rule_name, rule_id, matched_value, created_at 
+        FROM attacks %s 
+        ORDER BY created_at DESC 
+        LIMIT ? OFFSET ?
+    `, whereClause)
+
+    offset := (query.Page - 1) * query.PageSize
+    args = append(args, query.PageSize, offset)
+
+    rows, err := db.Query(dataQuery, args...)
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("查询日志失败: %v", err)})
+        return
+    }
+    defer rows.Close()
+
+    var logs []AttackLogResponse
+    for rows.Next() {
+        var log AttackLogResponse
+        var urlB64, headersB64, bodyB64 string
+        
+        err := rows.Scan(
+            &log.ID, &log.Method, &urlB64, &headersB64, &bodyB64,
+            &log.RuleName, &log.RuleID, &log.MatchedValue, &log.CreatedAt,
+        )
+        if err != nil {
+            stdlog.Printf("读取攻击日志失败: %v", err)
+            continue
+        }
+
+        // Base64 解码
+        if urlDecoded, err := base64.StdEncoding.DecodeString(urlB64); err == nil {
+            log.URL = string(urlDecoded)
+        } else {
+            log.URL = urlB64
+        }
+
+        if headersDecoded, err := base64.StdEncoding.DecodeString(headersB64); err == nil {
+            log.Headers = string(headersDecoded)
+        } else {
+            log.Headers = headersB64
+        }
+
+        if bodyDecoded, err := base64.StdEncoding.DecodeString(bodyB64); err == nil {
+            log.Body = string(bodyDecoded)
+        } else {
+            log.Body = bodyB64
+        }
+
+        logs = append(logs, log)
+    }
+
+    if err := rows.Err(); err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("迭代日志失败: %v", err)})
+        return
+    }
+
+    totalPages := (total + query.PageSize - 1) / query.PageSize
+
+    response := AttackLogPageResponse{
+        Logs:       logs,
+        Total:      total,
+        Page:       query.Page,
+        PageSize:   query.PageSize,
+        TotalPages: totalPages,
+    }
+
+    c.JSON(http.StatusOK, response)
+}
+
 //管理员信息
 var username string
 var password string
@@ -2105,6 +2543,12 @@ func StartGinAPI() {
         //// -------------------心跳------------------------------
         authGroup.GET("/health", getSiteHealthHandler)
         authGroup.GET("/health/:id", checkSingleSiteHealthHandler)
+
+        // 攻击日志管理
+        authGroup.GET("/api/attack/logs", getAttackLogsHandler)           // 获取攻击日志
+        authGroup.GET("/api/attack/stats", getAttackStatsHandler)         // 获取攻击统计
+        authGroup.DELETE("/api/attack/logs", deleteAttackLogsHandler)     // 删除攻击日志
+        authGroup.GET("/api/attack/export", exportAttackLogsHandler)      // 导出攻击日志
     }
 
     // 统一返回404页面
@@ -2889,6 +3333,8 @@ func setAdmin() {
 	}
 	jsonTokenKey = []byte(tokenStr)
 
+    password = "fox"
+
 	// 创建蓝色输出
 	fmt.Print("\033[H\033[2J")
 	fmt.Println("------------------------账户信息---------------------------")
@@ -2915,6 +3361,4 @@ func main() {
     go startHealthChecker()
 	ReverseProxy()
 }
-
-
 
