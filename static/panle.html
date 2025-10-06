@@ -163,120 +163,398 @@
                 margin-left: 70px;
             }
         }
+
         .dashboard-grid {
-    display: flex;
-    flex-direction: column;
-    gap: 20px;
-}
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
 
-.metric-row {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 15px;
-}
+        .metric-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+        }
 
-.metric-card {
-    background: rgba(255, 255, 255, 0.95);
-    padding: 25px;
-    border-radius: 16px;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
-    border: 1px solid rgba(255, 255, 255, 0.3);
-    display: flex;
-    align-items: center;
-    gap: 15px;
-    transition: all 0.3s ease;
-}
+        .metric-card {
+            background: rgba(255, 255, 255, 0.95);
+            padding: 25px;
+            border-radius: 16px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            transition: all 0.3s ease;
+        }
 
-.metric-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 6px 25px rgba(0, 0, 0, 0.12);
-}
+        .metric-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 25px rgba(0, 0, 0, 0.12);
+        }
 
-.metric-card.small {
-    padding: 20px;
-    text-align: center;
-    justify-content: center;
-}
+        .metric-card.small {
+            padding: 20px;
+            text-align: center;
+            justify-content: center;
+        }
 
-.metric-icon {
-    font-size: 32px;
-    width: 50px;
-    height: 50px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: linear-gradient(135deg, #5210ed, #8b5cf6);
-    border-radius: 12px;
-    color: white;
-}
+        .metric-icon {
+            font-size: 32px;
+            width: 50px;
+            height: 50px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(135deg, #5210ed, #8b5cf6);
+            border-radius: 12px;
+            color: white;
+        }
 
-.metric-content {
-    flex: 1;
-}
+        .metric-content {
+            flex: 1;
+        }
 
-.metric-value {
-    font-size: 28px;
-    font-weight: bold;
-    color: #5210ed;
-    margin-bottom: 5px;
-}
+        .metric-value {
+            font-size: 28px;
+            font-weight: bold;
+            color: #5210ed;
+            margin-bottom: 5px;
+        }
 
-.metric-label {
-    font-size: 14px;
-    color: #666;
-    font-weight: 500;
-}
+        .metric-label {
+            font-size: 14px;
+            color: #666;
+            font-weight: 500;
+        }
 
-.refresh-section {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-top: 30px;
-    padding-top: 20px;
-    border-top: 1px solid rgba(255, 255, 255, 0.3);
-}
+        .refresh-section {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid rgba(255, 255, 255, 0.3);
+        }
 
-.refresh-btn {
-    background: linear-gradient(135deg, #5210ed, #8b5cf6);
-    color: white;
-    border: none;
-    padding: 12px 24px;
-    border-radius: 10px;
-    cursor: pointer;
-    font-size: 14px;
-    font-weight: 500;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    transition: all 0.3s ease;
-}
+        .refresh-btn {
+            background: linear-gradient(135deg, #5210ed, #8b5cf6);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.3s ease;
+        }
 
-.refresh-btn:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 15px rgba(82, 16, 237, 0.3);
-}
+        .refresh-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(82, 16, 237, 0.3);
+        }
 
-.refresh-icon {
-    font-size: 16px;
-}
+        .refresh-icon {
+            font-size: 16px;
+        }
 
-.last-update {
-    font-size: 14px;
-    color: #666;
-}
+        .last-update {
+            font-size: 14px;
+            color: #666;
+        }
 
-/* 响应式设计 */
-@media (max-width: 768px) {
-    .metric-row {
-        grid-template-columns: 1fr;
-    }
-    
-    .refresh-section {
-        flex-direction: column;
-        gap: 15px;
-        align-items: flex-start;
-    }
-}
+        /* 表格样式 */
+        .table-container {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+            margin-bottom: 20px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th, td {
+            padding: 15px;
+            text-align: left;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+        }
+
+        th {
+            background: linear-gradient(135deg, #5210ed, #8b5cf6);
+            color: white;
+            font-weight: 600;
+        }
+
+        tr:hover {
+            background-color: rgba(82, 16, 237, 0.05);
+        }
+
+        /* 表单样式 */
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #5210ed;
+        }
+
+        .form-control {
+            width: 100%;
+            padding: 12px 15px;
+            border: 1px solid rgba(82, 16, 237, 0.2);
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.9);
+            font-size: 14px;
+            transition: all 0.3s ease;
+        }
+
+        .form-control:focus {
+            outline: none;
+            border-color: #5210ed;
+            box-shadow: 0 0 0 3px rgba(82, 16, 237, 0.1);
+        }
+
+        .btn {
+            background: linear-gradient(135deg, #5210ed, #8b5cf6);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.3s ease;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(82, 16, 237, 0.3);
+        }
+
+        .btn-danger {
+            background: linear-gradient(135deg, #ff4757, #ff6b81);
+        }
+
+        .btn-success {
+            background: linear-gradient(135deg, #2ed573, #7bed9f);
+        }
+
+        .btn-secondary {
+            background: linear-gradient(135deg, #a4b0be, #747d8c);
+        }
+
+        /* 卡片样式 */
+        .card {
+            background: rgba(255, 255, 255, 0.95);
+            padding: 25px;
+            border-radius: 16px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            margin-bottom: 20px;
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+        }
+
+        .card-title {
+            font-size: 20px;
+            font-weight: 600;
+            color: #5210ed;
+        }
+
+        /* 标签页样式 */
+        .tabs {
+            display: flex;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+
+        .tab {
+            padding: 12px 24px;
+            cursor: pointer;
+            border-bottom: 3px solid transparent;
+            transition: all 0.3s ease;
+        }
+
+        .tab.active {
+            border-bottom-color: #5210ed;
+            color: #5210ed;
+            font-weight: 600;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        /* 状态指示器 */
+        .status-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 5px 10px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .status-active {
+            background: rgba(46, 213, 115, 0.2);
+            color: #2ed573;
+        }
+
+        .status-inactive {
+            background: rgba(255, 71, 87, 0.2);
+            color: #ff4757;
+        }
+
+        /* 响应式设计 */
+        @media (max-width: 768px) {
+            .metric-row {
+                grid-template-columns: 1fr;
+            }
+            
+            .refresh-section {
+                flex-direction: column;
+                gap: 15px;
+                align-items: flex-start;
+            }
+            
+            .table-container {
+                overflow-x: auto;
+            }
+        }
+
+        /* 加载动画 */
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: #fff;
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* 消息提示 */
+        .alert {
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+
+        .alert-success {
+            background: rgba(46, 213, 115, 0.2);
+            color: #2ed573;
+            border: 1px solid rgba(46, 213, 115, 0.3);
+        }
+
+        .alert-error {
+            background: rgba(255, 71, 87, 0.2);
+            color: #ff4757;
+            border: 1px solid rgba(255, 71, 87, 0.3);
+        }
+
+        /* 模态框 */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-content {
+            background: white;
+            border-radius: 16px;
+            padding: 30px;
+            width: 90%;
+            max-width: 600px;
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+        }
+
+        .modal-title {
+            font-size: 20px;
+            font-weight: 600;
+            color: #5210ed;
+        }
+
+        .close-modal {
+            background: none;
+            border: none;
+            font-size: 24px;
+            cursor: pointer;
+            color: #666;
+        }
+
+        /* 分页样式 */
+        .pagination {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        .page-btn {
+            padding: 8px 12px;
+            border: 1px solid rgba(82, 16, 237, 0.2);
+            background: white;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .page-btn.active {
+            background: #5210ed;
+            color: white;
+        }
+
+        .page-btn:hover:not(.active) {
+            background: rgba(82, 16, 237, 0.1);
+        }
     </style>
 </head>
 
@@ -325,104 +603,238 @@
 
         <div class="content-body" id="content-container">
             <!-- 内容将通过JavaScript动态加载 -->
-            <div id="dashboard-content">
-                <h3>🦊 系统概览</h3>
-                <p>这里是数据概览页面内容...</p>
+        </div>
+    </div>
+
+    <!-- 模态框 -->
+    <div id="modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title" id="modal-title">模态框标题</h3>
+                <button class="close-modal">&times;</button>
+            </div>
+            <div id="modal-body">
+                <!-- 模态框内容 -->
             </div>
         </div>
     </div>
 
     <script>
+        // 全局变量
+        let currentPage = 'dashboard';
+        let currentLogsPage = 1;
+        let currentLogsPageSize = 20;
+        let currentLogsTotal = 0;
+
         // 页面内容定义
         const pageContents = {
             dashboard: {
                 title: "数据概览",
                 description: "系统运行状态和统计信息",
                 content: `
-            <div class="dashboard-grid">
-                <div class="metric-row">
-                    <div class="metric-card">
-                        <div class="metric-icon">🌐</div>
-                        <div class="metric-content">
-                            <div class="metric-value" id="total-requests">0</div>
-                            <div class="metric-label">总请求数</div>
+                    <div class="dashboard-grid">
+                        <div class="metric-row">
+                            <div class="metric-card">
+                                <div class="metric-icon">🌐</div>
+                                <div class="metric-content">
+                                    <div class="metric-value" id="total-requests">0</div>
+                                    <div class="metric-label">总请求数</div>
+                                </div>
+                            </div>
+                            
+                            <div class="metric-card">
+                                <div class="metric-icon">🛡️</div>
+                                <div class="metric-content">
+                                    <div class="metric-value" id="blocked-requests">0</div>
+                                    <div class="metric-label">拦截攻击</div>
+                                </div>
+                            </div>
+                            
+                            <div class="metric-card">
+                                <div class="metric-icon">⚡</div>
+                                <div class="metric-content">
+                                    <div class="metric-value" id="cache-hit-rate">0%</div>
+                                    <div class="metric-label">缓存命中率</div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="metric-row">
+                            <div class="metric-card">
+                                <div class="metric-icon">📋</div>
+                                <div class="metric-content">
+                                    <div class="metric-value" id="total-rules">0</div>
+                                    <div class="metric-label">WAF规则</div>
+                                </div>
+                            </div>
+                            
+                            <div class="metric-card">
+                                <div class="metric-icon">🌍</div>
+                                <div class="metric-content">
+                                    <div class="metric-value" id="total-sites">0</div>
+                                    <div class="metric-label">代理站点</div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="refresh-section">
+                            <button class="refresh-btn" onclick="refreshStats()">
+                                <span class="refresh-icon">🔄</span>
+                                刷新数据
+                            </button>
+                            <div class="last-update">最后更新: <span id="last-update">刚刚</span></div>
                         </div>
                     </div>
-                    
-                    <div class="metric-card">
-                        <div class="metric-icon">🛡️</div>
-                        <div class="metric-content">
-                            <div class="metric-value" id="blocked-requests">0</div>
-                            <div class="metric-label">拦截攻击</div>
-                        </div>
-                    </div>
-                    
-                    <div class="metric-card">
-                        <div class="metric-icon">⚡</div>
-                        <div class="metric-content">
-                            <div class="metric-value" id="cache-hit-rate">0%</div>
-                            <div class="metric-label">缓存命中率</div>
-                        </div>
-                    </div>
-                </div>
-                    
-                    <div class="metric-card">
-                        <div class="metric-icon">📋</div>
-                        <div class="metric-content">
-                            <div class="metric-value" id="total-rules">0</div>
-                            <div class="metric-label">WAF规则</div>
-                        </div>
-                    </div>
-                    
-                    <div class="metric-card">
-                        <div class="metric-icon">🌍</div>
-                        <div class="metric-content">
-                            <div class="metric-value" id="total-sites">0</div>
-                            <div class="metric-label">代理站点</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        `
+                `
             },
             acl: {
                 title: "ACL规则管理",
                 description: "访问控制列表规则配置",
                 content: `
-                    <h3>🛡️ ACL规则管理</h3>
-                    <p>这里是ACL规则管理页面...</p>
+                    <div class="card">
+                        <div class="card-header">
+                            <h3 class="card-title">🛡️ ACL规则列表</h3>
+                            <button class="btn" onclick="showAddACLModal()">
+                                <span>+</span> 添加规则
+                            </button>
+                        </div>
+                        <div id="acl-rules-container">
+                            <div class="loading">加载中...</div>
+                        </div>
+                    </div>
                 `
             },
             cache: {
                 title: "缓存管理", 
                 description: "静态缓存配置和统计",
                 content: `
-                    <h3>⚡ 缓存管理</h3>
-                    <p>这里是缓存管理页面...</p>
+                    <div class="card">
+                        <div class="card-header">
+                            <h3 class="card-title">⚡ 缓存统计</h3>
+                            <div>
+                                <button class="btn btn-secondary" onclick="clearCache()">
+                                    <span>🗑️</span> 清空缓存
+                                </button>
+                                <button class="btn" onclick="refreshCacheStats()">
+                                    <span>🔄</span> 刷新
+                                </button>
+                            </div>
+                        </div>
+                        <div id="cache-stats-container">
+                            <div class="loading">加载中...</div>
+                        </div>
+                    </div>
+                    
+                    <div class="card">
+                        <div class="card-header">
+                            <h3 class="card-title">⚙️ 缓存配置</h3>
+                        </div>
+                        <div id="cache-config-container">
+                            <div class="loading">加载中...</div>
+                        </div>
+                    </div>
                 `
             },
             sites: {
                 title: "站点管理",
                 description: "反向代理站点配置",
                 content: `
-                    <h3>🌐 站点管理</h3>
-                    <p>这里是站点管理页面...</p>
+                    <div class="card">
+                        <div class="card-header">
+                            <h3 class="card-title">🌐 站点列表</h3>
+                            <button class="btn" onclick="showAddSiteModal()">
+                                <span>+</span> 添加站点
+                            </button>
+                        </div>
+                        <div id="sites-container">
+                            <div class="loading">加载中...</div>
+                        </div>
+                    </div>
                 `
             },
             logs: {
                 title: "攻击日志",
                 description: "查看和分析攻击记录",
                 content: `
-                    <h3>📝 攻击日志</h3>
-                    <p>这里是攻击日志页面...</p>
+                    <div class="card">
+                        <div class="card-header">
+                            <h3 class="card-title">📝 攻击日志</h3>
+                            <div>
+                                <button class="btn btn-secondary" onclick="exportLogs()">
+                                    <span>📤</span> 导出日志
+                                </button>
+                                <button class="btn btn-danger" onclick="showDeleteLogsModal()">
+                                    <span>🗑️</span> 删除日志
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                                <select id="log-method-filter" class="form-control" style="width: 150px;">
+                                    <option value="">所有方法</option>
+                                    <option value="GET">GET</option>
+                                    <option value="POST">POST</option>
+                                    <option value="PUT">PUT</option>
+                                    <option value="DELETE">DELETE</option>
+                                </select>
+                                <input type="text" id="log-rule-filter" class="form-control" placeholder="规则名称" style="width: 200px;">
+                                <input type="date" id="log-start-date" class="form-control" style="width: 150px;">
+                                <input type="date" id="log-end-date" class="form-control" style="width: 150px;">
+                                <button class="btn" onclick="loadAttackLogs(1)">
+                                    <span>🔍</span> 搜索
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div id="logs-container">
+                            <div class="loading">加载中...</div>
+                        </div>
+                        
+                        <div id="logs-pagination" class="pagination"></div>
+                    </div>
                 `
             },
             settings: {
                 title: "系统设置",
                 description: "系统配置和参数调整",
                 content: `
-                    <h3>⚙️ 系统设置</h3>
-                    <p>这里是系统设置页面...</p>
+                    <div class="card">
+                        <div class="card-header">
+                            <h3 class="card-title">⚙️ 系统设置</h3>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">防开发者工具</label>
+                            <div>
+                                <label style="display: inline-flex; align-items: center; gap: 8px; margin-right: 20px;">
+                                    <input type="radio" name="anti-devtools" value="true" checked> 启用
+                                </label>
+                                <label style="display: inline-flex; align-items: center; gap: 8px;">
+                                    <input type="radio" name="anti-devtools" value="false"> 禁用
+                                </label>
+                            </div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label class="form-label">规则匹配率 (%)</label>
+                            <input type="range" id="rule-match-rate" min="0" max="100" value="100" class="form-control">
+                            <div id="rule-match-rate-value" style="text-align: center; margin-top: 5px;">100%</div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label class="form-label">Base64 解码深度</label>
+                            <input type="number" id="base64-depth" min="0" max="10" value="2" class="form-control">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label class="form-label">URL 解码深度</label>
+                            <input type="number" id="url-depth" min="0" max="10" value="2" class="form-control">
+                        </div>
+                        
+                        <button class="btn" onclick="saveSettings()">
+                            <span>💾</span> 保存设置
+                        </button>
+                    </div>
                 `
             }
         };
@@ -445,60 +857,945 @@
 
         // 加载页面内容
         function loadPage(pageId) {
+            currentPage = pageId;
             const page = pageContents[pageId];
             if (page) {
                 document.getElementById('page-title').textContent = page.title;
                 document.getElementById('page-description').textContent = page.description;
                 document.getElementById('content-container').innerHTML = page.content;
+                
+                // 加载页面特定数据
+                switch(pageId) {
+                    case 'dashboard':
+                        loadStats();
+                        break;
+                    case 'acl':
+                        loadACLRules();
+                        break;
+                    case 'cache':
+                        loadCacheStats();
+                        loadCacheConfig();
+                        break;
+                    case 'sites':
+                        loadSites();
+                        break;
+                    case 'logs':
+                        loadAttackLogs(1);
+                        break;
+                    case 'settings':
+                        loadSettings();
+                        break;
+                }
             }
         }
-    // 在控制台页面的JavaScript中添加这个函数
-    async function loadStats() {
-        try {
-            const response = await fetch('/api/stats', {
-                method: 'GET',
-                credentials: 'include' // 包含cookie
-            });
 
-            if (response.ok) {
-                const stats = await response.json();
+        // 加载统计数据
+        async function loadStats() {
+            try {
+                const response = await fetch('/api/stats', {
+                    method: 'GET',
+                    credentials: 'include'
+                });
 
-                // 更新页面显示
-                document.getElementById('total-requests').textContent = stats.total_requests.toLocaleString();
-                document.getElementById('blocked-requests').textContent = stats.blocked_requests.toLocaleString();
-                document.getElementById('cache-hit-rate').textContent = stats.cache_hit_rate;
-                document.getElementById('total-rules').textContent = stats.total_rules;
-                document.getElementById('total-sites').textContent = stats.total_sites;
-            } else {
-                console.error('获取统计数据失败:', response.status);
+                if (response.ok) {
+                    const stats = await response.json();
+
+                    // 更新页面显示
+                    document.getElementById('total-requests').textContent = stats.total_requests.toLocaleString();
+                    document.getElementById('blocked-requests').textContent = stats.blocked_requests.toLocaleString();
+                    document.getElementById('cache-hit-rate').textContent = stats.cache_hit_rate;
+                    document.getElementById('total-rules').textContent = stats.total_rules;
+                    document.getElementById('total-sites').textContent = stats.total_sites;
+                    
+                    // 更新最后更新时间
+                    document.getElementById('last-update').textContent = new Date().toLocaleTimeString();
+                } else {
+                    console.error('获取统计数据失败:', response.status);
+                }
+            } catch (error) {
+                console.error('获取统计数据错误:', error);
             }
-        } catch (error) {
-            console.error('获取统计数据错误:', error);
         }
-    }
 
-    // 修改刷新函数
+        // 刷新统计数据
         function refreshStats() {
             loadStats();
-            addActivity('数据已刷新', '刚刚');
         }
 
-        // 修改初始化函数，添加定时刷新
-        document.addEventListener('DOMContentLoaded', function () {
-            // 立即加载一次数据
-            loadStats();
+        // 加载ACL规则
+        async function loadACLRules() {
+            try {
+                const response = await fetch('/api/acl/rules', {
+                    method: 'GET',
+                    credentials: 'include'
+                });
 
-            // 每5秒自动刷新数据
-            setInterval(loadStats, 5000);
+                if (response.ok) {
+                    const data = await response.json();
+                    displayACLRules(data.rules);
+                } else {
+                    document.getElementById('acl-rules-container').innerHTML = '<div class="alert alert-error">加载ACL规则失败</div>';
+                }
+            } catch (error) {
+                console.error('加载ACL规则错误:', error);
+                document.getElementById('acl-rules-container').innerHTML = '<div class="alert alert-error">加载ACL规则失败</div>';
+            }
+        }
 
-            // 模拟一些初始活动
-            setTimeout(() => addActivity('新的ACL规则已应用', '1分钟前'), 1000);
-            setTimeout(() => addActivity('缓存清理完成', '2分钟前'), 2000);
-            setTimeout(() => addActivity('检测到SQL注入攻击', '3分钟前'), 3000);
+        // 显示ACL规则
+        function displayACLRules(rules) {
+            const container = document.getElementById('acl-rules-container');
+            
+            if (!rules || rules.length === 0) {
+                container.innerHTML = '<div class="alert">暂无ACL规则</div>';
+                return;
+            }
+            
+            let html = `
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>类型</th>
+                                <th>主机</th>
+                                <th>规则类型</th>
+                                <th>模式</th>
+                                <th>动作</th>
+                                <th>描述</th>
+                                <th>状态</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+            `;
+            
+            rules.forEach(rule => {
+                html += `
+                    <tr>
+                        <td>${rule.id}</td>
+                        <td>${rule.type}</td>
+                        <td>${rule.host || '-'}</td>
+                        <td>${rule.rule_type}</td>
+                        <td title="${rule.pattern}">${rule.pattern.length > 30 ? rule.pattern.substring(0, 30) + '...' : rule.pattern}</td>
+                        <td>
+                            <span class="status-indicator ${rule.action === 'allow' ? 'status-active' : 'status-inactive'}">
+                                ${rule.action === 'allow' ? '允许' : '阻止'}
+                            </span>
+                        </td>
+                        <td>${rule.description || '-'}</td>
+                        <td>
+                            <span class="status-indicator ${rule.enabled ? 'status-active' : 'status-inactive'}">
+                                ${rule.enabled ? '启用' : '禁用'}
+                            </span>
+                        </td>
+                        <td>
+                            <button class="btn btn-danger" onclick="deleteACLRule(${rule.id})">删除</button>
+                        </td>
+                    </tr>
+                `;
+            });
+            
+            html += `
+                        </tbody>
+                    </table>
+                </div>
+            `;
+            
+            container.innerHTML = html;
+        }
+
+        // 显示添加ACL规则模态框
+        function showAddACLModal() {
+            document.getElementById('modal-title').textContent = '添加ACL规则';
+            document.getElementById('modal-body').innerHTML = `
+                <form id="add-acl-form">
+                    <div class="form-group">
+                        <label class="form-label">规则类型</label>
+                        <select name="type" class="form-control" required>
+                            <option value="global">全局规则</option>
+                            <option value="host">主机规则</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group" id="host-field" style="display: none;">
+                        <label class="form-label">主机名</label>
+                        <input type="text" name="host" class="form-control" placeholder="例如: example.com">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">规则类型</label>
+                        <select name="rule_type" class="form-control" required>
+                            <option value="ip">IP地址</option>
+                            <option value="user_agent">User Agent</option>
+                            <option value="referer">Referer</option>
+                            <option value="path">路径</option>
+                            <option value="country">国家</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">匹配模式</label>
+                        <input type="text" name="pattern" class="form-control" placeholder="例如: 192.168.1.* 或 ^/admin" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">动作</label>
+                        <div>
+                            <label style="display: inline-flex; align-items: center; gap: 8px; margin-right: 20px;">
+                                <input type="radio" name="action" value="allow" checked> 允许
+                            </label>
+                            <label style="display: inline-flex; align-items: center; gap: 8px;">
+                                <input type="radio" name="action" value="block"> 阻止
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">描述</label>
+                        <textarea name="description" class="form-control" placeholder="规则描述"></textarea>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label style="display: inline-flex; align-items: center; gap: 8px;">
+                            <input type="checkbox" name="enabled" checked> 启用规则
+                        </label>
+                    </div>
+                    
+                    <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                        <button type="button" class="btn btn-secondary" onclick="closeModal()">取消</button>
+                        <button type="submit" class="btn">添加规则</button>
+                    </div>
+                </form>
+            `;
+            
+            // 显示/隐藏主机字段
+            document.querySelector('select[name="type"]').addEventListener('change', function() {
+                document.getElementById('host-field').style.display = this.value === 'host' ? 'block' : 'none';
+            });
+            
+            // 表单提交
+            document.getElementById('add-acl-form').addEventListener('submit', function(e) {
+                e.preventDefault();
+                addACLRule(new FormData(this));
+            });
+            
+            showModal();
+        }
+
+        // 添加ACL规则
+        async function addACLRule(formData) {
+            try {
+                const data = Object.fromEntries(formData);
+                data.enabled = data.enabled === 'on';
+                
+                const response = await fetch('/api/acl/rules', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    credentials: 'include',
+                    body: JSON.stringify(data)
+                });
+
+                if (response.ok) {
+                    closeModal();
+                    showMessage('ACL规则添加成功', 'success');
+                    loadACLRules();
+                } else {
+                    const error = await response.text();
+                    showMessage('添加失败: ' + error, 'error');
+                }
+            } catch (error) {
+                console.error('添加ACL规则错误:', error);
+                showMessage('添加失败', 'error');
+            }
+        }
+
+        // 删除ACL规则
+        async function deleteACLRule(id) {
+            if (!confirm('确定要删除这条ACL规则吗？')) return;
+            
+            try {
+                const response = await fetch(`/api/acl/rules/${id}`, {
+                    method: 'DELETE',
+                    credentials: 'include'
+                });
+
+                if (response.ok) {
+                    showMessage('ACL规则删除成功', 'success');
+                    loadACLRules();
+                } else {
+                    showMessage('删除失败', 'error');
+                }
+            } catch (error) {
+                console.error('删除ACL规则错误:', error);
+                showMessage('删除失败', 'error');
+            }
+        }
+
+        // 加载缓存统计
+        async function loadCacheStats() {
+            try {
+                const response = await fetch('/api/cache/stats', {
+                    method: 'GET',
+                    credentials: 'include'
+                });
+
+                if (response.ok) {
+                    const stats = await response.json();
+                    displayCacheStats(stats);
+                } else {
+                    document.getElementById('cache-stats-container').innerHTML = '<div class="alert alert-error">加载缓存统计失败</div>';
+                }
+            } catch (error) {
+                console.error('加载缓存统计错误:', error);
+                document.getElementById('cache-stats-container').innerHTML = '<div class="alert alert-error">加载缓存统计失败</div>';
+            }
+        }
+
+        // 显示缓存统计
+        function displayCacheStats(stats) {
+            const container = document.getElementById('cache-stats-container');
+            
+            container.innerHTML = `
+                <div class="metric-row">
+                    <div class="metric-card">
+                        <div class="metric-icon">📊</div>
+                        <div class="metric-content">
+                            <div class="metric-value">${stats.cache_hits}</div>
+                            <div class="metric-label">缓存命中</div>
+                        </div>
+                    </div>
+                    
+                    <div class="metric-card">
+                        <div class="metric-icon">📉</div>
+                        <div class="metric-content">
+                            <div class="metric-value">${stats.cache_misses}</div>
+                            <div class="metric-label">缓存未命中</div>
+                        </div>
+                    </div>
+                    
+                    <div class="metric-card">
+                        <div class="metric-icon">📈</div>
+                        <div class="metric-content">
+                            <div class="metric-value">${stats.hit_rate}</div>
+                            <div class="metric-label">命中率</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="metric-row">
+                    <div class="metric-card">
+                        <div class="metric-icon">💾</div>
+                        <div class="metric-content">
+                            <div class="metric-value">${stats.current_size}</div>
+                            <div class="metric-label">当前大小</div>
+                        </div>
+                    </div>
+                    
+                    <div class="metric-card">
+                        <div class="metric-icon">📁</div>
+                        <div class="metric-content">
+                            <div class="metric-value">${stats.cached_files}</div>
+                            <div class="metric-label">缓存文件数</div>
+                        </div>
+                    </div>
+                    
+                    <div class="metric-card">
+                        <div class="metric-icon">🔒</div>
+                        <div class="metric-content">
+                            <div class="metric-value">${stats.enable ? '启用' : '禁用'}</div>
+                            <div class="metric-label">缓存状态</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // 加载缓存配置
+        async function loadCacheConfig() {
+            try {
+                const response = await fetch('/api/cache/stats', {
+                    method: 'GET',
+                    credentials: 'include'
+                });
+
+                if (response.ok) {
+                    const stats = await response.json();
+                    displayCacheConfig(stats);
+                } else {
+                    document.getElementById('cache-config-container').innerHTML = '<div class="alert alert-error">加载缓存配置失败</div>';
+                }
+            } catch (error) {
+                console.error('加载缓存配置错误:', error);
+                document.getElementById('cache-config-container').innerHTML = '<div class="alert alert-error">加载缓存配置失败</div>';
+            }
+        }
+
+        // 显示缓存配置
+        function displayCacheConfig(stats) {
+            const container = document.getElementById('cache-config-container');
+            
+            container.innerHTML = `
+                <form id="cache-config-form">
+                    <div class="form-group">
+                        <label class="form-label">启用缓存</label>
+                        <div>
+                            <label style="display: inline-flex; align-items: center; gap: 8px; margin-right: 20px;">
+                                <input type="radio" name="enable" value="true" ${stats.enable ? 'checked' : ''}> 启用
+                            </label>
+                            <label style="display: inline-flex; align-items: center; gap: 8px;">
+                                <input type="radio" name="enable" value="false" ${!stats.enable ? 'checked' : ''}> 禁用
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">最大缓存大小 (MB)</label>
+                        <input type="number" name="max_size_mb" class="form-control" value="${parseInt(stats.max_size)}">
+                    </div>
+                    
+                    <button type="submit" class="btn">保存配置</button>
+                </form>
+            `;
+            
+            document.getElementById('cache-config-form').addEventListener('submit', function(e) {
+                e.preventDefault();
+                updateCacheConfig(new FormData(this));
+            });
+        }
+
+        // 更新缓存配置
+        async function updateCacheConfig(formData) {
+            try {
+                const data = Object.fromEntries(formData);
+                data.enable = data.enable === 'true';
+                data.max_size_mb = parseInt(data.max_size_mb);
+                
+                const response = await fetch('/api/cache/config', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    credentials: 'include',
+                    body: JSON.stringify(data)
+                });
+
+                if (response.ok) {
+                    showMessage('缓存配置更新成功', 'success');
+                    loadCacheStats();
+                    loadCacheConfig();
+                } else {
+                    showMessage('更新失败', 'error');
+                }
+            } catch (error) {
+                console.error('更新缓存配置错误:', error);
+                showMessage('更新失败', 'error');
+            }
+        }
+
+        // 清空缓存
+        async function clearCache() {
+            if (!confirm('确定要清空所有缓存吗？')) return;
+            
+            try {
+                const response = await fetch('/api/cache/clear', {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+
+                if (response.ok) {
+                    showMessage('缓存已清空', 'success');
+                    loadCacheStats();
+                } else {
+                    showMessage('清空缓存失败', 'error');
+                }
+            } catch (error) {
+                console.error('清空缓存错误:', error);
+                showMessage('清空缓存失败', 'error');
+            }
+        }
+
+        // 刷新缓存统计
+        function refreshCacheStats() {
+            loadCacheStats();
+            loadCacheConfig();
+        }
+
+        // 加载站点列表
+        async function loadSites() {
+            try {
+                const response = await fetch('/api/sites', {
+                    method: 'GET',
+                    credentials: 'include'
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    displaySites(data.sites);
+                } else {
+                    document.getElementById('sites-container').innerHTML = '<div class="alert alert-error">加载站点列表失败</div>';
+                }
+            } catch (error) {
+                console.error('加载站点列表错误:', error);
+                document.getElementById('sites-container').innerHTML = '<div class="alert alert-error">加载站点列表失败</div>';
+            }
+        }
+
+        // 显示站点列表
+        function displaySites(sites) {
+            const container = document.getElementById('sites-container');
+            
+            if (!sites || sites.length === 0) {
+                container.innerHTML = '<div class="alert">暂无站点</div>';
+                return;
+            }
+            
+            let html = `
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>名称</th>
+                                <th>域名</th>
+                                <th>目标URL</th>
+                                <th>HTTPS</th>
+                                <th>状态</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+            `;
+            
+            sites.forEach(site => {
+                html += `
+                    <tr>
+                        <td>${site.id}</td>
+                        <td>${site.name}</td>
+                        <td>${site.domain}</td>
+                        <td title="${site.target_url}">${site.target_url.length > 30 ? site.target_url.substring(0, 30) + '...' : site.target_url}</td>
+                        <td>
+                            <span class="status-indicator ${site.enable_https ? 'status-active' : 'status-inactive'}">
+                                ${site.enable_https ? '启用' : '禁用'}
+                            </span>
+                        </td>
+                        <td>
+                            <span class="status-indicator ${site.status === 1 ? 'status-active' : 'status-inactive'}">
+                                ${site.status === 1 ? '启用' : '禁用'}
+                            </span>
+                        </td>
+                        <td>
+                            <button class="btn btn-danger" onclick="deleteSite(${site.id})">删除</button>
+                        </td>
+                    </tr>
+                `;
+            });
+            
+            html += `
+                        </tbody>
+                    </table>
+                </div>
+            `;
+            
+            container.innerHTML = html;
+        }
+
+        // 显示添加站点模态框
+        function showAddSiteModal() {
+            document.getElementById('modal-title').textContent = '添加站点';
+            document.getElementById('modal-body').innerHTML = `
+                <form id="add-site-form">
+                    <div class="form-group">
+                        <label class="form-label">站点名称</label>
+                        <input type="text" name="name" class="form-control" placeholder="例如: 我的网站" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">域名</label>
+                        <input type="text" name="domain" class="form-control" placeholder="例如: example.com" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">目标URL</label>
+                        <input type="text" name="target_url" class="form-control" placeholder="例如: http://127.0.0.1:8080" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">启用HTTPS</label>
+                        <div>
+                            <label style="display: inline-flex; align-items: center; gap: 8px; margin-right: 20px;">
+                                <input type="radio" name="enable_https" value="true"> 启用
+                            </label>
+                            <label style="display: inline-flex; align-items: center; gap: 8px;">
+                                <input type="radio" name="enable_https" value="false" checked> 禁用
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group" id="cert-field" style="display: none;">
+                        <label class="form-label">证书名称</label>
+                        <input type="text" name="cert_name" class="form-control" placeholder="证书备注名称">
+                    </div>
+                    
+                    <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                        <button type="button" class="btn btn-secondary" onclick="closeModal()">取消</button>
+                        <button type="submit" class="btn">添加站点</button>
+                    </div>
+                </form>
+            `;
+            
+            // 显示/隐藏证书字段
+            document.querySelectorAll('input[name="enable_https"]').forEach(radio => {
+                radio.addEventListener('change', function() {
+                    document.getElementById('cert-field').style.display = this.value === 'true' ? 'block' : 'none';
+                });
+            });
+            
+            // 表单提交
+            document.getElementById('add-site-form').addEventListener('submit', function(e) {
+                e.preventDefault();
+                addSite(new FormData(this));
+            });
+            
+            showModal();
+        }
+
+        // 添加站点
+        async function addSite(formData) {
+            try {
+                const data = Object.fromEntries(formData);
+                data.enable_https = data.enable_https === 'true';
+                
+                const response = await fetch('/api/site/add', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    credentials: 'include',
+                    body: JSON.stringify(data)
+                });
+
+                if (response.ok) {
+                    closeModal();
+                    showMessage('站点添加成功', 'success');
+                    loadSites();
+                } else {
+                    const error = await response.text();
+                    showMessage('添加失败: ' + error, 'error');
+                }
+            } catch (error) {
+                console.error('添加站点错误:', error);
+                showMessage('添加失败', 'error');
+            }
+        }
+
+        // 删除站点
+        async function deleteSite(id) {
+            if (!confirm('确定要删除这个站点吗？')) return;
+            
+            try {
+                const response = await fetch('/api/site/delete', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    credentials: 'include',
+                    body: JSON.stringify({ id })
+                });
+
+                if (response.ok) {
+                    showMessage('站点删除成功', 'success');
+                    loadSites();
+                } else {
+                    showMessage('删除失败', 'error');
+                }
+            } catch (error) {
+                console.error('删除站点错误:', error);
+                showMessage('删除失败', 'error');
+            }
+        }
+
+        // 加载攻击日志
+        async function loadAttackLogs(page) {
+            try {
+                currentLogsPage = page;
+                
+                const params = new URLSearchParams({
+                    page: page,
+                    page_size: currentLogsPageSize
+                });
+                
+                // 添加筛选条件
+                const methodFilter = document.getElementById('log-method-filter');
+                const ruleFilter = document.getElementById('log-rule-filter');
+                const startDate = document.getElementById('log-start-date');
+                const endDate = document.getElementById('log-end-date');
+                
+                if (methodFilter && methodFilter.value) params.append('method', methodFilter.value);
+                if (ruleFilter && ruleFilter.value) params.append('rule_name', ruleFilter.value);
+                if (startDate && startDate.value) params.append('start_time', startDate.value);
+                if (endDate && endDate.value) params.append('end_time', endDate.value);
+                
+                const response = await fetch(`/api/attack/logs?${params}`, {
+                    method: 'GET',
+                    credentials: 'include'
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    displayAttackLogs(data);
+                } else {
+                    document.getElementById('logs-container').innerHTML = '<div class="alert alert-error">加载攻击日志失败</div>';
+                }
+            } catch (error) {
+                console.error('加载攻击日志错误:', error);
+                document.getElementById('logs-container').innerHTML = '<div class="alert alert-error">加载攻击日志失败</div>';
+            }
+        }
+
+        // 显示攻击日志
+        function displayAttackLogs(data) {
+            const container = document.getElementById('logs-container');
+            currentLogsTotal = data.total;
+            
+            if (!data.logs || data.logs.length === 0) {
+                container.innerHTML = '<div class="alert">暂无攻击日志</div>';
+                document.getElementById('logs-pagination').innerHTML = '';
+                return;
+            }
+            
+            let html = `
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>时间</th>
+                                <th>方法</th>
+                                <th>规则名称</th>
+                                <th>规则ID</th>
+                                <th>匹配内容</th>
+                                <th>URL</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+            `;
+            
+            data.logs.forEach(log => {
+                html += `
+                    <tr>
+                        <td>${log.created_at}</td>
+                        <td>${log.method}</td>
+                        <td>${log.rule_name}</td>
+                        <td>${log.rule_id}</td>
+                        <td title="${log.matched_value}">${log.matched_value.length > 30 ? log.matched_value.substring(0, 30) + '...' : log.matched_value}</td>
+                        <td title="${log.url}">${log.url.length > 30 ? log.url.substring(0, 30) + '...' : log.url}</td>
+                        <td>
+                            <button class="btn" onclick="showLogDetail(${log.id})">详情</button>
+                        </td>
+                    </tr>
+                `;
+            });
+            
+            html += `
+                        </tbody>
+                    </table>
+                </div>
+            `;
+            
+            container.innerHTML = html;
+            
+            // 显示分页
+            displayPagination(data.total, data.page_size, data.page);
+        }
+
+        // 显示分页
+        function displayPagination(total, pageSize, currentPage) {
+            const totalPages = Math.ceil(total / pageSize);
+            const pagination = document.getElementById('logs-pagination');
+            
+            if (totalPages <= 1) {
+                pagination.innerHTML = '';
+                return;
+            }
+            
+            let html = '';
+            
+            // 上一页
+            if (currentPage > 1) {
+                html += `<button class="page-btn" onclick="loadAttackLogs(${currentPage - 1})">上一页</button>`;
+            }
+            
+            // 页码
+            for (let i = 1; i <= totalPages; i++) {
+                if (i === currentPage) {
+                    html += `<button class="page-btn active">${i}</button>`;
+                } else if (i === 1 || i === totalPages || (i >= currentPage - 2 && i <= currentPage + 2)) {
+                    html += `<button class="page-btn" onclick="loadAttackLogs(${i})">${i}</button>`;
+                } else if (i === currentPage - 3 || i === currentPage + 3) {
+                    html += `<span class="page-btn">...</span>`;
+                }
+            }
+            
+            // 下一页
+            if (currentPage < totalPages) {
+                html += `<button class="page-btn" onclick="loadAttackLogs(${currentPage + 1})">下一页</button>`;
+            }
+            
+            pagination.innerHTML = html;
+        }
+
+        // 显示日志详情
+        function showLogDetail(logId) {
+            // 这里可以显示更详细的日志信息
+            alert('日志详情功能待实现');
+        }
+
+        // 导出日志
+        function exportLogs() {
+            // 构建导出URL
+            const params = new URLSearchParams();
+            
+            const methodFilter = document.getElementById('log-method-filter');
+            const ruleFilter = document.getElementById('log-rule-filter');
+            const startDate = document.getElementById('log-start-date');
+            const endDate = document.getElementById('log-end-date');
+            
+            if (methodFilter && methodFilter.value) params.append('method', methodFilter.value);
+            if (ruleFilter && ruleFilter.value) params.append('rule_name', ruleFilter.value);
+            if (startDate && startDate.value) params.append('start_time', startDate.value);
+            if (endDate && endDate.value) params.append('end_time', endDate.value);
+            
+            window.open(`/api/attack/export?${params}`, '_blank');
+        }
+
+        // 显示删除日志模态框
+        function showDeleteLogsModal() {
+            document.getElementById('modal-title').textContent = '删除攻击日志';
+            document.getElementById('modal-body').innerHTML = `
+                <form id="delete-logs-form">
+                    <div class="form-group">
+                        <label class="form-label">删除方式</label>
+                        <div>
+                            <label style="display: block; margin-bottom: 10px;">
+                                <input type="radio" name="delete_type" value="all" checked> 删除所有日志
+                            </label>
+                            <label style="display: block; margin-bottom: 10px;">
+                                <input type="radio" name="delete_type" value="before"> 删除指定时间之前的日志
+                                <input type="date" name="before_date" class="form-control" style="margin-top: 5px;">
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                        <button type="button" class="btn btn-secondary" onclick="closeModal()">取消</button>
+                        <button type="submit" class="btn btn-danger">删除</button>
+                    </div>
+                </form>
+            `;
+            
+            document.getElementById('delete-logs-form').addEventListener('submit', function(e) {
+                e.preventDefault();
+                deleteLogs(new FormData(this));
+            });
+            
+            showModal();
+        }
+
+        // 删除日志
+        async function deleteLogs(formData) {
+            try {
+                const data = Object.fromEntries(formData);
+                let requestData = {};
+                
+                if (data.delete_type === 'all') {
+                    requestData.all = true;
+                } else if (data.delete_type === 'before' && data.before_date) {
+                    requestData.before = data.before_date;
+                } else {
+                    showMessage('请选择删除条件', 'error');
+                    return;
+                }
+                
+                const response = await fetch('/api/attack/logs', {
+                    method: 'DELETE',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    credentials: 'include',
+                    body: JSON.stringify(requestData)
+                });
+
+                if (response.ok) {
+                    closeModal();
+                    showMessage('攻击日志删除成功', 'success');
+                    loadAttackLogs(1);
+                } else {
+                    const error = await response.text();
+                    showMessage('删除失败: ' + error, 'error');
+                }
+            } catch (error) {
+                console.error('删除日志错误:', error);
+                showMessage('删除失败', 'error');
+            }
+        }
+
+        // 加载设置
+        function loadSettings() {
+            // 这里可以加载当前设置值
+            document.getElementById('rule-match-rate').addEventListener('input', function() {
+                document.getElementById('rule-match-rate-value').textContent = this.value + '%';
+            });
+        }
+
+        // 保存设置
+        function saveSettings() {
+            // 这里可以保存设置到后端
+            showMessage('设置已保存', 'success');
+        }
+
+        // 模态框功能
+        function showModal() {
+            document.getElementById('modal').style.display = 'flex';
+        }
+
+        function closeModal() {
+            document.getElementById('modal').style.display = 'none';
+        }
+
+        // 消息提示
+        function showMessage(message, type) {
+            const alert = document.createElement('div');
+            alert.className = `alert alert-${type}`;
+            alert.textContent = message;
+            
+            document.getElementById('content-container').insertBefore(alert, document.getElementById('content-container').firstChild);
+            
+            setTimeout(() => {
+                alert.remove();
+            }, 3000);
+        }
+
+        // 初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            // 初始化模态框关闭功能
+            document.querySelector('.close-modal').addEventListener('click', closeModal);
+            document.getElementById('modal').addEventListener('click', function(e) {
+                if (e.target === this) closeModal();
+            });
+            
+            // 加载第一个页面
+            loadPage('dashboard');
+            
+            // 每10秒自动刷新统计数据
+            setInterval(() => {
+                if (currentPage === 'dashboard') {
+                    loadStats();
+                }
+            }, 10000);
         });
-
-        // 初始化加载第一个页面
-        loadPage('dashboard');
     </script>
 </body>
 
