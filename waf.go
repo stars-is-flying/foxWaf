@@ -3250,6 +3250,20 @@ func matchesWildcard(serverName, pattern string) bool {
 func getCertificate(clientHello *tls.ClientHelloInfo) (*tls.Certificate, error) {
     // 从 SNI 获取域名
     serverName := clientHello.ServerName
+
+    // 检查该域名是否启用了 HTTPS
+    enableHTTPS := false
+    for _, site := range sites {
+        if strings.EqualFold(site.Domain, serverName) && site.Status == 1 {
+            enableHTTPS = site.EnableHTTPS
+            break
+        }
+    }
+    
+    // 如果该域名禁用了 HTTPS，返回错误
+    if !enableHTTPS {
+        return nil, fmt.Errorf("HTTPS is disabled for domain: %s", serverName)
+    }
     
     if cert, ok := certificateMap[serverName]; ok {
         stdlog.Printf("使用证书: %s", serverName)
