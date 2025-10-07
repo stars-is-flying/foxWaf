@@ -88,14 +88,16 @@ type Rule struct {
 var RULES map[string][]Rule
 
 // ------------------- 攻击记录 -------------------
+// ------------------- 攻击记录 -------------------
 type AttackLog struct {
-	Method       string `json:"method"`
-	URL          string `json:"url"`
-	Headers      string `json:"headers"`
-	Body         string `json:"body"`
-	RuleName     string `json:"rule_name"`
-	RuleID       string `json:"rule_id"`
-	MatchedValue string `json:"matched_value"`
+    Method       string `json:"method"`
+    URL          string `json:"url"`
+    Headers      string `json:"headers"`
+    Body         string `json:"body"`
+    RuleName     string `json:"rule_name"`
+    RuleID       string `json:"rule_id"`
+    MatchedValue string `json:"matched_value"`
+    ClientIP     string `json:"client_ip"` // 新增客户端IP字段
 }
 
 
@@ -134,6 +136,7 @@ type AttackLogResponse struct {
     RuleName     string    `json:"rule_name"`
     RuleID       string    `json:"rule_id"`
     MatchedValue string    `json:"matched_value"`
+    ClientIP     string    `json:"client_ip"` // 新增
     CreatedAt    string    `json:"created_at"`
     
     // 解码后的字段（可选展示）
@@ -262,10 +265,11 @@ func exportAttackLogsHandler(c *gin.Context) {
 
     // 查询数据
     dataQuery := fmt.Sprintf(`
-        SELECT method, url, headers, body, rule_name, rule_id, matched_value, created_at 
-        FROM attacks %s 
-        ORDER BY created_at DESC
-    `, whereClause)
+    SELECT id, method, url, headers, body, rule_name, rule_id, matched_value, client_ip, created_at 
+    FROM attacks %s 
+    ORDER BY created_at DESC 
+    LIMIT ? OFFSET ?
+`, whereClause)
 
     rows, err := db.Query(dataQuery, args...)
     if err != nil {
@@ -280,8 +284,8 @@ func exportAttackLogsHandler(c *gin.Context) {
         var urlB64, headersB64, bodyB64 string
         
         err := rows.Scan(
-            &log.Method, &urlB64, &headersB64, &bodyB64,
-            &log.RuleName, &log.RuleID, &log.MatchedValue, &log.CreatedAt,
+        &log.ID, &log.Method, &urlB64, &headersB64, &bodyB64,
+        &log.RuleName, &log.RuleID, &log.MatchedValue, &log.ClientIP, &log.CreatedAt,
         )
         if err != nil {
             continue
@@ -548,6 +552,69 @@ func getAttackLogsHandler(c *gin.Context) {
     }
 
     c.JSON(http.StatusOK, response)
+}
+
+// ------------------- 获取单个攻击日志详情接口 -------------------
+func getAttackLogDetailHandler(c *gin.Context) {
+    logID := c.Param("id")
+    
+    if logID == "" {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "日志ID不能为空"})
+        return
+    }
+
+    query := `
+        SELECT id, method, url, headers, body, rule_name, rule_id, matched_value, client_ip,created_at 
+        FROM attacks 
+        WHERE id = ?
+    `
+    
+    var log AttackLogResponse
+    var urlB64, headersB64, bodyB64 string
+    
+    err := db.QueryRow(query, logID).Scan(
+        &log.ID, &log.Method, &urlB64, &headersB64, &bodyB64,
+        &log.RuleName, &log.RuleID, &log.MatchedValue, &log.ClientIP,&log.CreatedAt,
+    )
+    
+    if err != nil {
+        if err == sql.ErrNoRows {
+            c.JSON(http.StatusNotFound, gin.H{"error": "日志不存在"})
+        } else {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("查询日志详情失败: %v", err)})
+        }
+        return
+    }
+
+    // Base64 解码
+    if urlDecoded, err := base64.StdEncoding.DecodeString(urlB64); err == nil {
+        log.URL = string(urlDecoded)
+        // 添加URL解码版本（多次解码）
+        log.URLDecoded = MultiDecode(string(urlDecoded))
+    } else {
+        log.URL = urlB64
+        log.URLDecoded = MultiDecode(urlB64)
+    }
+
+    if headersDecoded, err := base64.StdEncoding.DecodeString(headersB64); err == nil {
+        log.Headers = string(headersDecoded)
+        log.HeadersDecoded = MultiDecode(string(headersDecoded))
+    } else {
+        log.Headers = headersB64
+        log.HeadersDecoded = MultiDecode(headersB64)
+    }
+
+    if bodyDecoded, err := base64.StdEncoding.DecodeString(bodyB64); err == nil {
+        log.Body = string(bodyDecoded)
+        log.BodyDecoded = MultiDecode(string(bodyDecoded))
+    } else {
+        log.Body = bodyB64
+        log.BodyDecoded = MultiDecode(bodyB64)
+    }
+
+    c.JSON(http.StatusOK, gin.H{
+        "log": log,
+    })
 }
 
 //管理员信息
@@ -2746,6 +2813,7 @@ func StartGinAPI() {
         authGroup.GET("/api/attack/stats", getAttackStatsHandler)         // 获取攻击统计
         authGroup.DELETE("/api/attack/logs", deleteAttackLogsHandler)     // 删除攻击日志
         authGroup.GET("/api/attack/export", exportAttackLogsHandler)      // 导出攻击日志
+        authGroup.GET("/api/attack/logs/:id", getAttackLogDetailHandler)  // 获取单个日志详情
     }
 
     // 统一返回404页面
@@ -3005,6 +3073,7 @@ func isAttack(req *http.Request) (bool, *AttackLog) {
         matched, matchedValues := evaluateRule(rule, rawURL, head, body, paramValues, formValues, isBodyNull)
         
         if matched {
+            clientIP := getClientIP(req)
             log := AttackLog{
                 Method:       req.Method,
                 URL:          rawURL,
@@ -3013,6 +3082,7 @@ func isAttack(req *http.Request) (bool, *AttackLog) {
                 RuleName:     rule.Name,
                 RuleID:       rule.ID,
                 MatchedValue: strings.Join(matchedValues, "; "),
+                ClientIP:     clientIP,
             }
             return true, &log
         }
@@ -3101,23 +3171,23 @@ func evaluateRule(rule Rule, rawURL, head, body, paramValues, formValues string,
 
 // ------------------- Worker -------------------
 func attackWorker() {
-	for log := range attackChan {
-		// 使用 Base64 编码存储，防止 MySQL 非 UTF-8 报错
-		urlB64 := base64.StdEncoding.EncodeToString([]byte(log.URL))
-		bodyB64 := base64.StdEncoding.EncodeToString([]byte(log.Body))
-		headersB64 := base64.StdEncoding.EncodeToString([]byte(log.Headers))
+    for log := range attackChan {
+        // 使用 Base64 编码存储，防止 MySQL 非 UTF-8 报错
+        urlB64 := base64.StdEncoding.EncodeToString([]byte(log.URL))
+        bodyB64 := base64.StdEncoding.EncodeToString([]byte(log.Body))
+        headersB64 := base64.StdEncoding.EncodeToString([]byte(log.Headers))
 
-		query := `
-			INSERT INTO attacks (method, url, headers, body, rule_name, rule_id, matched_value)
-			VALUES (?, ?, ?, ?, ?, ?, ?)
-		`
-		_, err := db.Exec(query,
-			log.Method, urlB64, headersB64, bodyB64,
-			log.RuleName, log.RuleID, log.MatchedValue)
-		if err != nil {
-			fmt.Printf("写入攻击数据库失败: %v\n", err)
-		}
-	}
+        query := `
+            INSERT INTO attacks (method, url, headers, body, rule_name, rule_id, matched_value, client_ip)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `
+        _, err := db.Exec(query,
+            log.Method, urlB64, headersB64, bodyB64,
+            log.RuleName, log.RuleID, log.MatchedValue, log.ClientIP) // 添加client_ip
+        if err != nil {
+            fmt.Printf("写入攻击数据库失败: %v\n", err)
+        }
+    }
 }
 
 
@@ -3211,17 +3281,18 @@ func initDb() {
 	_, _ = db.Exec("DROP TABLE IF EXISTS certificates;")
 
 	createTable := `
-	CREATE TABLE attacks (
-		id INT AUTO_INCREMENT PRIMARY KEY,
-		method VARCHAR(10),
-		url TEXT,
-		headers TEXT,
-		body LONGTEXT,
-		rule_name TEXT,
-		rule_id TEXT,
-		matched_value TEXT,
-		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-	);`
+    CREATE TABLE attacks (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        method VARCHAR(10),
+        url TEXT,
+        headers TEXT,
+        body LONGTEXT,
+        rule_name TEXT,
+        rule_id TEXT,
+        matched_value TEXT,
+        client_ip VARCHAR(45),  -- 新增客户端IP字段，支持IPv6
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );`
 	if _, err := db.Exec(createTable); err != nil {
 		panic(fmt.Errorf("建表失败: %v", err))
 	}

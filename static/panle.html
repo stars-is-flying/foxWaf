@@ -570,6 +570,118 @@
         .status-indicator.clickable:active {
             transform: scale(0.95);
         }
+
+        /* 在现有的CSS中添加 */
+.code-block {
+    background: #f8f9fa;
+    padding: 10px;
+    border-radius: 5px;
+    font-family: 'Courier New', monospace;
+    white-space: pre-wrap;
+    word-break: break-all;
+    border: 1px solid #e9ecef;
+}
+
+.detail-section {
+    margin-bottom: 20px;
+}
+
+.detail-section h4 {
+    color: #5210ed;
+    margin-bottom: 10px;
+    padding-bottom: 5px;
+    border-bottom: 2px solid #5210ed;
+}
+/* 在现有的CSS中添加以下样式 */
+.http-request {
+    background: #f8f9fa;
+    border: 1px solid #e9ecef;
+    border-radius: 8px;
+    padding: 20px;
+    font-family: 'Courier New', monospace;
+    white-space: pre-wrap;
+    word-break: break-all;
+    line-height: 1.4;
+    font-size: 13px;
+    max-height: 400px;
+    overflow-y: auto;
+    margin-top: 10px;
+}
+
+.http-request-line {
+    color: #d63384;
+    font-weight: bold;
+}
+
+.http-header {
+    color: #0d6efd;
+}
+
+.http-body {
+    color: #198754;
+    margin-top: 10px;
+}
+
+.copy-btn {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    z-index: 10;
+    padding: 5px 10px;
+    font-size: 12px;
+    background: rgba(82, 16, 237, 0.1);
+    border: 1px solid rgba(82, 16, 237, 0.2);
+}
+
+.copy-btn:hover {
+    background: rgba(82, 16, 237, 0.2);
+}
+
+/* 在现有的CSS中添加以下样式 */
+.http-request {
+    background: #f8f9fa;
+    border: 1px solid #e9ecef;
+    border-radius: 8px;
+    padding: 20px;
+    font-family: 'Courier New', monospace;
+    white-space: pre-wrap;
+    word-break: break-all;
+    line-height: 1.4;
+    font-size: 13px;
+    max-height: 400px;
+    overflow-y: auto;
+    margin-top: 10px;
+}
+
+.http-request-line {
+    color: #d63384;
+    font-weight: bold;
+}
+
+.http-header {
+    color: #0d6efd;
+}
+
+.http-body {
+    color: #198754;
+    margin-top: 10px;
+}
+
+.copy-btn {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    z-index: 10;
+    padding: 5px 10px;
+    font-size: 12px;
+    background: rgba(82, 16, 237, 0.1);
+    border: 1px solid rgba(82, 16, 237, 0.2);
+}
+
+.copy-btn:hover {
+    background: rgba(82, 16, 237, 0.2);
+}
+
     </style>
 </head>
 
@@ -1863,6 +1975,249 @@ async function toggleSiteHTTPS(siteId, enableHTTPS) {
     } catch (error) {
         console.error(`${action}站点HTTPS错误:`, error);
         showMessage(`${action}HTTPS失败`, 'error');
+    }
+}
+
+// 修改 displayLogDetailModal 函数，确保所有字段都是字符串
+function displayLogDetailModal(log) {
+    document.getElementById('modal-title').textContent = `攻击日志详情 - ID: ${log.id}`;
+    
+    // 格式化时间
+    const formattedTime = new Date(log.created_at).toLocaleString();
+    
+    // 构建格式化的HTTP请求
+    function formatHTTPRequest(log) {
+        let request = '';
+        
+        // 请求行
+        const method = String(log.method || 'GET');
+        const url = String(log.url || '/');
+        const httpVersion = 'HTTP/1.1';
+        
+        request += `${method} ${url} ${httpVersion}\n`;
+        
+        // 解析请求头
+        if (log.headers && String(log.headers).trim()) {
+            const headers = String(log.headers).split('\n');
+            headers.forEach(header => {
+                if (header.trim()) {
+                    const trimmedHeader = header.trim();
+                    if (trimmedHeader.includes(':')) {
+                        const [name, ...valueParts] = trimmedHeader.split(':');
+                        const value = valueParts.join(':').trim();
+                        
+                        const prettyName = name.toLowerCase()
+                            .split('-')
+                            .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+                            .join('-');
+                        
+                        request += `${prettyName}: ${value}\n`;
+                    } else {
+                        request += `${trimmedHeader}\n`;
+                    }
+                }
+            });
+        } else {
+            request += 'Host: unknown\n';
+        }
+        
+        request += '\n';
+        
+        // 请求体
+        if (log.body && String(log.body).trim()) {
+            request += String(log.body);
+        }
+        
+        return request;
+    }
+    
+    const formattedRequest = formatHTTPRequest(log);
+    
+    // 构建详情内容
+    document.getElementById('modal-body').innerHTML = `
+        <div style="max-height: 70vh; overflow-y: auto;">
+            <div class="card" style="margin-bottom: 15px;">
+                <h4 style="margin-bottom: 10px; color: #5210ed;">基本信息</h4>
+                <table style="width: 100%; border-collapse: collapse;">
+                    <tr>
+                        <td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold; width: 120px;">时间</td>
+                        <td style="padding: 8px; border-bottom: 1px solid #eee;">${formattedTime}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold;">请求方法</td>
+                        <td style="padding: 8px; border-bottom: 1px solid #eee;">
+                            <span class="status-indicator ${log.method === 'GET' ? 'status-active' : 'status-inactive'}">
+                                ${String(log.method || 'Unknown')}
+                            </span>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold;">规则名称</td>
+                        <td style="padding: 8px; border-bottom: 1px solid #eee;">${String(log.rule_name || 'Unknown')}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold;">规则ID</td>
+                        <td style="padding: 8px; border-bottom: 1px solid #eee;">${String(log.rule_id || 'Unknown')}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold;">匹配内容</td>
+                        <td style="padding: 8px; border-bottom: 1px solid #eee;">
+                            <code style="background: #f4f4f4; padding: 2px 4px; border-radius: 3px; word-break: break-all;">
+                                ${escapeHtml(log.matched_value)}
+                            </code>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold;">客户端IP</td>
+                        <td style="padding: 8px; border-bottom: 1px solid #eee;">${String(log.client_ip || 'Unknown')}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold;">用户代理</td>
+                        <td style="padding: 8px; border-bottom: 1px solid #eee;">
+                            <code style="background: #f4f4f4; padding: 2px 4px; border-radius: 3px; word-break: break-all;">
+                                ${escapeHtml(log.user_agent)}
+                            </code>
+                        </td>
+                    </tr>
+                </table>
+            </div>
+
+            <div class="card">
+                <h4 style="margin-bottom: 10px; color: #5210ed;">HTTP请求详情</h4>
+                <div style="position: relative;">
+                    <button type="button" class="btn" onclick="copyFormattedRequest()" 
+                            style="position: absolute; top: 10px; right: 10px; z-index: 10; padding: 5px 10px; font-size: 12px;">
+                        📋 复制请求
+                    </button>
+                    <div id="formatted-request" style="background: #f8f9fa; padding: 20px; border-radius: 8px; font-family: 'Courier New', monospace; white-space: pre-wrap; word-break: break-all; max-height: 400px; overflow-y: auto; line-height: 1.4; font-size: 13px; border: 1px solid #e9ecef; margin-top: 10px;">
+${escapeHtml(formattedRequest)}
+                    </div>
+                </div>
+                
+                ${log.url_decoded && String(log.url_decoded) !== String(log.url) ? `
+                <div style="margin-top: 15px;">
+                    <h5 style="color: #5210ed; margin-bottom: 8px;">解码后URL:</h5>
+                    <div style="background: #e8f4fd; padding: 10px; border-radius: 5px; font-family: monospace; word-break: break-all; font-size: 13px;">
+                        ${escapeHtml(log.url_decoded)}
+                    </div>
+                </div>
+                ` : ''}
+                
+                ${log.headers_decoded && String(log.headers_decoded) !== String(log.headers) ? `
+                <div style="margin-top: 15px;">
+                    <h5 style="color: #5210ed; margin-bottom: 8px;">解码后请求头:</h5>
+                    <div style="background: #e8f4fd; padding: 10px; border-radius: 5px; font-family: monospace; white-space: pre-wrap; word-break: break-all; font-size: 13px;">
+                        ${escapeHtml(log.headers_decoded)}
+                    </div>
+                </div>
+                ` : ''}
+                
+                ${log.body_decoded && String(log.body_decoded) !== String(log.body) ? `
+                <div style="margin-top: 15px;">
+                    <h5 style="color: #5210ed; margin-bottom: 8px;">解码后请求体:</h5>
+                    <div style="background: #e8f4fd; padding: 10px; border-radius: 5px; font-family: monospace; white-space: pre-wrap; word-break: break-all; font-size: 13px;">
+                        ${escapeHtml(log.body_decoded)}
+                    </div>
+                </div>
+                ` : ''}
+            </div>
+        </div>
+
+        <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
+            <button type="button" class="btn btn-secondary" onclick="closeModal()">关闭</button>
+            <button type="button" class="btn" onclick="copyLogDetails()">复制全部详情</button>
+        </div>
+    `;
+    
+    showModal();
+}
+
+
+// HTML转义函数
+// 修改 escapeHtml 函数，添加类型检查
+function escapeHtml(unsafe) {
+    if (!unsafe) return '';
+    
+    // 如果是对象，转换为 JSON 字符串
+    if (typeof unsafe === 'object') {
+        try {
+            unsafe = JSON.stringify(unsafe, null, 2);
+        } catch (e) {
+            unsafe = String(unsafe);
+        }
+    }
+    
+    // 确保是字符串
+    unsafe = String(unsafe);
+    
+    return unsafe
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
+
+// 复制格式化的HTTP请求
+function copyFormattedRequest() {
+    const formattedRequest = document.getElementById('formatted-request').textContent;
+    
+    navigator.clipboard.writeText(formattedRequest).then(() => {
+        showMessage('HTTP请求已复制到剪贴板', 'success');
+    }).catch(err => {
+        console.error('复制失败:', err);
+        showMessage('复制失败', 'error');
+    });
+}
+
+
+
+// HTML转义函数
+function escapeHtml(unsafe) {
+    if (!unsafe) return '';
+    return unsafe
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
+// 复制日志详情
+function copyLogDetails() {
+    const modalBody = document.getElementById('modal-body');
+    const text = modalBody.innerText;
+    
+    navigator.clipboard.writeText(text).then(() => {
+        showMessage('日志详情已复制到剪贴板', 'success');
+    }).catch(err => {
+        console.error('复制失败:', err);
+        showMessage('复制失败', 'error');
+    });
+}
+
+// 显示日志详情
+async function showLogDetail(logId) {
+    try {
+        const response = await fetch(`/api/attack/logs/${logId}`, {
+            method: 'GET',
+            credentials: 'include'
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            if (data.log) {
+                displayLogDetailModal(data.log);
+            } else {
+                showMessage('日志数据格式错误', 'error');
+            }
+        } else {
+            showMessage('获取日志详情失败', 'error');
+        }
+    } catch (error) {
+        console.error('获取日志详情错误:', error);
+        showMessage('获取日志详情失败: ' + error.message, 'error');
     }
 }
 
