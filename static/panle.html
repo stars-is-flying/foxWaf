@@ -555,6 +555,21 @@
         .page-btn:hover:not(.active) {
             background: rgba(82, 16, 237, 0.1);
         }
+        /* 在现有的CSS中添加以下样式 */
+        .status-indicator.clickable {
+            cursor: pointer;
+            transition: all 0.3s ease;
+            user-select: none;
+        }
+
+        .status-indicator.clickable:hover {
+            transform: scale(1.05);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+        }
+
+        .status-indicator.clickable:active {
+            transform: scale(0.95);
+        }
     </style>
 </head>
 
@@ -1323,6 +1338,38 @@
             loadCacheConfig();
         }
 
+        // 切换站点状态
+async function toggleSiteStatus(siteId, newStatus) {
+    const action = newStatus === 1 ? '启用' : '禁用';
+    
+    if (!confirm(`确定要${action}这个站点吗？`)) return;
+    
+    try {
+        const response = await fetch('/api/site/status', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            credentials: 'include',
+            body: JSON.stringify({ 
+                id: parseInt(siteId), 
+                status: parseInt(newStatus)
+            })
+        });
+
+        if (response.ok) {
+            showMessage(`站点${action}成功`, 'success');
+            loadSites();
+        } else {
+            const error = await response.text();
+            showMessage(`${action}失败: ${error}`, 'error');
+        }
+    } catch (error) {
+        console.error(`${action}站点错误:`, error);
+        showMessage(`${action}失败`, 'error');
+    }
+}
+
         // 加载站点列表
         async function loadSites() {
             try {
@@ -1344,64 +1391,133 @@
         }
 
         // 显示站点列表
-        function displaySites(sites) {
-            const container = document.getElementById('sites-container');
-            
-            if (!sites || sites.length === 0) {
-                container.innerHTML = '<div class="alert">暂无站点</div>';
-                return;
-            }
-            
-            let html = `
-                <div class="table-container">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>ID</th>
-                                <th>名称</th>
-                                <th>域名</th>
-                                <th>目标URL</th>
-                                <th>HTTPS</th>
-                                <th>状态</th>
-                                <th>操作</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-            `;
-            
-            sites.forEach(site => {
-                html += `
+function displaySites(sites) {
+    const container = document.getElementById('sites-container');
+    
+    if (!sites || sites.length === 0) {
+        container.innerHTML = '<div class="alert">暂无站点</div>';
+        return;
+    }
+    
+    let html = `
+        <div class="table-container">
+            <table>
+                <thead>
                     <tr>
-                        <td>${site.id}</td>
-                        <td>${site.name}</td>
-                        <td>${site.domain}</td>
-                        <td title="${site.target_url}">${site.target_url.length > 30 ? site.target_url.substring(0, 30) + '...' : site.target_url}</td>
-                        <td>
-                            <span class="status-indicator ${site.enable_https ? 'status-active' : 'status-inactive'}">
-                                ${site.enable_https ? '启用' : '禁用'}
-                            </span>
-                        </td>
-                        <td>
-                            <span class="status-indicator ${site.status === 1 ? 'status-active' : 'status-inactive'}">
-                                ${site.status === 1 ? '启用' : '禁用'}
-                            </span>
-                        </td>
-                        <td>
-                            <button class="btn btn-danger" onclick="deleteSite(${site.id})">删除</button>
-                        </td>
+                        <th>ID</th>
+                        <th>名称</th>
+                        <th>域名</th>
+                        <th>目标URL</th>
+                        <th>HTTPS</th>
+                        <th>状态</th>
+                        <th>操作</th>
                     </tr>
-                `;
-            });
-            
-            html += `
-                        </tbody>
-                    </table>
-                </div>
-            `;
-            
-            container.innerHTML = html;
-        }
+                </thead>
+                <tbody>
+    `;
+    
+    sites.forEach(site => {
+        html += `
+            <tr>
+                <td>${site.id}</td>
+                <td>${site.name}</td>
+                <td>${site.domain}</td>
+                <td title="${site.target_url}">${site.target_url.length > 30 ? site.target_url.substring(0, 30) + '...' : site.target_url}</td>
+                <td>
+                    <span class="status-indicator ${site.enable_https ? 'status-active' : 'status-inactive'} clickable" 
+                          onclick="toggleSiteHTTPS(${site.id}, ${!site.enable_https})"
+                          title="点击切换HTTPS状态">
+                        ${site.enable_https ? '启用' : '禁用'}
+                    </span>
+                </td>
+                <td>
+                    <span class="status-indicator ${site.status === 1 ? 'status-active' : 'status-inactive'} clickable" 
+                          onclick="toggleSiteStatus(${site.id}, ${site.status === 1 ? 0 : 1})"
+                          title="点击切换站点状态">
+                        ${site.status === 1 ? '启用' : '禁用'}
+                    </span>
+                </td>
+                <td>
+                    <button class="btn btn-danger" onclick="deleteSite(${site.id})">删除</button>
+                </td>
+            </tr>
+        `;
+    });
+    
+    html += `
+                </tbody>
+            </table>
+        </div>
+    `;
+    
+    container.innerHTML = html;
+}
 
+// 加载站点健康状态
+async function loadSiteHealthStatus() {
+    try {
+        const response = await fetch('/health', {
+            method: 'GET',
+            credentials: 'include'
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            window.siteHealthData = data.health_status; // 保存到全局变量
+            updateHealthStatusDisplay();
+        }
+    } catch (error) {
+        console.error('加载健康状态错误:', error);
+    }
+}
+
+// 获取站点健康状态HTML
+function getSiteHealthStatus(siteId) {
+    if (!window.siteHealthData || !window.siteHealthData[siteId]) {
+        return '<span class="status-indicator">未知</span>';
+    }
+    
+    const health = window.siteHealthData[siteId];
+    const statusClass = health.is_alive ? 'status-active' : 'status-inactive';
+    const statusText = health.is_alive ? '正常' : '异常';
+    const latency = health.latency ? `${health.latency}ms` : 'N/A';
+    
+    return `
+        <span class="status-indicator ${statusClass}" title="延迟: ${latency}">
+            ${statusText} (${latency})
+        </span>
+    `;
+}
+
+// 更新健康状态显示
+function updateHealthStatusDisplay() {
+    if (currentPage === 'sites' && window.siteHealthData) {
+        // 重新显示站点列表以更新健康状态
+        loadSites();
+    }
+}
+
+// 检查单个站点健康状态
+async function checkSingleSiteHealth(siteId) {
+    try {
+        const response = await fetch(`/health/${siteId}`, {
+            method: 'GET',
+            credentials: 'include'
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            showMessage(`健康检查完成: ${data.health.is_alive ? '正常' : '异常'} (${data.health.latency}ms)`, 'success');
+            // 刷新健康状态显示
+            loadSiteHealthStatus();
+        } else {
+            showMessage('健康检查失败', 'error');
+        }
+    } catch (error) {
+        console.error('健康检查错误:', error);
+        showMessage('健康检查失败', 'error');
+    }
+}
         // 显示添加站点模态框
         function showAddSiteModal() {
             document.getElementById('modal-title').textContent = '添加站点';
@@ -1704,6 +1820,52 @@
             showModal();
         }
 
+        // 切换站点HTTPS状态
+async function toggleSiteHTTPS(siteId, enableHTTPS) {
+    const action = enableHTTPS ? '启用' : '禁用';
+    
+    if (!confirm(`确定要${action}这个站点的HTTPS吗？`)) return;
+    
+    try {
+        const requestData = {
+            id: siteId,
+            enable_https: enableHTTPS
+        };
+        
+        // 如果启用HTTPS，需要提供证书ID
+        if (enableHTTPS) {
+            const certId = prompt('请输入证书ID（如果站点已有证书关联，可以留空使用现有证书）:');
+            if (certId !== null) { // 用户没有取消
+                if (certId.trim() !== '') {
+                    requestData.cert_id = parseInt(certId);
+                }
+            } else {
+                return; // 用户取消操作
+            }
+        }
+        
+        const response = await fetch('/api/site/https', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            credentials: 'include',
+            body: JSON.stringify(requestData)
+        });
+
+        if (response.ok) {
+            showMessage(`站点HTTPS${action}成功`, 'success');
+            loadSites();
+        } else {
+            const error = await response.text();
+            showMessage(`${action}HTTPS失败: ${error}`, 'error');
+        }
+    } catch (error) {
+        console.error(`${action}站点HTTPS错误:`, error);
+        showMessage(`${action}HTTPS失败`, 'error');
+    }
+}
+
         // 删除日志
         async function deleteLogs(formData) {
             try {
@@ -1795,6 +1957,8 @@
                     loadStats();
                 }
             }, 10000);
+             // 初始加载健康状态
+            loadSiteHealthStatus();
         });
     </script>
 </body>

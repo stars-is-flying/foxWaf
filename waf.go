@@ -1743,6 +1743,200 @@ func initACL() {
     loadACLRulesFromDB()
 }
 
+// ------------------- 更新站点状态请求 -------------------
+type UpdateSiteStatusRequest struct {
+    ID     int `json:"id" binding:"required"`
+    Status int `json:"status" binding:"oneof=0 1"` // 移除 required
+}
+
+// ------------------- 更新站点状态接口 -------------------
+func updateSiteStatusHandler(c *gin.Context) {
+    var req UpdateSiteStatusRequest
+    if err := c.ShouldBindJSON(&req); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+
+    // 更新数据库
+    _, err := db.Exec("UPDATE sites SET status = ? WHERE id = ?", req.Status, req.ID)
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("更新站点状态失败: %v", err)})
+        return
+    }
+
+    // 热更新内存 sites 列表
+    aclManager.mutex.Lock()
+    for i, site := range sites {
+        if site.ID == req.ID {
+            sites[i].Status = req.Status
+            
+            // 如果站点被禁用且启用了HTTPS，从证书映射中移除
+            if req.Status == 0 && site.EnableHTTPS {
+                delete(certificateMap, site.Domain)
+                stdlog.Printf("站点禁用，已移除证书映射: %s", site.Domain)
+            }
+            
+            // 如果站点被重新启用且启用了HTTPS，重新加载证书
+            if req.Status == 1 && site.EnableHTTPS && site.CERTID.Valid {
+                // 重新加载证书
+                err := reloadSiteCertificate(site.ID)
+                if err != nil {
+                    stdlog.Printf("重新加载站点证书失败: %v", err)
+                }
+            }
+            break
+        }
+    }
+    aclManager.mutex.Unlock()
+
+    statusText := "启用"
+    if req.Status == 0 {
+        statusText = "禁用"
+    }
+    
+    c.JSON(http.StatusOK, gin.H{
+        "message": fmt.Sprintf("站点%s成功", statusText),
+        "status":  req.Status,
+    })
+}
+
+// 重新加载单个站点的证书
+func reloadSiteCertificate(siteID int) error {
+    query := `
+        SELECT s.domain, c.cert_text, c.key_text 
+        FROM sites s 
+        JOIN certificates c ON s.cert_id = c.id 
+        WHERE s.id = ? AND s.enable_https = 1 AND s.status = 1
+    `
+    
+    var domain, certText, keyText string
+    err := db.QueryRow(query, siteID).Scan(&domain, &certText, &keyText)
+    if err != nil {
+        return fmt.Errorf("查询站点证书失败: %v", err)
+    }
+
+    // 加载证书
+    cert, err := tls.X509KeyPair([]byte(certText), []byte(keyText))
+    if err != nil {
+        return fmt.Errorf("加载证书失败: %v", err)
+    }
+
+    certificateMap[domain] = cert
+    stdlog.Printf("站点证书重新加载: %s", domain)
+    return nil
+}
+
+
+// ------------------- 更新站点HTTPS状态请求 -------------------
+type UpdateSiteHTTPSRequest struct {
+    ID          int  `json:"id" binding:"required"`
+    EnableHTTPS bool `json:"enable_https"`
+    CertID      *int `json:"cert_id,omitempty"` // 可选，切换HTTPS时指定证书
+}
+
+// ------------------- 更新站点HTTPS状态接口 -------------------
+func updateSiteHTTPSHandler(c *gin.Context) {
+    var req UpdateSiteHTTPSRequest
+    if err := c.ShouldBindJSON(&req); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+
+    // 查询站点当前信息
+    var currentDomain string
+    var currentStatus int
+    err := db.QueryRow("SELECT domain, status FROM sites WHERE id = ?", req.ID).Scan(&currentDomain, &currentStatus)
+    if err != nil {
+        c.JSON(http.StatusNotFound, gin.H{"error": "站点不存在"})
+        return
+    }
+
+    // 如果启用HTTPS但没有提供证书ID，检查是否已有证书
+    if req.EnableHTTPS && req.CertID == nil {
+        var existingCertID sql.NullInt64
+        err := db.QueryRow("SELECT cert_id FROM sites WHERE id = ?", req.ID).Scan(&existingCertID)
+        if err != nil || !existingCertID.Valid {
+            c.JSON(http.StatusBadRequest, gin.H{"error": "启用HTTPS需要关联证书，请提供cert_id或先生成证书"})
+            return
+        }
+        certIDVal := int(existingCertID.Int64)
+        req.CertID = &certIDVal
+    }
+
+    // 如果启用HTTPS且有证书ID，验证证书是否存在
+    if req.EnableHTTPS && req.CertID != nil {
+        var certCount int
+        err := db.QueryRow("SELECT COUNT(*) FROM certificates WHERE id = ?", *req.CertID).Scan(&certCount)
+        if err != nil || certCount == 0 {
+            c.JSON(http.StatusBadRequest, gin.H{"error": "指定的证书不存在"})
+            return
+        }
+    }
+
+    // 更新数据库
+    var result sql.Result
+    if req.EnableHTTPS {
+        // 启用HTTPS
+        result, err = db.Exec(
+            "UPDATE sites SET enable_https = 1, cert_id = ? WHERE id = ?", 
+            req.CertID, req.ID,
+        )
+    } else {
+        // 禁用HTTPS
+        result, err = db.Exec(
+            "UPDATE sites SET enable_https = 0 WHERE id = ?", 
+            req.ID,
+        )
+    }
+
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("更新HTTPS状态失败: %v", err)})
+        return
+    }
+
+    rowsAffected, _ := result.RowsAffected()
+    if rowsAffected == 0 {
+        c.JSON(http.StatusNotFound, gin.H{"error": "站点不存在或状态未改变"})
+        return
+    }
+
+    // 热更新内存 sites 列表和证书映射
+    aclManager.mutex.Lock()
+    for i, site := range sites {
+        if site.ID == req.ID {
+            sites[i].EnableHTTPS = req.EnableHTTPS
+            if req.EnableHTTPS && req.CertID != nil {
+                sites[i].CERTID = sql.NullInt64{Int64: int64(*req.CertID), Valid: true}
+                
+                // 加载证书到内存
+                err := reloadSiteCertificate(site.ID)
+                if err != nil {
+                    stdlog.Printf("加载证书失败: %v", err)
+                }
+            } else {
+                sites[i].CERTID = sql.NullInt64{Valid: false}
+                // 从证书映射中移除
+                delete(certificateMap, site.Domain)
+                stdlog.Printf("HTTPS已禁用，移除证书映射: %s", site.Domain)
+            }
+            break
+        }
+    }
+    aclManager.mutex.Unlock()
+
+    httpsStatus := "启用"
+    if !req.EnableHTTPS {
+        httpsStatus = "禁用"
+    }
+    
+    c.JSON(http.StatusOK, gin.H{
+        "message":      fmt.Sprintf("站点HTTPS%s成功", httpsStatus),
+        "enable_https": req.EnableHTTPS,
+    })
+}
+
+
+
 func loadACLRulesFromDB() {
     aclManager.mutex.Lock()
     defer aclManager.mutex.Unlock()
@@ -2531,7 +2725,9 @@ func StartGinAPI() {
         // 添加站点
         authGroup.POST("/api/site/add", addSiteHandler)
         authGroup.GET("/api/sites", getSitesHandler)           
-        authGroup.POST("/api/site/delete", deleteSiteHandler)  
+        authGroup.POST("/api/site/delete", deleteSiteHandler)
+        authGroup.POST("/api/site/status", updateSiteStatusHandler)           // 新增：更新站点状态
+        authGroup.POST("/api/site/https", updateSiteHTTPSHandler)             // 新增：更新HTTPS状态 
 
         // 证书管理
         authGroup.POST("/api/cert/upload", uploadCertHandler)              
