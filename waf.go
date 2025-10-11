@@ -2953,6 +2953,10 @@ func StartGinAPI() {
         authGroup.POST("/api/site/:id/renew-certificate", renewSiteCertificateHandler) // 重新生成证书
         authGroup.POST("/api/site/:id/replace-certificate", replaceSiteCertificateHandler) // 替换证书
         authGroup.POST("/api/site/:id/remove-certificate", removeSiteCertificateHandler) // 移除证
+
+        // 在 authGroup 中添加设置相关的路由
+        authGroup.GET("/api/settings", getSettingsHandler)
+        authGroup.POST("/api/settings", updateSettingsHandler)
     }
 
     // 统一返回404页面
@@ -4131,6 +4135,62 @@ func removeSiteCertificateHandler(c *gin.Context) {
     c.JSON(http.StatusOK, gin.H{"message": "证书已移除，HTTPS已禁用"})
 }
 
+// ------------------- 系统设置结构 -------------------
+type SystemSettings struct {
+    EnableAntiDevTools bool `json:"enable_anti_devtools"`
+    RuleMatchRate      int  `json:"rule_match_rate"`
+    Base64Depth        int  `json:"base64_depth"`
+    URLDepth           int  `json:"url_depth"`
+}
+
+// ------------------- 更新设置接口 -------------------
+func updateSettingsHandler(c *gin.Context) {
+    var settings SystemSettings
+    if err := c.ShouldBindJSON(&settings); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+
+    // 验证参数范围
+    if settings.RuleMatchRate < 0 || settings.RuleMatchRate > 100 {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "规则匹配率必须在0-100之间"})
+        return
+    }
+    if settings.Base64Depth < 0 || settings.Base64Depth > 10 {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "Base64解码深度必须在0-10之间"})
+        return
+    }
+    if settings.URLDepth < 0 || settings.URLDepth > 10 {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "URL解码深度必须在0-10之间"})
+        return
+    }
+
+    // 更新全局变量
+    EnableAntiDevTools = settings.EnableAntiDevTools
+    RuleMatchRate = settings.RuleMatchRate
+    maxDepth = settings.Base64Depth
+    maxUrlDepth = settings.URLDepth
+
+    c.JSON(http.StatusOK, gin.H{
+        "message": "系统设置更新成功",
+        "settings": settings,
+    })
+}
+
+// ------------------- 获取设置接口 -------------------
+func getSettingsHandler(c *gin.Context) {
+    settings := SystemSettings{
+        EnableAntiDevTools: EnableAntiDevTools,
+        RuleMatchRate:      RuleMatchRate,
+        Base64Depth:        maxDepth,
+        URLDepth:           maxUrlDepth,
+    }
+
+    c.JSON(http.StatusOK, gin.H{
+        "settings": settings,
+    })
+}
+
 func ReadConfig() {
 	confFile, err := os.ReadFile("conf.json")
 	if err != nil {
@@ -4178,4 +4238,4 @@ func main() {
 	go StartGinAPI()
     go startHealthChecker()
 	ReverseProxy()
-}
+} 

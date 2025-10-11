@@ -948,45 +948,52 @@
                 title: "系统设置",
                 description: "系统配置和参数调整",
                 content: `
-                    <div class="card">
-                        <div class="card-header">
-                            <h3 class="card-title">⚙️ 系统设置</h3>
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label">防开发者工具</label>
-                            <div>
-                                <label style="display: inline-flex; align-items: center; gap: 8px; margin-right: 20px;">
-                                    <input type="radio" name="anti-devtools" value="true" checked> 启用
-                                </label>
-                                <label style="display: inline-flex; align-items: center; gap: 8px;">
-                                    <input type="radio" name="anti-devtools" value="false"> 禁用
-                                </label>
-                            </div>
-                        </div>
-                        
-                        <div class="form-group">
-                            <label class="form-label">规则匹配率 (%)</label>
-                            <input type="range" id="rule-match-rate" min="0" max="100" value="100" class="form-control">
-                            <div id="rule-match-rate-value" style="text-align: center; margin-top: 5px;">100%</div>
-                        </div>
-                        
-                        <div class="form-group">
-                            <label class="form-label">Base64 解码深度</label>
-                            <input type="number" id="base64-depth" min="0" max="10" value="2" class="form-control">
-                        </div>
-                        
-                        <div class="form-group">
-                            <label class="form-label">URL 解码深度</label>
-                            <input type="number" id="url-depth" min="0" max="10" value="2" class="form-control">
-                        </div>
-                        
-                        <button class="btn" onclick="saveSettings()">
-                            <span>💾</span> 保存设置
-                        </button>
+        <div class="card">
+            <div class="card-header">
+                <h3 class="card-title">⚙️ 系统设置</h3>
+            </div>
+            
+            <div id="settings-message"></div>
+            
+            <form id="settings-form">
+                <div class="form-group">
+                    <label class="form-label">防开发者工具</label>
+                    <div>
+                        <label style="display: inline-flex; align-items: center; gap: 8px; margin-right: 20px;">
+                            <input type="radio" name="anti-devtools" value="true"> 启用
+                        </label>
+                        <label style="display: inline-flex; align-items: center; gap: 8px;">
+                            <input type="radio" name="anti-devtools" value="false"> 禁用
+                        </label>
                     </div>
-                `
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">规则匹配率 (%)</label>
+                    <input type="range" id="rule-match-rate" min="0" max="100" value="100" class="form-control">
+                    <div id="rule-match-rate-value" style="text-align: center; margin-top: 5px;">100%</div>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Base64 解码深度</label>
+                    <input type="number" id="base64-depth" min="0" max="10" value="2" class="form-control">
+                    <small style="color: #666;">设置Base64解码的最大深度，0表示禁用Base64解码</small>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">URL 解码深度</label>
+                    <input type="number" id="url-depth" min="0" max="10" value="2" class="form-control">
+                    <small style="color: #666;">设置URL解码的最大深度，0表示禁用URL解码</small>
+                </div>
+                
+                <button type="button" class="btn" onclick="saveSettings()">
+                    <span>💾</span> 保存设置
+                </button>
+            </form>
+        </div>
+    `
             }
-        };
+        }
 
         // 页面切换功能
         document.querySelectorAll('.nav-item').forEach(item => {
@@ -2583,18 +2590,82 @@ async function showLogDetail(logId) {
         }
 
         // 加载设置
-        function loadSettings() {
-            // 这里可以加载当前设置值
-            document.getElementById('rule-match-rate').addEventListener('input', function() {
-                document.getElementById('rule-match-rate-value').textContent = this.value + '%';
-            });
-        }
+            async function loadSettings() {
+                try {
+                    const response = await fetch('/api/settings', {
+                        method: 'GET',
+                        credentials: 'include'
+                    });
+
+                    if (response.ok) {
+                        const data = await response.json();
+                        const settings = data.settings;
+
+                        // 更新界面显示
+                        document.querySelector(`input[name="anti-devtools"][value="${settings.enable_anti_devtools}"]`).checked = true;
+                        document.getElementById('rule-match-rate').value = settings.rule_match_rate;
+                        document.getElementById('rule-match-rate-value').textContent = settings.rule_match_rate + '%';
+                        document.getElementById('base64-depth').value = settings.base64_depth;
+                        document.getElementById('url-depth').value = settings.url_depth;
+
+                    } else {
+                        console.error('加载设置失败');
+                    }
+                } catch (error) {
+                    console.error('加载设置错误:', error);
+                }
+
+                // 添加滑块事件监听
+                document.getElementById('rule-match-rate').addEventListener('input', function () {
+                    document.getElementById('rule-match-rate-value').textContent = this.value + '%';
+                });
+            }
 
         // 保存设置
-        function saveSettings() {
-            // 这里可以保存设置到后端
-            showMessage('设置已保存', 'success');
-        }
+            async function saveSettings() {
+                try {
+                    const settings = {
+                        enable_anti_devtools: document.querySelector('input[name="anti-devtools"]:checked').value === 'true',
+                        rule_match_rate: parseInt(document.getElementById('rule-match-rate').value),
+                        base64_depth: parseInt(document.getElementById('base64-depth').value),
+                        url_depth: parseInt(document.getElementById('url-depth').value)
+                    };
+
+                    // 验证输入
+                    if (settings.rule_match_rate < 0 || settings.rule_match_rate > 100) {
+                        showMessage('规则匹配率必须在0-100之间', 'error');
+                        return;
+                    }
+                    if (settings.base64_depth < 0 || settings.base64_depth > 10) {
+                        showMessage('Base64解码深度必须在0-10之间', 'error');
+                        return;
+                    }
+                    if (settings.url_depth < 0 || settings.url_depth > 10) {
+                        showMessage('URL解码深度必须在0-10之间', 'error');
+                        return;
+                    }
+
+                    const response = await fetch('/api/settings', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        credentials: 'include',
+                        body: JSON.stringify(settings)
+                    });
+
+                    if (response.ok) {
+                        const result = await response.json();
+                        showMessage(result.message || '设置保存成功', 'success');
+                    } else {
+                        const error = await response.text();
+                        showMessage('保存失败: ' + error, 'error');
+                    }
+                } catch (error) {
+                    console.error('保存设置错误:', error);
+                    showMessage('保存失败: ' + error.message, 'error');
+                }
+            }
 
         // 模态框功能
         function showModal() {
