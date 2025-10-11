@@ -198,6 +198,28 @@
             text-align: center;
             justify-content: center;
         }
+        
+        /* 站点行背景颜色 */
+        .row-alive {
+            background-color: rgba(76, 175, 80, 0.15);
+            transition: background-color 0.5s ease;
+        }
+        .row-alive:hover {
+            background-color: rgba(76, 175, 80, 0.25);
+        }
+        .row-dead {
+            background-color: rgba(244, 67, 54, 0.15);
+            transition: background-color 0.5s ease;
+        }
+        .row-dead:hover {
+            background-color: rgba(244, 67, 54, 0.25);
+        }
+        
+        /* 操作按钮容器 */
+        .action-buttons {
+            display: flex;
+            gap: 5px;
+        }
 
         .metric-icon {
             font-size: 32px;
@@ -1529,8 +1551,12 @@ function displaySites(sites) {
     `;
     
     sites.forEach(site => {
+        // 获取站点健康状态
+        const isTargetAlive = window.siteHealthData && window.siteHealthData[site.id] ? window.siteHealthData[site.id].is_alive : false;
+        const rowClass = isTargetAlive ? 'row-alive' : 'row-dead';
+        
         html += `
-            <tr>
+            <tr class="${rowClass}">
                 <td>${site.id}</td>
                 <td>${site.name}</td>
                 <td>${site.domain}</td>
@@ -1550,7 +1576,10 @@ function displaySites(sites) {
                     </span>
                 </td>
                 <td>
-                    <button class="btn btn-danger" onclick="deleteSite(${site.id})">删除</button>
+                    <div class="action-buttons">
+                        <button class="btn btn-danger" onclick="deleteSite(${site.id})">删除</button>
+                        <button class="btn btn-info" onclick="checkSingleSiteHealth(${site.id})">检查</button>
+                    </div>
                 </td>
             </tr>
         `;
@@ -1577,9 +1606,14 @@ async function loadSiteHealthStatus() {
             const data = await response.json();
             window.siteHealthData = data.health_status; // 保存到全局变量
             updateHealthStatusDisplay();
+            
+            // 定时刷新健康状态
+            setTimeout(loadSiteHealthStatus, 3000); // 每30秒刷新一次
         }
     } catch (error) {
         console.error('加载健康状态错误:', error);
+        // 出错时也设置定时器，确保继续尝试
+        setTimeout(loadSiteHealthStatus, 30000);
     }
 }
 
