@@ -1921,13 +1921,40 @@ func updateSiteHTTPSHandler(c *gin.Context) {
     // 如果启用HTTPS但没有提供证书ID，检查是否已有证书
     if req.EnableHTTPS && req.CertID == nil {
         var existingCertID sql.NullInt64
-        err := db.QueryRow("SELECT cert_id FROM sites WHERE id = ?", req.ID).Scan(&existingCertID)
+        err := db.QueryRow("SELECT cert_id, domain FROM sites WHERE id = ?", req.ID).Scan(&existingCertID, &currentDomain)
         if err != nil || !existingCertID.Valid {
-            c.JSON(http.StatusBadRequest, gin.H{"error": "启用HTTPS需要关联证书，请提供cert_id或先生成证书"})
-            return
+            // 自动生成自签名证书
+            stdlog.Printf("站点 %s 启用HTTPS但无证书，自动生成自签名证书", currentDomain)
+            certPEM, keyPEM, err := generateSelfSignedCert(currentDomain)
+            if err != nil {
+                c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("自动生成证书失败: %v", err)})
+                return
+            }
+            
+            // 插入证书到数据库
+            insertCert := `INSERT INTO certificates (name, cert_text, key_text) VALUES (?, ?, ?)`
+            result, err := db.Exec(insertCert, currentDomain+"自动生成证书", certPEM, keyPEM)
+            if err != nil {
+                c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("保存自动生成证书失败: %v", err)})
+                return
+            }
+            
+            certID, _ := result.LastInsertId()
+            certIDInt := int(certID)
+            req.CertID = &certIDInt
+            
+            // 热加载证书到内存
+            cert, err := tls.X509KeyPair(certPEM, keyPEM)
+            if err != nil {
+                stdlog.Printf("加载自动生成证书失败: %v", err)
+            } else {
+                certificateMap[currentDomain] = cert
+                stdlog.Printf("自动生成证书已加载: %s", currentDomain)
+            }
+        } else {
+            certIDVal := int(existingCertID.Int64)
+            req.CertID = &certIDVal
         }
-        certIDVal := int(existingCertID.Int64)
-        req.CertID = &certIDVal
     }
 
     // 如果启用HTTPS且有证书ID，验证证书是否存在
