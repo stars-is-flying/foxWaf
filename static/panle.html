@@ -1525,15 +1525,16 @@ async function toggleSiteStatus(siteId, newStatus) {
         }
 
         // 显示站点列表
-function displaySites(sites) {
-    const container = document.getElementById('sites-container');
-    
-    if (!sites || sites.length === 0) {
-        container.innerHTML = '<div class="alert">暂无站点</div>';
-        return;
-    }
-    
-    let html = `
+    // 修改displaySites函数，显示证书信息
+    function displaySites(sites) {
+        const container = document.getElementById('sites-container');
+
+        if (!sites || sites.length === 0) {
+            container.innerHTML = '<div class="alert">暂无站点</div>';
+            return;
+        }
+
+        let html = `
         <div class="table-container">
             <table>
                 <thead>
@@ -1543,19 +1544,32 @@ function displaySites(sites) {
                         <th>域名</th>
                         <th>目标URL</th>
                         <th>HTTPS</th>
-                        <th>状态</th>
+                        <th>证书状态</th>
+                        <th>站点状态</th>
                         <th>操作</th>
                     </tr>
                 </thead>
                 <tbody>
     `;
-    
-    sites.forEach(site => {
-        // 获取站点健康状态
-        const isTargetAlive = window.siteHealthData && window.siteHealthData[site.id] ? window.siteHealthData[site.id].is_alive : false;
-        const rowClass = isTargetAlive ? 'row-alive' : 'row-dead';
-        
-        html += `
+
+        sites.forEach(site => {
+            // 获取站点健康状态
+            const isTargetAlive = window.siteHealthData && window.siteHealthData[site.id] ? window.siteHealthData[site.id].is_alive : false;
+            const rowClass = isTargetAlive ? 'row-alive' : 'row-dead';
+
+            // 证书状态
+            let certStatus = '';
+            if (site.enable_https) {
+                if (site.cert_id) {
+                    certStatus = '<span class="status-indicator status-active" title="已配置证书">✅ 已配置</span>';
+                } else {
+                    certStatus = '<span class="status-indicator status-inactive" title="未配置证书">❌ 无证书</span>';
+                }
+            } else {
+                certStatus = '<span class="status-indicator">-</span>';
+            }
+
+            html += `
             <tr class="${rowClass}">
                 <td>${site.id}</td>
                 <td>${site.name}</td>
@@ -1568,6 +1582,7 @@ function displaySites(sites) {
                         ${site.enable_https ? '启用' : '禁用'}
                     </span>
                 </td>
+                <td>${certStatus}</td>
                 <td>
                     <span class="status-indicator ${site.status === 1 ? 'status-active' : 'status-inactive'} clickable" 
                           onclick="toggleSiteStatus(${site.id}, ${site.status === 1 ? 0 : 1})"
@@ -1577,21 +1592,238 @@ function displaySites(sites) {
                 </td>
                 <td>
                     <div class="action-buttons">
+                        ${site.enable_https ? `
+                            <button class="btn" onclick="manageSiteCertificate(${site.id}, '${site.domain}')" title="管理证书">📜</button>
+                        ` : ''}
                         <button class="btn btn-danger" onclick="deleteSite(${site.id})">删除</button>
                     </div>
                 </td>
             </tr>
         `;
-    });
-    
-    html += `
+        });
+
+        html += `
                 </tbody>
             </table>
         </div>
     `;
-    
-    container.innerHTML = html;
-}
+
+        container.innerHTML = html;
+    }
+    // 管理站点证书
+        function manageSiteCertificate(siteId, domain) {
+            document.getElementById('modal-title').textContent = `管理证书 - ${domain}`;
+            document.getElementById('modal-body').innerHTML = `
+        <div style="margin-bottom: 20px;">
+            <h4>当前证书信息</h4>
+            <div id="current-cert-info">
+                <div class="loading">加载中...</div>
+            </div>
+        </div>
+        
+        <div class="tabs">
+            <div class="tab active" data-tab="renew">更新证书</div>
+            <div class="tab" data-tab="replace">替换证书</div>
+        </div>
+        
+        <div id="renew-tab" class="tab-content active">
+            <form id="renew-cert-form">
+                <div class="form-group">
+                    <label class="form-label">新的有效期 (天)</label>
+                    <input type="number" name="valid_days" class="form-control" value="365" min="1" max="3650">
+                </div>
+                <button type="submit" class="btn">重新生成证书</button>
+            </form>
+        </div>
+        
+        <div id="replace-tab" class="tab-content">
+            <form id="replace-cert-form">
+                <div class="form-group">
+                    <label class="form-label">新的证书内容 (PEM格式)</label>
+                    <textarea name="cert_text" class="form-control" rows="6" placeholder="-----BEGIN CERTIFICATE----- ..." required></textarea>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">新的私钥内容 (PEM格式)</label>
+                    <textarea name="key_text" class="form-control" rows="6" placeholder="-----BEGIN PRIVATE KEY----- ..." required></textarea>
+                </div>
+                <button type="submit" class="btn">替换证书</button>
+            </form>
+        </div>
+        
+        <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #eee;">
+            <button class="btn btn-danger" onclick="removeSiteCertificate(${siteId})">
+                <span>🗑️</span> 移除证书（禁用HTTPS）
+            </button>
+        </div>
+    `;
+
+            // 加载当前证书信息
+            loadCurrentCertificateInfo(siteId);
+
+            // 标签页切换
+            document.querySelectorAll('.tab').forEach(tab => {
+                tab.addEventListener('click', function () {
+                    const tabName = this.getAttribute('data-tab');
+
+                    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                    this.classList.add('active');
+
+                    document.querySelectorAll('.tab-content').forEach(content => {
+                        content.classList.remove('active');
+                    });
+                    document.getElementById(`${tabName}-tab`).classList.add('active');
+                });
+            });
+
+            // 表单提交
+            document.getElementById('renew-cert-form').addEventListener('submit', function (e) {
+                e.preventDefault();
+                renewSiteCertificate(siteId, new FormData(this));
+            });
+
+            document.getElementById('replace-cert-form').addEventListener('submit', function (e) {
+                e.preventDefault();
+                replaceSiteCertificate(siteId, new FormData(this));
+            });
+
+            showModal();
+        }
+
+        // 加载当前证书信息
+        async function loadCurrentCertificateInfo(siteId) {
+                try {
+                    const response = await fetch(`/api/site/${siteId}/certificate`, {
+                        method: 'GET',
+                        credentials: 'include'
+                    });
+
+                    if (response.ok) {
+                        const data = await response.json();
+                        displayCurrentCertificateInfo(data.certificate);
+                    } else {
+                        document.getElementById('current-cert-info').innerHTML =
+                            '<div class="alert alert-error">加载证书信息失败</div>';
+                    }
+                } catch (error) {
+                    console.error('加载证书信息错误:', error);
+                    document.getElementById('current-cert-info').innerHTML =
+                        '<div class="alert alert-error">加载证书信息失败</div>';
+                }
+            }
+
+       // 显示当前证书信息
+        function displayCurrentCertificateInfo(certInfo) {
+            const container = document.getElementById('current-cert-info');
+
+            if (!certInfo || !certInfo.exists) {
+                container.innerHTML = '<div class="alert">该站点未配置证书</div>';
+                return;
+            }
+
+            let html = `
+        <table style="width: 100%; border-collapse: collapse;">
+            <tr>
+                <td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold; width: 120px;">域名</td>
+                <td style="padding: 8px; border-bottom: 1px solid #eee;">${certInfo.domain}</td>
+            </tr>
+            <tr>
+                <td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold;">有效期</td>
+                <td style="padding: 8px; border-bottom: 1px solid #eee;">${certInfo.valid_from} 至 ${certInfo.valid_to}</td>
+            </tr>
+            <tr>
+                <td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold;">签发者</td>
+                <td style="padding: 8px; border-bottom: 1px solid #eee;">${certInfo.issuer}</td>
+            </tr>
+            <tr>
+                <td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold;">证书类型</td>
+                <td style="padding: 8px; border-bottom: 1px solid #eee;">${certInfo.is_self_signed ? '自签名证书' : 'CA签发证书'}</td>
+            </tr>
+        </table>
+    `;
+
+            container.innerHTML = html;
+        }
+
+        // 重新生成证书
+            async function renewSiteCertificate(siteId, formData) {
+                try {
+                    const data = Object.fromEntries(formData);
+                    data.valid_days = parseInt(data.valid_days) || 365;
+
+                    const response = await fetch(`/api/site/${siteId}/renew-certificate`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        credentials: 'include',
+                        body: JSON.stringify(data)
+                    });
+
+                    if (response.ok) {
+                        showMessage('证书重新生成成功', 'success');
+                        loadCurrentCertificateInfo(siteId);
+                    } else {
+                        const error = await response.text();
+                        showMessage('重新生成失败: ' + error, 'error');
+                    }
+                } catch (error) {
+                    console.error('重新生成证书错误:', error);
+                    showMessage('重新生成失败', 'error');
+                }
+            }
+
+        // 替换证书
+        async function replaceSiteCertificate(siteId, formData) {
+                try {
+                    const data = Object.fromEntries(formData);
+
+                    const response = await fetch(`/api/site/${siteId}/replace-certificate`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        credentials: 'include',
+                        body: JSON.stringify(data)
+                    });
+
+                    if (response.ok) {
+                        showMessage('证书替换成功', 'success');
+                        loadCurrentCertificateInfo(siteId);
+                    } else {
+                        const error = await response.text();
+                        showMessage('替换失败: ' + error, 'error');
+                    }
+                } catch (error) {
+                    console.error('替换证书错误:', error);
+                    showMessage('替换失败', 'error');
+                }
+            }
+
+        // 移除证书（禁用HTTPS）
+        // 移除证书（禁用HTTPS）
+            async function removeSiteCertificate(siteId) {
+                if (!confirm('确定要移除证书并禁用HTTPS吗？')) return;
+
+                try {
+                    const response = await fetch(`/api/site/${siteId}/remove-certificate`, {
+                        method: 'POST',
+                        credentials: 'include'
+                    });
+
+                    if (response.ok) {
+                        closeModal();
+                        showMessage('证书已移除，HTTPS已禁用', 'success');
+                        loadSites();
+                    } else {
+                        const error = await response.text();
+                        showMessage('移除失败: ' + error, 'error');
+                    }
+                } catch (error) {
+                    console.error('移除证书错误:', error);
+                    showMessage('移除失败', 'error');
+                }
+            }
 
 // 加载站点健康状态
 async function loadSiteHealthStatus() {
@@ -1663,65 +1895,132 @@ async function checkSingleSiteHealth(siteId) {
         showMessage('健康检查失败', 'error');
     }
 }
-        // 显示添加站点模态框
+       // 修改showAddSiteModal函数
         function showAddSiteModal() {
             document.getElementById('modal-title').textContent = '添加站点';
             document.getElementById('modal-body').innerHTML = `
-                <form id="add-site-form">
-                    <div class="form-group">
-                        <label class="form-label">站点名称</label>
-                        <input type="text" name="name" class="form-control" placeholder="例如: 我的网站" required>
-                    </div>
-                    
-                    <div class="form-group">
-                        <label class="form-label">域名</label>
-                        <input type="text" name="domain" class="form-control" placeholder="例如: example.com" required>
-                    </div>
-                    
-                    <div class="form-group">
-                        <label class="form-label">目标URL</label>
-                        <input type="text" name="target_url" class="form-control" placeholder="例如: http://127.0.0.1:8080" required>
-                    </div>
-                    
-                    <div class="form-group">
-                        <label class="form-label">启用HTTPS</label>
-                        <div>
-                            <label style="display: inline-flex; align-items: center; gap: 8px; margin-right: 20px;">
-                                <input type="radio" name="enable_https" value="true"> 启用
-                            </label>
-                            <label style="display: inline-flex; align-items: center; gap: 8px;">
-                                <input type="radio" name="enable_https" value="false" checked> 禁用
-                            </label>
-                        </div>
-                    </div>
-                    
-                    <div class="form-group" id="cert-field" style="display: none;">
-                        <label class="form-label">证书名称</label>
-                        <input type="text" name="cert_name" class="form-control" placeholder="证书备注名称">
-                    </div>
-                    
-                    <div style="display: flex; gap: 10px; justify-content: flex-end;">
-                        <button type="button" class="btn btn-secondary" onclick="closeModal()">取消</button>
-                        <button type="submit" class="btn">添加站点</button>
-                    </div>
-                </form>
-            `;
+        <form id="add-site-form">
+            <div class="form-group">
+                <label class="form-label">站点名称</label>
+                <input type="text" name="name" class="form-control" placeholder="例如: 我的网站" required>
+            </div>
             
-            // 显示/隐藏证书字段
+            <div class="form-group">
+                <label class="form-label">域名</label>
+                <input type="text" name="domain" class="form-control" placeholder="例如: example.com" required>
+            </div>
+            
+            <div class="form-group">
+                <label class="form-label">目标URL</label>
+                <input type="text" name="target_url" class="form-control" placeholder="例如: http://127.0.0.1:8080" required>
+            </div>
+            
+            <div class="form-group">
+                <label class="form-label">启用HTTPS</label>
+                <div>
+                    <label style="display: inline-flex; align-items: center; gap: 8px; margin-right: 20px;">
+                        <input type="radio" name="enable_https" value="true"> 启用
+                    </label>
+                    <label style="display: inline-flex; align-items: center; gap: 8px;">
+                        <input type="radio" name="enable_https" value="false" checked> 禁用
+                    </label>
+                </div>
+            </div>
+            
+            <div class="form-group" id="https-options" style="display: none;">
+                <div class="tabs" id="cert-tabs">
+                    <div class="tab active" data-tab="auto">自动生成证书</div>
+                    <div class="tab" data-tab="upload">上传证书</div>
+                </div>
+                
+                <div id="auto-cert-tab" class="tab-content active">
+                    <div class="form-group">
+                        <label class="form-label">证书有效期 (天)</label>
+                        <input type="number" name="valid_days" class="form-control" value="365" min="1" max="3650">
+                        <small style="color: #666;">默认365天，最长10年</small>
+                    </div>
+                </div>
+                
+                <div id="upload-cert-tab" class="tab-content">
+                    <div class="form-group">
+                        <label class="form-label">证书内容 (PEM格式)</label>
+                        <textarea name="cert_text" class="form-control" rows="6" placeholder="-----BEGIN CERTIFICATE----- ..."></textarea>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">私钥内容 (PEM格式)</label>
+                        <textarea name="key_text" class="form-control" rows="6" placeholder="-----BEGIN PRIVATE KEY----- ..."></textarea>
+                    </div>
+                </div>
+            </div>
+            
+            <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                <button type="button" class="btn btn-secondary" onclick="closeModal()">取消</button>
+                <button type="submit" class="btn">添加站点</button>
+            </div>
+        </form>
+    `;
+
+            // 显示/隐藏HTTPS选项
             document.querySelectorAll('input[name="enable_https"]').forEach(radio => {
-                radio.addEventListener('change', function() {
-                    document.getElementById('cert-field').style.display = this.value === 'true' ? 'block' : 'none';
+                radio.addEventListener('change', function () {
+                    document.getElementById('https-options').style.display = this.value === 'true' ? 'block' : 'none';
                 });
             });
-            
-            // 表单提交
-            document.getElementById('add-site-form').addEventListener('submit', function(e) {
-                e.preventDefault();
-                addSite(new FormData(this));
+
+            // 证书标签页切换
+            document.querySelectorAll('#cert-tabs .tab').forEach(tab => {
+                tab.addEventListener('click', function () {
+                    const tabName = this.getAttribute('data-tab');
+
+                    // 更新标签状态
+                    document.querySelectorAll('#cert-tabs .tab').forEach(t => t.classList.remove('active'));
+                    this.classList.add('active');
+
+                    // 显示对应内容
+                    document.querySelectorAll('#https-options .tab-content').forEach(content => {
+                        content.classList.remove('active');
+                    });
+                    document.getElementById(`${tabName}-cert-tab`).classList.add('active');
+                });
             });
-            
+
+            // 表单提交
+            document.getElementById('add-site-form').addEventListener('submit', function (e) {
+                e.preventDefault();
+                addSiteWithCertificate(new FormData(this));
+            });
+
             showModal();
         }
+        // 修改添加站点函数，支持证书
+            async function addSiteWithCertificate(formData) {
+                try {
+                    const data = Object.fromEntries(formData);
+                    data.enable_https = data.enable_https === 'true';
+
+                    const response = await fetch('/api/site/add-with-cert', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        credentials: 'include',
+                        body: JSON.stringify(data)
+                    });
+
+                    if (response.ok) {
+                        closeModal();
+                        showMessage('站点添加成功', 'success');
+                        loadSites();
+                    } else {
+                        const error = await response.text();
+                        showMessage('添加失败: ' + error, 'error');
+                    }
+                } catch (error) {
+                    console.error('添加站点错误:', error);
+                    showMessage('添加失败', 'error');
+                }
+            }
 
         // 添加站点
         async function addSite(formData) {

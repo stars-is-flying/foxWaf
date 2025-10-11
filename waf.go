@@ -2790,6 +2790,8 @@ func readGinHtml() {
 }
 
 
+
+
 // 在需要认证的路由中使用中间件
 func StartGinAPI() {
     gin.SetMode(gin.ReleaseMode)
@@ -2841,6 +2843,13 @@ func StartGinAPI() {
         authGroup.DELETE("/api/attack/logs", deleteAttackLogsHandler)     // 删除攻击日志
         authGroup.GET("/api/attack/export", exportAttackLogsHandler)      // 导出攻击日志
         authGroup.GET("/api/attack/logs/:id", getAttackLogDetailHandler)  // 获取单个日志详情
+
+         // 站点证书管理
+        authGroup.POST("/api/site/add-with-cert", addSiteWithCertHandler)              // 添加站点带证书
+        authGroup.GET("/api/site/:id/certificate", getSiteCertificateHandler)          // 获取站点证书信息
+        authGroup.POST("/api/site/:id/renew-certificate", renewSiteCertificateHandler) // 重新生成证书
+        authGroup.POST("/api/site/:id/replace-certificate", replaceSiteCertificateHandler) // 替换证书
+        authGroup.POST("/api/site/:id/remove-certificate", removeSiteCertificateHandler) // 移除证
     }
 
     // 统一返回404页面
@@ -3620,6 +3629,339 @@ func ReverseProxy() {
     if err := httpsSrv.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
         stdlog.Fatalf("HTTPS启动失败: %v", err)
     }
+}
+
+// ------------------- 添加站点带证书请求 -------------------
+type AddSiteWithCertRequest struct {
+    Name        string `json:"name" binding:"required"`
+    Domain      string `json:"domain" binding:"required"`
+    TargetURL   string `json:"target_url" binding:"required"`
+    EnableHTTPS bool   `json:"enable_https"`
+    ValidDays   int    `json:"valid_days"`
+    CertText    string `json:"cert_text"`
+    KeyText     string `json:"key_text"`
+}
+func generateSelfSignedCertWithDays(domain string, validDays int) (certPEM []byte, keyPEM []byte, err error) {
+    // 生成私钥
+    privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+    if err != nil {
+        return nil, nil, fmt.Errorf("生成私钥失败: %v", err)
+    }
+
+    // 创建证书模板
+    serialNumber, err := rand.Int(rand.Reader, big.NewInt(math.MaxInt64))
+    if err != nil {
+        return nil, nil, fmt.Errorf("生成序列号失败: %v", err)
+    }
+
+    template := x509.Certificate{
+        SerialNumber: serialNumber,
+        Subject: pkix.Name{
+            CommonName:   domain,
+            Organization: []string{"LittleFox WAF"},
+        },
+        NotBefore:             time.Now(),
+        NotAfter:              time.Now().Add(time.Duration(validDays) * 24 * time.Hour),
+        KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+        ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+        BasicConstraintsValid: true,
+        DNSNames:              []string{domain, "*." + domain},
+    }
+
+    // 生成证书
+    certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &privateKey.PublicKey, privateKey)
+    if err != nil {
+        return nil, nil, fmt.Errorf("生成证书失败: %v", err)
+    }
+
+    // 编码为 PEM 格式
+    certPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
+    keyPEM = pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(privateKey)})
+
+    return certPEM, keyPEM, nil
+}
+
+// ------------------- 添加站点带证书接口 -------------------
+func addSiteWithCertHandler(c *gin.Context) {
+    var req AddSiteWithCertRequest
+    if err := c.ShouldBindJSON(&req); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+
+    var certID interface{} = nil
+
+    // 如果启用HTTPS，处理证书
+    if req.EnableHTTPS {
+        var certPEM, keyPEM []byte
+        var err error
+        
+        // 判断是上传证书还是自动生成
+        if req.CertText != "" && req.KeyText != "" {
+            // 使用上传的证书
+            certPEM = []byte(req.CertText)
+            keyPEM = []byte(req.KeyText)
+            
+            // 验证证书格式
+            _, err = tls.X509KeyPair(certPEM, keyPEM)
+            if err != nil {
+                c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("证书格式无效: %v", err)})
+                return
+            }
+        } else {
+            // 自动生成证书
+            if req.ValidDays == 0 {
+                req.ValidDays = 365
+            }
+            certPEM, keyPEM, err = generateSelfSignedCertWithDays(req.Domain, req.ValidDays)
+            if err != nil {
+                c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("生成证书失败: %v", err)})
+                return
+            }
+        }
+        
+        // 保存证书到数据库
+        certName := fmt.Sprintf("%s - %s", req.Name, req.Domain)
+        insertCert := `INSERT INTO certificates (name, cert_text, key_text) VALUES (?, ?, ?)`
+        result, err := db.Exec(insertCert, certName, certPEM, keyPEM)
+        if err != nil {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("保存证书失败: %v", err)})
+            return
+        }
+        
+        certID, _ = result.LastInsertId()
+        
+        // 热加载证书到内存
+        cert, err := tls.X509KeyPair(certPEM, keyPEM)
+        if err != nil {
+            stdlog.Printf("加载证书失败: %v", err)
+        } else {
+            certificateMap[req.Domain] = cert
+            stdlog.Printf("新证书已加载: %s", req.Domain)
+        }
+    }
+
+    // 插入站点到数据库
+    insertSite := `INSERT INTO sites (name, domain, target_url, enable_https, cert_id, status) VALUES (?, ?, ?, ?, ?, ?)`
+    _, err := db.Exec(insertSite, req.Name, req.Domain, req.TargetURL, boolToInt(req.EnableHTTPS), certID, 1)
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("写入站点失败: %v", err)})
+        return
+    }
+
+    // 热更新内存 sites 列表
+    newSite := Site{
+        Name:        req.Name,
+        Domain:      req.Domain,
+        TargetURL:   req.TargetURL,
+        EnableHTTPS: req.EnableHTTPS,
+        Status:      1,
+    }
+    if certID != nil {
+        newSite.CERTID = sql.NullInt64{Int64: certID.(int64), Valid: true}
+    }
+    sites = append(sites, newSite)
+
+    c.JSON(http.StatusOK, gin.H{"message": "站点添加成功"})
+}
+
+// ------------------- 证书信息结构 -------------------
+type CertificateDetail struct {
+    Exists        bool   `json:"exists"`
+    Domain        string `json:"domain"`
+    ValidFrom     string `json:"valid_from"`
+    ValidTo       string `json:"valid_to"`
+    Issuer        string `json:"issuer"`
+    IsSelfSigned  bool   `json:"is_self_signed"`
+}
+
+// ------------------- 获取站点证书信息接口 -------------------
+func getSiteCertificateHandler(c *gin.Context) {
+    siteID := c.Param("id")
+    
+    var domain, certText string
+    err := db.QueryRow(`
+        SELECT s.domain, c.cert_text 
+        FROM sites s 
+        LEFT JOIN certificates c ON s.cert_id = c.id 
+        WHERE s.id = ? AND s.enable_https = 1
+    `, siteID).Scan(&domain, &certText)
+    
+    if err != nil {
+        c.JSON(http.StatusOK, gin.H{
+            "certificate": CertificateDetail{Exists: false},
+        })
+        return
+    }
+    
+    // 解析证书信息
+    block, _ := pem.Decode([]byte(certText))
+    if block == nil {
+        c.JSON(http.StatusOK, gin.H{
+            "certificate": CertificateDetail{Exists: false},
+        })
+        return
+    }
+    
+    cert, err := x509.ParseCertificate(block.Bytes)
+    if err != nil {
+        c.JSON(http.StatusOK, gin.H{
+            "certificate": CertificateDetail{Exists: false},
+        })
+        return
+    }
+    
+    certDetail := CertificateDetail{
+        Exists:       true,
+        Domain:       domain,
+        ValidFrom:    cert.NotBefore.Format("2006-01-02 15:04:05"),
+        ValidTo:      cert.NotAfter.Format("2006-01-02 15:04:05"),
+        Issuer:       cert.Issuer.CommonName,
+        IsSelfSigned: cert.Issuer.CommonName == cert.Subject.CommonName,
+    }
+    
+    c.JSON(http.StatusOK, gin.H{
+        "certificate": certDetail,
+    })
+}
+
+// ------------------- 重新生成证书请求 -------------------
+type RenewCertRequest struct {
+    ValidDays int `json:"valid_days" binding:"min=1,max=3650"`
+}
+
+// ------------------- 重新生成证书接口 -------------------
+func renewSiteCertificateHandler(c *gin.Context) {
+    siteID := c.Param("id")
+    
+    var req RenewCertRequest
+    if err := c.ShouldBindJSON(&req); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+    
+    // 获取站点信息
+    var domain string
+    var currentCertID int64
+    err := db.QueryRow("SELECT domain, cert_id FROM sites WHERE id = ? AND enable_https = 1", siteID).Scan(&domain, &currentCertID)
+    if err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "站点不存在或未启用HTTPS"})
+        return
+    }
+    
+    // 生成新证书
+    certPEM, keyPEM, err := generateSelfSignedCertWithDays(domain, req.ValidDays)
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("生成证书失败: %v", err)})
+        return
+    }
+    
+    // 更新证书
+    _, err = db.Exec("UPDATE certificates SET cert_text = ?, key_text = ? WHERE id = ?", certPEM, keyPEM, currentCertID)
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("更新证书失败: %v", err)})
+        return
+    }
+    
+    // 热加载新证书
+    cert, err := tls.X509KeyPair(certPEM, keyPEM)
+    if err != nil {
+        stdlog.Printf("加载新证书失败: %v", err)
+    } else {
+        certificateMap[domain] = cert
+        stdlog.Printf("证书已更新: %s", domain)
+    }
+    
+    c.JSON(http.StatusOK, gin.H{"message": "证书重新生成成功"})
+}
+
+// ------------------- 替换证书请求 -------------------
+type ReplaceCertRequest struct {
+    CertText string `json:"cert_text" binding:"required"`
+    KeyText  string `json:"key_text" binding:"required"`
+}
+
+// ------------------- 替换证书接口 -------------------
+func replaceSiteCertificateHandler(c *gin.Context) {
+    siteID := c.Param("id")
+    
+    var req ReplaceCertRequest
+    if err := c.ShouldBindJSON(&req); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+    
+    // 验证证书格式
+    _, err := tls.X509KeyPair([]byte(req.CertText), []byte(req.KeyText))
+    if err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("证书格式无效: %v", err)})
+        return
+    }
+    
+    // 获取站点信息
+    var domain string
+    var currentCertID int64
+    err = db.QueryRow("SELECT domain, cert_id FROM sites WHERE id = ? AND enable_https = 1", siteID).Scan(&domain, &currentCertID)
+    if err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "站点不存在或未启用HTTPS"})
+        return
+    }
+    
+    // 更新证书
+    _, err = db.Exec("UPDATE certificates SET cert_text = ?, key_text = ? WHERE id = ?", req.CertText, req.KeyText, currentCertID)
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("更新证书失败: %v", err)})
+        return
+    }
+    
+    // 热加载新证书
+    cert, err := tls.X509KeyPair([]byte(req.CertText), []byte(req.KeyText))
+    if err != nil {
+        stdlog.Printf("加载新证书失败: %v", err)
+    } else {
+        certificateMap[domain] = cert
+        stdlog.Printf("证书已替换: %s", domain)
+    }
+    
+    c.JSON(http.StatusOK, gin.H{"message": "证书替换成功"})
+}
+
+// ------------------- 移除证书接口 -------------------
+func removeSiteCertificateHandler(c *gin.Context) {
+    siteID := c.Param("id")
+    
+    // 获取站点域名
+    var domain string
+    err := db.QueryRow("SELECT domain FROM sites WHERE id = ?", siteID).Scan(&domain)
+    if err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "站点不存在"})
+        return
+    }
+    
+    // 禁用HTTPS并清除证书ID
+    _, err = db.Exec("UPDATE sites SET enable_https = 0, cert_id = NULL WHERE id = ?", siteID)
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("更新站点失败: %v", err)})
+        return
+    }
+    
+    // 从内存中移除证书
+    delete(certificateMap, domain)
+    
+    // 热更新内存中的站点信息
+    aclManager.mutex.Lock()
+    for i, site := range sites {
+        if string(site.ID) == siteID {
+            sites[i].EnableHTTPS = false
+            sites[i].CERTID = sql.NullInt64{Valid: false}
+            break
+        }
+    }
+    aclManager.mutex.Unlock()
+    
+    stdlog.Printf("站点HTTPS已禁用，证书已移除: %s", domain)
+    
+    c.JSON(http.StatusOK, gin.H{"message": "证书已移除，HTTPS已禁用"})
 }
 
 func ReadConfig() {
