@@ -1944,17 +1944,8 @@ async function toggleSiteHTTPS(siteId, enableHTTPS) {
             enable_https: enableHTTPS
         };
         
-        // 如果启用HTTPS，需要提供证书ID
-        if (enableHTTPS) {
-            const certId = prompt('请输入证书ID（如果站点已有证书关联，可以留空使用现有证书）:');
-            if (certId !== null) { // 用户没有取消
-                if (certId.trim() !== '') {
-                    requestData.cert_id = parseInt(certId);
-                }
-            } else {
-                return; // 用户取消操作
-            }
-        }
+        // 启用HTTPS时不再需要手动输入证书ID，后端会自动处理
+        // 如果站点已有证书会使用现有证书，如果没有则自动生成
         
         const response = await fetch('/api/site/https', {
             method: 'POST',
