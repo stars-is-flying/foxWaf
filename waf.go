@@ -32,6 +32,7 @@ import (
     "crypto/md5"
     "strconv"
     "encoding/csv"
+    "sort"
 	
 	
     
@@ -1047,13 +1048,11 @@ func getContentType(filename string) string {
     return "application/octet-stream"
 }
 
-// 从缓存获取文件
-func getCachedFile(urlPath string) (*CachedFile, bool) {
+// ------------------- 修复从缓存获取文件函数 -------------------
+func getCachedFile(cacheKey string) (*CachedFile, bool) {
     if !staticCacheConfig.Enable {
         return nil, false
     }
-    
-    cacheKey := generateCacheKey(urlPath)
     
     cacheMutex.RLock()
     cachedFile, exists := fileCache[cacheKey]
@@ -1075,7 +1074,7 @@ func getCachedFile(urlPath string) (*CachedFile, bool) {
 }
 
 // 添加到缓存
-func addToCache(urlPath string, content []byte, contentType string) {
+func addToCache(cacheKey string, content []byte, contentType string) {
     if !staticCacheConfig.Enable {
         return
     }
@@ -1092,11 +1091,15 @@ func addToCache(urlPath string, content []byte, contentType string) {
     
     // 检查是否超过最大缓存大小
     if currentCacheSize+fileSize > staticCacheConfig.MaxCacheSize {
-        stdlog.Printf("缓存空间不足，跳过缓存: %s", urlPath)
-        return
+        // 如果超过限制，先清理一些旧缓存
+        cleanupExpiredCache()
+        // 再次检查
+        if currentCacheSize+fileSize > staticCacheConfig.MaxCacheSize {
+            stdlog.Printf("缓存空间不足，跳过缓存: %s", cacheKey)
+            return
+        }
     }
     
-    cacheKey := generateCacheKey(urlPath)
     expireAt := time.Now().Add(staticCacheConfig.DefaultExpire)
     
     cachedFile := &CachedFile{
@@ -1119,7 +1122,10 @@ func addToCache(urlPath string, content []byte, contentType string) {
     
     // 异步保存到磁盘
     go saveToDiskCache(cacheKey, finalContent)
+    
+    stdlog.Printf("缓存添加成功: %s, 大小: %.2f KB", cacheKey, float64(fileSize)/1024)
 }
+
 // 从缓存移除
 func removeFromCache(cacheKey string) {
     cacheMutex.Lock()
@@ -1134,9 +1140,9 @@ func removeFromCache(cacheKey string) {
     }
 }
 
-// 生成缓存键
 func generateCacheKey(urlPath string) string {
-    return fmt.Sprintf("url_%x", md5.Sum([]byte(urlPath)))
+    hash := md5.Sum([]byte(urlPath))
+    return fmt.Sprintf("cache_%x", hash)
 }
 
 // 保存到磁盘缓存
@@ -1170,7 +1176,58 @@ func cacheCleanupWorker() {
     }
 }
 
-// 清理过期缓存
+// ------------------- 添加缓存统计接口 -------------------
+type CacheStatsDetailResponse struct {
+    Enable          bool              `json:"enable"`
+    CacheHits       uint64            `json:"cache_hits"`
+    CacheMisses     uint64            `json:"cache_misses"`
+    HitRate         string            `json:"hit_rate"`
+    CurrentSize     string            `json:"current_size"`
+    MaxSize         string            `json:"max_size"`
+    CachedFiles     int               `json:"cached_files"`
+    CacheItems      map[string]string `json:"cache_items,omitempty"`
+}
+
+// 获取详细缓存统计
+func getCacheStatsDetailHandler(c *gin.Context) {
+    cacheMutex.RLock()
+    cachedFiles := len(fileCache)
+    currentSize := currentCacheSize
+    
+    // 获取缓存项详情
+    cacheItems := make(map[string]string)
+    for key, file := range fileCache {
+        cacheItems[key] = fmt.Sprintf("%s, 大小: %.2f KB, 过期: %s", 
+            file.ContentType, 
+            float64(file.Size)/1024,
+            file.ExpireAt.Format("15:04:05"))
+    }
+    cacheMutex.RUnlock()
+    
+    hits := atomic.LoadUint64(&cacheHits)
+    misses := atomic.LoadUint64(&cacheMisses)
+    total := hits + misses
+    hitRate := "0%"
+    if total > 0 {
+        hitRate = fmt.Sprintf("%.2f%%", float64(hits)/float64(total)*100)
+    }
+    
+    stats := CacheStatsDetailResponse{
+        Enable:      staticCacheConfig.Enable,
+        CacheHits:   hits,
+        CacheMisses: misses,
+        HitRate:     hitRate,
+        CurrentSize: fmt.Sprintf("%.2f MB", float64(currentSize)/(1024*1024)),
+        MaxSize:     fmt.Sprintf("%.2f MB", float64(staticCacheConfig.MaxCacheSize)/(1024*1024)),
+        CachedFiles: cachedFiles,
+        CacheItems:  cacheItems,
+    }
+    
+    c.JSON(http.StatusOK, stats)
+}
+
+
+// ------------------- 修复缓存清理 -------------------
 func cleanupExpiredCache() {
     cacheMutex.Lock()
     defer cacheMutex.Unlock()
@@ -1191,9 +1248,57 @@ func cleanupExpiredCache() {
         }
     }
     
+    // 如果还是超过限制，按LRU清理
+    if currentCacheSize > staticCacheConfig.MaxCacheSize {
+        stdlog.Printf("缓存仍然超过限制，执行LRU清理")
+        cleanupLRUCache()
+    }
+    
     if cleanedCount > 0 {
         stdlog.Printf("缓存清理完成: 清理了 %d 个文件, 释放了 %.2f MB", 
             cleanedCount, float64(cleanedSize)/(1024*1024))
+    }
+}
+
+
+// ------------------- 添加LRU缓存清理 -------------------
+func cleanupLRUCache() {
+    // 按最后修改时间排序
+    type cacheItem struct {
+        key    string
+        file   *CachedFile
+    }
+    
+    var items []cacheItem
+    for key, file := range fileCache {
+        items = append(items, cacheItem{key, file})
+    }
+    
+    // 按最后修改时间排序（最早的在前）
+    sort.Slice(items, func(i, j int) bool {
+        return items[i].file.LastModified.Before(items[j].file.LastModified)
+    })
+    
+    // 清理直到低于限制的80%
+    targetSize := staticCacheConfig.MaxCacheSize * 80 / 100
+    cleanedCount := 0
+    
+    for _, item := range items {
+        if currentCacheSize <= targetSize {
+            break
+        }
+        
+        currentCacheSize -= item.file.Size
+        delete(fileCache, item.key)
+        cleanedCount++
+        
+        // 删除磁盘缓存
+        go deleteDiskCache(item.key)
+    }
+    
+    if cleanedCount > 0 {
+        stdlog.Printf("LRU缓存清理: 清理了 %d 个文件, 当前大小: %.2f MB", 
+            cleanedCount, float64(currentCacheSize)/(1024*1024))
     }
 }
 
@@ -1427,51 +1532,53 @@ var antiDevToolsScript = `
 </script>
 `
 
-// 检查是否为 HTML 内容
+// ------------------- 修复HTML内容检查 -------------------
 func isHTMLContent(contentType string) bool {
     if contentType == "" {
         return false
     }
-    return strings.Contains(strings.ToLower(contentType), "text/html")
+    contentType = strings.ToLower(contentType)
+    return strings.Contains(contentType, "text/html") || 
+           strings.Contains(contentType, "application/xhtml+xml")
 }
 
-// 智能注入脚本（避免重复注入）
 func injectAntiDevTools(htmlContent string) string {
     // 检查是否已经包含防开发者工具脚本
-    if strings.Contains(htmlContent, "blockShortcuts") || 
-       strings.Contains(htmlContent, "checkDebugger") {
+    if strings.Contains(htmlContent, "detectDevTools") || 
+       strings.Contains(htmlContent, "blockDevTools") ||
+       strings.Contains(htmlContent, "devToolsOpened") {
         return htmlContent
     }
     
-    // 在 </body> 前注入
-    if strings.Contains(htmlContent, "</body>") {
-        return strings.Replace(htmlContent, "</body>", antiDevToolsScript + "</body>", 1)
+    // 在head标签中注入
+    if strings.Contains(htmlContent, "</head>") {
+        return strings.Replace(htmlContent, "</head>", antiDevToolsScript + "</head>", 1)
     }
     
-    // 在 </html> 前注入
+    // 在body开始标签后注入
+    if strings.Contains(htmlContent, "<body") {
+        // 找到body开始标签的位置
+        bodyStart := strings.Index(htmlContent, "<body")
+        if bodyStart != -1 {
+            // 找到body标签的结束位置
+            bodyEnd := strings.Index(htmlContent[bodyStart:], ">")
+            if bodyEnd != -1 {
+                insertPos := bodyStart + bodyEnd + 1
+                return htmlContent[:insertPos] + antiDevToolsScript + htmlContent[insertPos:]
+            }
+        }
+    }
+    
+    // 在html结束标签前注入
     if strings.Contains(htmlContent, "</html>") {
         return strings.Replace(htmlContent, "</html>", antiDevToolsScript + "</html>", 1)
     }
     
-    // 直接追加
+    // 直接追加到末尾
     return htmlContent + antiDevToolsScript
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-// ------------------- 修改主处理函数 -------------------
+// ------------------- 修改主处理函数，修复缓存集成 -------------------
 func handler(w http.ResponseWriter, req *http.Request) {
     atomic.AddUint64(&totalRequests, 1)
 
@@ -1479,11 +1586,13 @@ func handler(w http.ResponseWriter, req *http.Request) {
     host := req.Host
     var targetURL string
     var enableHTTPS bool
+    var siteDomain string
 
     for _, site := range sites {
         if strings.EqualFold(site.Domain, host) && site.Status == 1 {
             targetURL = site.TargetURL
             enableHTTPS = site.EnableHTTPS
+            siteDomain = site.Domain
             break
         }
     }
@@ -1524,25 +1633,21 @@ func handler(w http.ResponseWriter, req *http.Request) {
         return
     }
 
-    // 先检查静态文件缓存
+    // 3. 检查静态文件缓存（修复缓存逻辑）
     if staticCacheConfig.Enable && req.Method == "GET" {
-        if cachedFile, found := getCachedFile(req.URL.Path); found {
+        cacheKey := generateCacheKey(req.URL.Path + "|" + siteDomain)
+        if cachedFile, found := getCachedFile(cacheKey); found {
             // 设置缓存头
             w.Header().Set("Content-Type", cachedFile.ContentType)
             w.Header().Set("Content-Length", fmt.Sprintf("%d", cachedFile.Size))
             w.Header().Set("Cache-Control", "public, max-age=3600") // 1小时浏览器缓存
             w.Header().Set("X-Cache", "HIT")
+            w.Header().Set("X-Cache-Key", cacheKey)
             
-            // 如果是 HTML 内容且启用了防开发者工具，需要重新注入脚本
-            if EnableAntiDevTools && isHTMLContent(cachedFile.ContentType) {
-                modifiedBody := injectAntiDevTools(string(cachedFile.Content))
-                w.Header().Set("Content-Length", fmt.Sprintf("%d", len(modifiedBody)))
-                w.WriteHeader(http.StatusOK)
-                w.Write([]byte(modifiedBody))
-            } else {
-                w.WriteHeader(http.StatusOK)
-                w.Write(cachedFile.Content)
-            }
+            // 写入缓存的响应
+            w.WriteHeader(http.StatusOK)
+            w.Write(cachedFile.Content)
+            stdlog.Printf("缓存命中: %s%s", host, req.URL.Path)
             return
         }
     }
@@ -1610,70 +1715,51 @@ func handler(w http.ResponseWriter, req *http.Request) {
     // 获取内容类型
     contentType := resp.Header.Get("Content-Type")
 
-    // 处理响应体 - 支持防开发者工具注入
+    // 处理响应体
+    bodyBytes, err := io.ReadAll(resp.Body)
+    if err != nil {
+        stdlog.Printf("读取响应体失败: %v", err)
+        w.WriteHeader(http.StatusInternalServerError)
+        return
+    }
+
+    var finalBody []byte
+    var shouldCache = false
+
+    // 处理防开发者工具注入
     if EnableAntiDevTools && isHTMLContent(contentType) && resp.StatusCode == 200 {
-        // 读取响应体
-        bodyBytes, err := io.ReadAll(resp.Body)
-        if err != nil {
-            stdlog.Printf("读取响应体失败: %v", err)
-            w.WriteHeader(http.StatusInternalServerError)
-            return
-        }
-
-        // 注入防开发者工具脚本
         modifiedBody := injectAntiDevTools(string(bodyBytes))
-
-        // 更新 Content-Length
-        w.Header().Set("Content-Length", fmt.Sprintf("%d", len(modifiedBody)))
-
-        // 如果是静态文件且缓存启用，缓存修改后的内容
-        if staticCacheConfig.Enable && req.Method == "GET" {
-            if isCacheableStaticFile(req.URL.Path) {
-                addToCache(req.URL.Path, []byte(modifiedBody), contentType)
-                w.Header().Set("X-Cache", "MISS")
-            }
-        } else {
-            w.Header().Set("X-Cache", "BYPASS")
-        }
-
-        // 设置状态码并写入修改后的响应
-        w.WriteHeader(resp.StatusCode)
-        _, err = w.Write([]byte(modifiedBody))
-        if err != nil {
-            stdlog.Printf("写入响应失败: %v", err)
-        }
-
+        finalBody = []byte(modifiedBody)
+        shouldCache = true
     } else {
-        // 非 HTML 内容或功能关闭，直接处理
+        finalBody = bodyBytes
+        // 检查是否为可缓存的静态文件
         if staticCacheConfig.Enable && req.Method == "GET" && resp.StatusCode == 200 {
             if isCacheableStaticFile(req.URL.Path) {
-                // 读取响应体
-                bodyBytes, err := io.ReadAll(resp.Body)
-                if err == nil {
-                    // 重新设置响应体
-                    resp.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
-                    
-                    // 添加到缓存
-                    actualContentType := resp.Header.Get("Content-Type")
-                    if actualContentType == "" {
-                        actualContentType = getContentType(req.URL.Path)
-                    }
-                    addToCache(req.URL.Path, bodyBytes, actualContentType)
-                    
-                    // 设置缓存头
-                    w.Header().Set("X-Cache", "MISS")
-                }
+                shouldCache = true
             }
-        } else {
-            w.Header().Set("X-Cache", "BYPASS")
         }
+    }
 
-        // 设置状态码并直接拷贝响应体
-        w.WriteHeader(resp.StatusCode)
-        _, err = io.Copy(w, resp.Body)
-        if err != nil {
-            stdlog.Printf("拷贝响应体失败: %v", err)
-        }
+    // 更新 Content-Length
+    w.Header().Set("Content-Length", fmt.Sprintf("%d", len(finalBody)))
+
+    // 缓存处理
+    if shouldCache && staticCacheConfig.Enable {
+        cacheKey := generateCacheKey(req.URL.Path + "|" + siteDomain)
+        addToCache(cacheKey, finalBody, contentType)
+        w.Header().Set("X-Cache", "MISS")
+        w.Header().Set("X-Cache-Key", cacheKey)
+        stdlog.Printf("缓存添加: %s%s", host, req.URL.Path)
+    } else {
+        w.Header().Set("X-Cache", "BYPASS")
+    }
+
+    // 设置状态码并写入响应
+    w.WriteHeader(resp.StatusCode)
+    _, err = w.Write(finalBody)
+    if err != nil {
+        stdlog.Printf("写入响应失败: %v", err)
     }
 }
 
@@ -2817,6 +2903,7 @@ func StartGinAPI() {
         authGroup.GET("/api/cache/stats", getCacheStatsHandler)
         authGroup.POST("/api/cache/config", updateCacheConfigHandler)
         authGroup.POST("/api/cache/clear", clearCacheHandler)
+        authGroup.GET("/api/cache/stats/detail", getCacheStatsDetailHandler) // 新增详细统计
 
         // 添加站点
         authGroup.POST("/api/site/add", addSiteHandler)
