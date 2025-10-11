@@ -233,14 +233,25 @@ func deleteAttackLogsHandler(c *gin.Context) {
 }
 
 // ------------------- 导出攻击日志接口 -------------------
+// ------------------- 导出攻击日志查询参数 -------------------
+type ExportAttackLogQuery struct {
+    Method    string `form:"method"`
+    RuleName  string `form:"rule_name"`
+    RuleID    string `form:"rule_id"`
+    StartTime string `form:"start_time"`
+    EndTime   string `form:"end_time"`
+    Search    string `form:"search"`
+}
+
+// ------------------- 修改导出攻击日志接口 -------------------
 func exportAttackLogsHandler(c *gin.Context) {
-    var query AttackLogQuery
+    var query ExportAttackLogQuery
     if err := c.ShouldBindQuery(&query); err != nil {
         c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
         return
     }
 
-    // 构建查询条件（与getAttackLogsHandler相同）
+    // 构建查询条件
     whereClause := "WHERE 1=1"
     args := []interface{}{}
 
@@ -254,6 +265,11 @@ func exportAttackLogsHandler(c *gin.Context) {
         args = append(args, "%"+query.RuleName+"%")
     }
 
+    if query.RuleID != "" {
+        whereClause += " AND rule_id = ?"
+        args = append(args, query.RuleID)
+    }
+
     if query.StartTime != "" {
         whereClause += " AND created_at >= ?"
         args = append(args, query.StartTime)
@@ -264,12 +280,16 @@ func exportAttackLogsHandler(c *gin.Context) {
         args = append(args, query.EndTime)
     }
 
-    // 查询数据
+    if query.Search != "" {
+        whereClause += " AND (matched_value LIKE ? OR rule_name LIKE ?)"
+        args = append(args, "%"+query.Search+"%", "%"+query.Search+"%")
+    }
+
+    // 查询数据 - 导出所有匹配的记录，不分页
     dataQuery := fmt.Sprintf(`
     SELECT id, method, url, headers, body, rule_name, rule_id, matched_value, client_ip, created_at 
     FROM attacks %s 
-    ORDER BY created_at DESC 
-    LIMIT ? OFFSET ?
+    ORDER BY created_at DESC
 `, whereClause)
 
     rows, err := db.Query(dataQuery, args...)
@@ -285,8 +305,8 @@ func exportAttackLogsHandler(c *gin.Context) {
         var urlB64, headersB64, bodyB64 string
         
         err := rows.Scan(
-        &log.ID, &log.Method, &urlB64, &headersB64, &bodyB64,
-        &log.RuleName, &log.RuleID, &log.MatchedValue, &log.ClientIP, &log.CreatedAt,
+            &log.ID, &log.Method, &urlB64, &headersB64, &bodyB64,
+            &log.RuleName, &log.RuleID, &log.MatchedValue, &log.ClientIP, &log.CreatedAt,
         )
         if err != nil {
             continue
@@ -318,18 +338,20 @@ func exportAttackLogsHandler(c *gin.Context) {
 
     // 写入表头
     writer.Write([]string{
-        "时间", "方法", "规则名称", "规则ID", "匹配内容", "URL", "请求头", "请求体",
+        "ID", "时间", "方法", "规则名称", "规则ID", "匹配内容", "客户端IP", "URL", "请求头", "请求体",
     })
 
     // 写入数据
     for _, log := range logs {
         writer.Write([]string{
+            fmt.Sprintf("%d", log.ID),
             log.CreatedAt,
             log.Method,
             log.RuleName,
             log.RuleID,
-            log.MatchedValue,
-            truncateString(log.URL, 100),        // 截断长文本
+            truncateString(log.MatchedValue, 100),
+            log.ClientIP,
+            truncateString(log.URL, 100),
             truncateString(log.Headers, 100),
             truncateString(log.Body, 100),
         })
@@ -418,6 +440,7 @@ func getAttackStatsHandler(c *gin.Context) {
 }
 
 // ------------------- 获取攻击日志接口 -------------------
+// ------------------- 修复获取攻击日志接口 -------------------
 func getAttackLogsHandler(c *gin.Context) {
     var query AttackLogQuery
     if err := c.ShouldBindQuery(&query); err != nil {
@@ -436,42 +459,35 @@ func getAttackLogsHandler(c *gin.Context) {
     // 构建查询条件
     whereClause := "WHERE 1=1"
     args := []interface{}{}
-    argIndex := 1
 
     if query.Method != "" {
-        whereClause += fmt.Sprintf(" AND method = ?")
+        whereClause += " AND method = ?"
         args = append(args, query.Method)
-        argIndex++
     }
 
     if query.RuleName != "" {
-        whereClause += fmt.Sprintf(" AND rule_name LIKE ?")
+        whereClause += " AND rule_name LIKE ?"
         args = append(args, "%"+query.RuleName+"%")
-        argIndex++
     }
 
     if query.RuleID != "" {
-        whereClause += fmt.Sprintf(" AND rule_id = ?")
+        whereClause += " AND rule_id = ?"
         args = append(args, query.RuleID)
-        argIndex++
     }
 
     if query.StartTime != "" {
-        whereClause += fmt.Sprintf(" AND created_at >= ?")
+        whereClause += " AND created_at >= ?"
         args = append(args, query.StartTime)
-        argIndex++
     }
 
     if query.EndTime != "" {
-        whereClause += fmt.Sprintf(" AND created_at <= ?")
+        whereClause += " AND created_at <= ?"
         args = append(args, query.EndTime)
-        argIndex++
     }
 
     if query.Search != "" {
-        whereClause += fmt.Sprintf(" AND (matched_value LIKE ? OR rule_name LIKE ?)")
+        whereClause += " AND (matched_value LIKE ? OR rule_name LIKE ?)"
         args = append(args, "%"+query.Search+"%", "%"+query.Search+"%")
-        argIndex += 2
     }
 
     // 查询总数
@@ -485,7 +501,7 @@ func getAttackLogsHandler(c *gin.Context) {
 
     // 查询数据
     dataQuery := fmt.Sprintf(`
-        SELECT id, method, url, headers, body, rule_name, rule_id, matched_value, created_at 
+        SELECT id, method, url, headers, body, rule_name, rule_id, matched_value, client_ip, created_at 
         FROM attacks %s 
         ORDER BY created_at DESC 
         LIMIT ? OFFSET ?
@@ -508,7 +524,7 @@ func getAttackLogsHandler(c *gin.Context) {
         
         err := rows.Scan(
             &log.ID, &log.Method, &urlB64, &headersB64, &bodyB64,
-            &log.RuleName, &log.RuleID, &log.MatchedValue, &log.CreatedAt,
+            &log.RuleName, &log.RuleID, &log.MatchedValue, &log.ClientIP, &log.CreatedAt,
         )
         if err != nil {
             stdlog.Printf("读取攻击日志失败: %v", err)
