@@ -3769,25 +3769,59 @@ func generateSelfSignedCertWithDays(domain string, validDays int) (certPEM []byt
 }
 
 // ------------------- 添加站点带证书接口 -------------------
+// ------------------- 添加站点带证书接口 -------------------
+// ------------------- 修改 addSiteWithCertHandler 函数 -------------------
 func addSiteWithCertHandler(c *gin.Context) {
-    var req AddSiteWithCertRequest
+    var req map[string]interface{}
     if err := c.ShouldBindJSON(&req); err != nil {
         c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+
+    // 手动提取和转换字段
+    addSiteReq := AddSiteWithCertRequest{
+        Name:        getString(req, "name"),
+        Domain:      getString(req, "domain"),
+        TargetURL:   getString(req, "target_url"),
+        EnableHTTPS: getBool(req, "enable_https"),
+        CertText:    getString(req, "cert_text"),
+        KeyText:     getString(req, "key_text"),
+    }
+
+    // 处理 ValidDays 字段
+    if validDays, exists := req["valid_days"]; exists {
+        switch v := validDays.(type) {
+        case string:
+            if v != "" {
+                if intVal, err := strconv.Atoi(v); err == nil {
+                    addSiteReq.ValidDays = intVal
+                }
+            }
+        case float64: // JSON 数字默认是 float64
+            addSiteReq.ValidDays = int(v)
+        case int:
+            addSiteReq.ValidDays = v
+        }
+    }
+
+    // 验证必需字段
+    if addSiteReq.Name == "" || addSiteReq.Domain == "" || addSiteReq.TargetURL == "" {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "name, domain, target_url 为必填字段"})
         return
     }
 
     var certID interface{} = nil
 
     // 如果启用HTTPS，处理证书
-    if req.EnableHTTPS {
+    if addSiteReq.EnableHTTPS {
         var certPEM, keyPEM []byte
         var err error
         
         // 判断是上传证书还是自动生成
-        if req.CertText != "" && req.KeyText != "" {
+        if addSiteReq.CertText != "" && addSiteReq.KeyText != "" {
             // 使用上传的证书
-            certPEM = []byte(req.CertText)
-            keyPEM = []byte(req.KeyText)
+            certPEM = []byte(addSiteReq.CertText)
+            keyPEM = []byte(addSiteReq.KeyText)
             
             // 验证证书格式
             _, err = tls.X509KeyPair(certPEM, keyPEM)
@@ -3797,10 +3831,11 @@ func addSiteWithCertHandler(c *gin.Context) {
             }
         } else {
             // 自动生成证书
-            if req.ValidDays == 0 {
-                req.ValidDays = 365
+            validDays := addSiteReq.ValidDays
+            if validDays == 0 {
+                validDays = 365
             }
-            certPEM, keyPEM, err = generateSelfSignedCertWithDays(req.Domain, req.ValidDays)
+            certPEM, keyPEM, err = generateSelfSignedCertWithDays(addSiteReq.Domain, validDays)
             if err != nil {
                 c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("生成证书失败: %v", err)})
                 return
@@ -3808,7 +3843,7 @@ func addSiteWithCertHandler(c *gin.Context) {
         }
         
         // 保存证书到数据库
-        certName := fmt.Sprintf("%s - %s", req.Name, req.Domain)
+        certName := fmt.Sprintf("%s - %s", addSiteReq.Name, addSiteReq.Domain)
         insertCert := `INSERT INTO certificates (name, cert_text, key_text) VALUES (?, ?, ?)`
         result, err := db.Exec(insertCert, certName, certPEM, keyPEM)
         if err != nil {
@@ -3823,25 +3858,33 @@ func addSiteWithCertHandler(c *gin.Context) {
         if err != nil {
             stdlog.Printf("加载证书失败: %v", err)
         } else {
-            certificateMap[req.Domain] = cert
-            stdlog.Printf("新证书已加载: %s", req.Domain)
+            certificateMap[addSiteReq.Domain] = cert
+            stdlog.Printf("新证书已加载: %s", addSiteReq.Domain)
         }
     }
 
-    // 插入站点到数据库
+    // 插入站点到数据库并获取ID
     insertSite := `INSERT INTO sites (name, domain, target_url, enable_https, cert_id, status) VALUES (?, ?, ?, ?, ?, ?)`
-    _, err := db.Exec(insertSite, req.Name, req.Domain, req.TargetURL, boolToInt(req.EnableHTTPS), certID, 1)
+    result, err := db.Exec(insertSite, addSiteReq.Name, addSiteReq.Domain, addSiteReq.TargetURL, boolToInt(addSiteReq.EnableHTTPS), certID, 1)
     if err != nil {
         c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("写入站点失败: %v", err)})
         return
     }
 
+    // 获取插入的站点ID
+    siteID, err := result.LastInsertId()
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("获取站点ID失败: %v", err)})
+        return
+    }
+
     // 热更新内存 sites 列表
     newSite := Site{
-        Name:        req.Name,
-        Domain:      req.Domain,
-        TargetURL:   req.TargetURL,
-        EnableHTTPS: req.EnableHTTPS,
+        ID:          int(siteID), // 确保ID正确设置
+        Name:        addSiteReq.Name,
+        Domain:      addSiteReq.Domain,
+        TargetURL:   addSiteReq.TargetURL,
+        EnableHTTPS: addSiteReq.EnableHTTPS,
         Status:      1,
     }
     if certID != nil {
@@ -3849,7 +3892,28 @@ func addSiteWithCertHandler(c *gin.Context) {
     }
     sites = append(sites, newSite)
 
-    c.JSON(http.StatusOK, gin.H{"message": "站点添加成功"})
+    c.JSON(http.StatusOK, gin.H{
+        "message": "站点添加成功",
+        "site_id": siteID,
+    })
+}
+// 辅助函数
+func getString(m map[string]interface{}, key string) string {
+    if val, exists := m[key]; exists {
+        if str, ok := val.(string); ok {
+            return str
+        }
+    }
+    return ""
+}
+
+func getBool(m map[string]interface{}, key string) bool {
+    if val, exists := m[key]; exists {
+        if b, ok := val.(bool); ok {
+            return b
+        }
+    }
+    return false
 }
 
 // ------------------- 证书信息结构 -------------------
