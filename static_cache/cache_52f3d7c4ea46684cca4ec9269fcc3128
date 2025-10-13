@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>用户登录</title>
+    <link rel="icon"
+        href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🦊</text></svg>">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: linear-gradient(135deg, #c8f5f5 0%, #a8e6e6 25%, #88d7d7 50%, #68c8c8 75%, #48b9b9 100%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            font-family: "Comic Sans MS", "Microsoft YaHei", sans-serif;
+            color: #444;
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* 背景动画元素 */
+        .floating-elements {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .floating-element {
+            position: absolute;
+            background: rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            animation: float 6s ease-in-out infinite;
+        }
+
+        .floating-element:nth-child(1) {
+            width: 60px;
+            height: 60px;
+            top: 10%;
+            left: 10%;
+            animation-delay: 0s;
+        }
+
+        .floating-element:nth-child(2) {
+            width: 40px;
+            height: 40px;
+            top: 20%;
+            right: 15%;
+            animation-delay: 1s;
+        }
+
+        .floating-element:nth-child(3) {
+            width: 80px;
+            height: 80px;
+            bottom: 15%;
+            left: 15%;
+            animation-delay: 2s;
+        }
+
+        .floating-element:nth-child(4) {
+            width: 50px;
+            height: 50px;
+            bottom: 25%;
+            right: 10%;
+            animation-delay: 3s;
+        }
+
+        @keyframes float {
+
+            0%,
+            100% {
+                transform: translateY(0) rotate(0deg);
+            }
+
+            50% {
+                transform: translateY(-20px) rotate(180deg);
+            }
+        }
+
+        .fox-container {
+            position: relative;
+            z-index: 2;
+        }
+
+        .fox {
+            font-size: 140px;
+            animation: bounce 0.8s infinite alternate, glow 2s ease-in-out infinite alternate;
+            filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.5));
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .fox:hover {
+            transform: scale(1.1) rotate(5deg);
+        }
+
+        @keyframes bounce {
+            from {
+                transform: translateY(0);
+            }
+
+            to {
+                transform: translateY(-15px);
+            }
+        }
+
+        @keyframes glow {
+            from {
+                filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.5));
+            }
+
+            to {
+                filter: drop-shadow(0 0 20px rgba(255, 255, 255, 0.8));
+            }
+        }
+
+        .login-box {
+            margin-top: 30px;
+            background: linear-gradient(145deg, #dceafe, #c8e0fa);
+            padding: 40px 50px;
+            border-radius: 25px;
+            box-shadow:
+                0 10px 30px rgba(0, 0, 0, 0.1),
+                inset 0 1px 0 rgba(255, 255, 255, 0.6),
+                0 0 0 1px rgba(255, 255, 255, 0.3);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-width: 380px;
+            position: relative;
+            z-index: 2;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.4);
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        .login-box:hover {
+            transform: translateY(-5px);
+            box-shadow:
+                0 15px 40px rgba(0, 0, 0, 0.15),
+                inset 0 1px 0 rgba(255, 255, 255, 0.8),
+                0 0 0 1px rgba(255, 255, 255, 0.5);
+        }
+
+        .login-box::before {
+            content: '';
+            position: absolute;
+            top: -2px;
+            left: -2px;
+            right: -2px;
+            bottom: -2px;
+            background: linear-gradient(45deg, #ff6b6b, #4ecdc4, #45b7d1, #96ceb4, #ffeaa7);
+            border-radius: 27px;
+            z-index: -1;
+            opacity: 0;
+            transition: opacity 0.4s ease;
+        }
+
+        .login-box:hover::before {
+            opacity: 0.3;
+            animation: borderGlow 3s linear infinite;
+        }
+
+        @keyframes borderGlow {
+            0% {
+                filter: hue-rotate(0deg);
+            }
+
+            100% {
+                filter: hue-rotate(360deg);
+            }
+        }
+
+        .login-box h2 {
+            margin-bottom: 25px;
+            color: #5210ed;
+            font-size: 28px;
+            font-weight: bold;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            background: linear-gradient(45deg, #5210ed, #8b5cf6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .login-box input {
+            width: 100%;
+            padding: 15px 20px;
+            margin: 12px 0;
+            border-radius: 12px;
+            border: 2px solid transparent;
+            font-size: 16px;
+            background: rgba(255, 255, 255, 0.9);
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+        }
+
+        .login-box input:focus {
+            outline: none;
+            border-color: #5210ed;
+            background: rgba(255, 255, 255, 1);
+            box-shadow: 0 6px 20px rgba(82, 16, 237, 0.2);
+            transform: translateY(-2px);
+        }
+
+        .login-box input::placeholder {
+            color: #aaa;
+            transition: color 0.3s ease;
+        }
+
+        .login-box input:focus::placeholder {
+            color: #ddd;
+        }
+
+        .login-box button {
+            width: 100%;
+            padding: 15px;
+            margin-top: 20px;
+            border-radius: 12px;
+            border: none;
+            background: linear-gradient(45deg, #110d77, #5210ed);
+            color: #fff;
+            font-size: 18px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            box-shadow: 0 6px 20px rgba(17, 13, 119, 0.3);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .login-box button::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+            transition: left 0.5s;
+        }
+
+        .login-box button:hover {
+            background: linear-gradient(45deg, #5210ed, #8b5cf6);
+            transform: translateY(-3px);
+            box-shadow: 0 10px 25px rgba(82, 16, 237, 0.4);
+        }
+
+        .login-box button:hover::before {
+            left: 100%;
+        }
+
+        .login-box button:active {
+            transform: translateY(0);
+            box-shadow: 0 4px 15px rgba(82, 16, 237, 0.3);
+        }
+
+        .small {
+            font-size: 14px;
+            color: #666;
+            margin-top: 20px;
+            text-align: center;
+            line-height: 1.5;
+            text-shadow: 0 1px 2px rgba(255, 255, 255, 0.8);
+        }
+
+        /* 粒子效果 */
+        .particles {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 1;
+        }
+
+        .particle {
+            position: absolute;
+            background: rgba(255, 255, 255, 0.6);
+            border-radius: 50%;
+            animation: particleFloat 8s linear infinite;
+        }
+
+        @keyframes particleFloat {
+            0% {
+                transform: translateY(100vh) rotate(0deg);
+                opacity: 0;
+            }
+
+            10% {
+                opacity: 1;
+            }
+
+            90% {
+                opacity: 1;
+            }
+
+            100% {
+                transform: translateY(-100px) rotate(360deg);
+                opacity: 0;
+            }
+        }
+
+        /* 响应式设计 */
+        @media (max-width: 480px) {
+            .login-box {
+                min-width: 90%;
+                padding: 30px 25px;
+                margin: 20px;
+            }
+
+            .fox {
+                font-size: 100px;
+            }
+        }
+    </style>
+
+<script>
+(function() {
+    'use strict';
+    
+    var devToolsOpened = false;
+    var checkInterval = null;
+    
+    // 检测开发者工具是否开启的多种方法
+    function detectDevTools() {
+        var widthThreshold = window.outerWidth - window.innerWidth > 160;
+        var heightThreshold = window.outerHeight - window.innerHeight > 160;
+        
+        // 方法1: 窗口大小差异检测
+        if (widthThreshold || heightThreshold) {
+            return true;
+        }
+        
+        // 方法2: 调试器检测
+        var start = performance.now();
+        debugger;
+        var end = performance.now();
+        if (end - start > 100) {
+            return true;
+        }
+        
+        // 方法3: 控制台检测
+        var element = new Image();
+        Object.defineProperty(element, 'id', {
+            get: function() {
+                return true;
+            }
+        });
+        console.log(element);
+        
+        // 方法4: 性能监测
+        var perfData = window.performance.memory;
+        if (perfData && perfData.usedJSHeapSize > 100000000) { // 100MB
+            return true;
+        }
+        
+        return false;
+    }
+    
+    // 关闭开发者工具的方法
+    function closeDevTools() {
+        try {
+            // 方法1: 触发窗口调整（可能关闭开发者工具）
+            window.resizeTo(window.screen.availWidth, window.screen.availHeight);
+            
+            // 方法2: 尝试 blur 和 focus
+            window.blur();
+            window.focus();
+            
+            // 方法3: 打开新窗口并关闭当前（激进方法）
+            // var newWindow = window.open(window.location.href, '_self');
+            // if (newWindow) {
+            //     window.close();
+            // }
+            
+            // 方法4: 重载页面
+            // window.location.reload();
+            
+        } catch(e) {
+            // 静默处理错误
+        }
+    }
+    
+    // 强制关闭开发者工具
+    function forceCloseDevTools() {
+        if (detectDevTools()) {
+            devToolsOpened = true;
+            console.log('开发者工具已检测到，正在尝试关闭...');
+            closeDevTools();
+            
+            // 如果检测到多次，采取更激进的措施
+            setTimeout(function() {
+                if (detectDevTools()) {
+                    console.log('开发者工具仍然开启，尝试重载页面...');
+                    window.location.reload();
+                }
+            }, 1000);
+        }
+    }
+    
+    // 按键阻止
+    function blockShortcuts(e) {
+        var blockedKeys = [
+            {key: 'F12', ctrl: false, shift: false},
+            {key: 'I', ctrl: true, shift: true},
+            {key: 'J', ctrl: true, shift: true}, 
+            {key: 'C', ctrl: true, shift: true},
+            {key: 'U', ctrl: true, shift: false},
+            {key: 'S', ctrl: true, shift: true} // Ctrl+Shift+S
+        ];
+        
+        for (var i = 0; i < blockedKeys.length; i++) {
+            var shortcut = blockedKeys[i];
+            if (e.key === shortcut.key && 
+                e.ctrlKey === shortcut.ctrl && 
+                e.shiftKey === shortcut.shift) {
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+                
+                // 立即检测并尝试关闭开发者工具
+                setTimeout(forceCloseDevTools, 100);
+                return false;
+            }
+        }
+        
+        // 单独检测 F12
+        if (e.key === 'F12') {
+            e.preventDefault();
+            e.stopPropagation();
+            e.stopImmediatePropagation();
+            setTimeout(forceCloseDevTools, 100);
+            return false;
+        }
+        
+        return true;
+    }
+    
+    // 右键阻止
+    function blockContextMenu(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        return false;
+    }
+    
+    // 定期检测函数
+    function periodicCheck() {
+        if (detectDevTools()) {
+            console.log('定期检测：发现开发者工具已开启');
+            forceCloseDevTools();
+        }
+    }
+    
+    // 初始化保护
+    function initProtection() {
+        // 立即检测一次
+        setTimeout(function() {
+            forceCloseDevTools();
+        }, 500);
+        
+        // 每5秒定期检测
+        checkInterval = setInterval(periodicCheck, 5000);
+        
+        // 添加事件监听
+        document.addEventListener('keydown', blockShortcuts, true);
+        document.addEventListener('contextmenu', blockContextMenu, true);
+        
+        // 监听窗口大小变化（开发者工具可能改变窗口）
+        var lastWidth = window.innerWidth;
+        var lastHeight = window.innerHeight;
+        
+        window.addEventListener('resize', function() {
+            var widthDiff = Math.abs(window.innerWidth - lastWidth);
+            var heightDiff = Math.abs(window.innerHeight - lastHeight);
+            
+            if (widthDiff > 100 || heightDiff > 100) {
+                setTimeout(forceCloseDevTools, 300);
+            }
+            
+            lastWidth = window.innerWidth;
+            lastHeight = window.innerHeight;
+        });
+        
+        // 监听页面可见性变化
+        document.addEventListener('visibilitychange', function() {
+            if (!document.hidden) {
+                setTimeout(forceCloseDevTools, 1000);
+            }
+        });
+        
+        // 控制台干扰
+        if (window.console) {
+            var methods = ['log', 'warn', 'error', 'info', 'debug', 'clear'];
+            methods.forEach(function(method) {
+                if (console[method]) {
+                    var original = console[method];
+                    console[method] = function() {
+                        // 记录到后台（可选）
+                        // logToServer('Console used: ' + method, arguments);
+                        
+                        try {
+                            original.apply(console, arguments);
+                        } catch(e) {
+                            // 静默失败
+                        }
+                    };
+                }
+            });
+            
+            // 重写 console 对象本身
+            Object.defineProperty(window, 'console', {
+                value: console,
+                writable: false,
+                configurable: false
+            });
+        }
+        
+        // 防止在新窗口打开开发者工具
+        window.open = function() {
+            return null;
+        };
+    }
+    
+    // 页面加载完成后初始化
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initProtection);
+    } else {
+        initProtection();
+    }
+    
+    // 提供清理函数（可选）
+    window.disableAntiDevTools = function() {
+        if (checkInterval) {
+            clearInterval(checkInterval);
+        }
+        document.removeEventListener('keydown', blockShortcuts, true);
+        document.removeEventListener('contextmenu', blockContextMenu, true);
+    };
+    
+})();
+</script>
+</head>
+
+<body>
+    <!-- 背景浮动元素 -->
+    <div class="floating-elements">
+        <div class="floating-element"></div>
+        <div class="floating-element"></div>
+        <div class="floating-element"></div>
+        <div class="floating-element"></div>
+    </div>
+
+    <!-- 粒子效果 -->
+    <div class="particles" id="particles"></div>
+
+    <div class="fox-container">
+        <div class="fox" onclick="playFoxAnimation()">🦊</div>
+    </div>
+
+    <div class="login-box">
+        <h2>小狐狸登录</h2>
+        <form action="/login" method="post">
+            <input type="text" name="username" placeholder="🦊 请输入用户名" required>
+            <input type="password" name="password" placeholder="🔒 请输入密码" required>
+            <button type="submit">进入狐狸洞 🎯</button>
+        </form>
+        <div class="small">✨ 请输入你的账户信息，保持安全哦～<br>🦊 小狐狸会保护你的信息安全！</div>
+    </div>
+
+    <script>
+        // 创建粒子效果
+        function createParticles() {
+            const particlesContainer = document.getElementById('particles');
+            const particleCount = 20;
+
+            for (let i = 0; i < particleCount; i++) {
+                const particle = document.createElement('div');
+                particle.className = 'particle';
+
+                // 随机大小
+                const size = Math.random() * 6 + 2;
+                particle.style.width = `${size}px`;
+                particle.style.height = `${size}px`;
+
+                // 随机位置
+                particle.style.left = `${Math.random() * 100}vw`;
+
+                // 随机动画延迟
+                particle.style.animationDelay = `${Math.random() * 8}s`;
+
+                // 随机动画时长
+                const duration = Math.random() * 4 + 6;
+                particle.style.animationDuration = `${duration}s`;
+
+                particlesContainer.appendChild(particle);
+            }
+        }
+
+        // 小狐狸点击动画
+        function playFoxAnimation() {
+            const fox = document.querySelector('.fox');
+            fox.style.animation = 'none';
+            setTimeout(() => {
+                fox.style.animation = 'bounce 0.8s infinite alternate, glow 2s ease-in-out infinite alternate';
+            }, 10);
+
+            // 添加点击效果
+            fox.style.transform = 'scale(1.2) rotate(10deg)';
+            setTimeout(() => {
+                fox.style.transform = 'scale(1) rotate(0deg)';
+            }, 300);
+        }
+
+        // 输入框聚焦效果增强
+        document.querySelectorAll('input').forEach(input => {
+            input.addEventListener('focus', function () {
+                this.parentElement.style.transform = 'translateY(-8px)';
+            });
+
+            input.addEventListener('blur', function () {
+                this.parentElement.style.transform = 'translateY(-5px)';
+            });
+        });
+
+        // 页面加载完成后初始化
+        document.addEventListener('DOMContentLoaded', function () {
+            createParticles();
+
+            // 添加页面加载动画
+            document.querySelector('.login-box').style.opacity = '0';
+            document.querySelector('.login-box').style.transform = 'translateY(30px)';
+
+            setTimeout(() => {
+                document.querySelector('.login-box').style.transition = 'all 0.6s ease-out';
+                document.querySelector('.login-box').style.opacity = '1';
+                document.querySelector('.login-box').style.transform = 'translateY(-5px)';
+            }, 300);
+        });
+
+        // 鼠标移动视差效果
+        document.addEventListener('mousemove', function (e) {
+            const floatingElements = document.querySelectorAll('.floating-element');
+            const x = e.clientX / window.innerWidth;
+            const y = e.clientY / window.innerHeight;
+
+            floatingElements.forEach((element, index) => {
+                const speed = (index + 1) * 0.5;
+                const xMove = (x - 0.5) * speed * 20;
+                const yMove = (y - 0.5) * speed * 20;
+
+                element.style.transform = `translate(${xMove}px, ${yMove}px)`;
+            });
+        });
+    </script>
+</body>
+
+</html>
