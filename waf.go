@@ -68,6 +68,640 @@ type Config struct {
 
 var cfg Config // 全局配置
 
+var ccManager *CCManager
+
+// ------------------- 初始化CC管理器 -------------------
+func initCCManager() {
+    ccManager = &CCManager{
+        rules:    make([]CCRule, 0),
+        counters: make(map[string]*ClientCounter),
+    }
+    
+    // 从数据库加载CC规则
+    loadCCRulesFromDB()
+    
+    // 启动定时清理过期的计数器
+    go ccManager.cleanupWorker()
+}
+
+// ------------------- 从数据库加载CC规则 -------------------
+func loadCCRulesFromDB() {
+    ccManager.mutex.Lock()
+    defer ccManager.mutex.Unlock()
+
+    query := `
+        SELECT id, name, domain, path, rate_limit, time_window, action, enabled, description 
+        FROM cc_rules 
+        ORDER BY id ASC
+    `
+    
+    rows, err := db.Query(query)
+    if err != nil {
+        // 如果表不存在，创建表
+        if strings.Contains(err.Error(), "doesn't exist") {
+            createCCTable()
+            return
+        }
+        stdlog.Printf("加载 CC 规则失败: %v", err)
+        return
+    }
+    defer rows.Close()
+
+    ccManager.rules = make([]CCRule, 0)
+
+    for rows.Next() {
+        var rule CCRule
+        err := rows.Scan(
+            &rule.ID, &rule.Name, &rule.Domain, &rule.Path, 
+            &rule.RateLimit, &rule.TimeWindow, &rule.Action, 
+            &rule.Enabled, &rule.Description,
+        )
+        if err != nil {
+            stdlog.Printf("读取 CC 规则失败: %v", err)
+            continue
+        }
+        ccManager.rules = append(ccManager.rules, rule)
+    }
+
+    stdlog.Printf("加载了 %d 条 CC 规则", len(ccManager.rules))
+}
+
+// ------------------- 创建CC规则表 -------------------
+func createCCTable() {
+    createTable := `
+        CREATE TABLE IF NOT EXISTS cc_rules (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            name VARCHAR(100) NOT NULL COMMENT '规则名称',
+            domain VARCHAR(255) NOT NULL COMMENT '应用域名',
+            path VARCHAR(500) DEFAULT '' COMMENT '路径模式',
+            rate_limit INT NOT NULL COMMENT '限制次数',
+            time_window INT NOT NULL COMMENT '时间窗口(秒)',
+            action VARCHAR(20) NOT NULL DEFAULT 'block' COMMENT '动作: block, challenge',
+            enabled TINYINT(1) NOT NULL DEFAULT 1 COMMENT '是否启用',
+            description TEXT COMMENT '规则描述',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            INDEX idx_domain (domain),
+            INDEX idx_enabled (enabled)
+        )
+    `
+    
+    _, err := db.Exec(createTable)
+    if err != nil {
+        stdlog.Printf("创建 CC 规则表失败: %v", err)
+        return
+    }
+
+    // 创建CC攻击日志表
+    createLogTable := `
+        CREATE TABLE IF NOT EXISTS cc_attack_logs (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            client_ip VARCHAR(45) NOT NULL COMMENT '客户端IP',
+            domain VARCHAR(255) NOT NULL COMMENT '域名',
+            path VARCHAR(500) DEFAULT '' COMMENT '路径',
+            rule_id INT NOT NULL COMMENT '触发的规则ID',
+            rule_name VARCHAR(100) NOT NULL COMMENT '规则名称',
+            count INT NOT NULL COMMENT '请求次数',
+            action VARCHAR(20) NOT NULL COMMENT '执行动作',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_ip (client_ip),
+            INDEX idx_domain (domain),
+            INDEX idx_rule (rule_id),
+            INDEX idx_time (created_at)
+        )
+    `
+    
+    _, err = db.Exec(createLogTable)
+    if err != nil {
+        stdlog.Printf("创建 CC 攻击日志表失败: %v", err)
+    }
+
+    // 插入一些默认规则
+    insertDefaultCCRules()
+}
+
+// ------------------- 插入默认CC规则 -------------------
+func insertDefaultCCRules() {
+    defaultRules := []CCRule{
+        {
+            Name:        "全局CC防护",
+            Domain:      "*",
+            Path:        "",
+            RateLimit:   100,
+            TimeWindow:  10,
+            Action:      "block",
+            Enabled:     true,
+            Description: "全局CC攻击防护，10秒内超过100次请求则拦截",
+        },
+        {
+            Name:        "登录接口防护",
+            Domain:      "*",
+            Path:        "/login",
+            RateLimit:   10,
+            TimeWindow:  60,
+            Action:      "block",
+            Enabled:     true,
+            Description: "登录接口CC防护，60秒内超过10次请求则拦截",
+        },
+    }
+
+    insertQuery := `
+        INSERT INTO cc_rules (name, domain, path, rate_limit, time_window, action, enabled, description)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `
+
+    for _, rule := range defaultRules {
+        _, err := db.Exec(
+            insertQuery,
+            rule.Name, rule.Domain, rule.Path, rule.RateLimit, 
+            rule.TimeWindow, rule.Action, rule.Enabled, rule.Description,
+        )
+        if err != nil {
+            stdlog.Printf("插入默认 CC 规则失败: %v", err)
+        }
+    }
+
+    stdlog.Println("CC 默认规则已插入")
+}
+
+// ------------------- CC检测逻辑 -------------------
+func (c *CCManager) checkCC(clientIP, domain, path string) (bool, *CCRule) {
+    c.mutex.RLock()
+    defer c.mutex.RUnlock()
+
+    // 检查所有启用的规则
+    for _, rule := range c.rules {
+        if !rule.Enabled {
+            continue
+        }
+
+        // 检查域名匹配
+        if rule.Domain != "*" && rule.Domain != domain {
+            continue
+        }
+
+        // 检查路径匹配
+        if rule.Path != "" {
+            matched, _ := filepath.Match(rule.Path, path)
+            if !matched {
+                continue
+            }
+        }
+
+        // 检查频率限制
+        counterKey := fmt.Sprintf("%s:%s:%s", clientIP, domain, path)
+        counter, exists := c.counters[counterKey]
+        
+        now := time.Now()
+        if !exists {
+            counter = &ClientCounter{
+                IP:       clientIP,
+                Domain:   domain,
+                Path:     path,
+                Count:    1,
+                LastTime: now,
+            }
+            c.counters[counterKey] = counter
+            continue
+        }
+
+        // 重置过期的计数器
+        if now.Sub(counter.LastTime).Seconds() > float64(rule.TimeWindow) {
+            counter.Count = 1
+            counter.LastTime = now
+            counter.Blocked = false
+            continue
+        }
+
+        // 增加计数
+        counter.Count++
+        counter.LastTime = now
+
+        // 检查是否超过限制
+        if counter.Count > rule.RateLimit && !counter.Blocked {
+            counter.Blocked = true
+            counter.BlockUntil = now.Add(time.Duration(rule.TimeWindow) * time.Second)
+            
+            // 记录攻击日志
+            go c.logCCAttack(clientIP, domain, path, &rule, counter.Count)
+            
+            return true, &rule
+        }
+
+        // 如果还在封锁期内，直接拦截
+        if counter.Blocked && now.Before(counter.BlockUntil) {
+            return true, &rule
+        }
+
+        // 封锁期结束，重置状态
+        if counter.Blocked && now.After(counter.BlockUntil) {
+            counter.Blocked = false
+            counter.Count = 0
+        }
+    }
+
+    return false, nil
+}
+
+// ------------------- 记录CC攻击日志 -------------------
+func (c *CCManager) logCCAttack(clientIP, domain, path string, rule *CCRule, count int) {
+    query := `
+        INSERT INTO cc_attack_logs (client_ip, domain, path, rule_id, rule_name, count, action)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    `
+    
+    _, err := db.Exec(query, clientIP, domain, path, rule.ID, rule.Name, count, rule.Action)
+    if err != nil {
+        stdlog.Printf("记录CC攻击日志失败: %v", err)
+    }
+}
+
+// ------------------- 定时清理过期的计数器 -------------------
+func (c *CCManager) cleanupWorker() {
+    ticker := time.NewTicker(1 * time.Minute)
+    defer ticker.Stop()
+    
+    for range ticker.C {
+        c.mutex.Lock()
+        now := time.Now()
+        
+        for key, counter := range c.counters {
+            // 清理超过1小时未活动的计数器
+            if now.Sub(counter.LastTime).Hours() > 1 {
+                delete(c.counters, key)
+            }
+        }
+        
+        c.mutex.Unlock()
+    }
+}
+
+// ------------------- 获取CC统计信息 -------------------
+func (c *CCManager) getStats() CCStats {
+    c.mutex.RLock()
+    defer c.mutex.RUnlock()
+    
+    var stats CCStats
+    
+    // 总拦截次数
+    err := db.QueryRow("SELECT COUNT(*) FROM cc_attack_logs").Scan(&stats.TotalBlocked)
+    if err != nil {
+        stdlog.Printf("查询CC总拦截数失败: %v", err)
+    }
+    
+    // 今日拦截次数
+    today := time.Now().Format("2006-01-02")
+    err = db.QueryRow("SELECT COUNT(*) FROM cc_attack_logs WHERE DATE(created_at) = ?", today).Scan(&stats.TodayBlocked)
+    if err != nil {
+        stdlog.Printf("查询CC今日拦截数失败: %v", err)
+    }
+    
+    // 活跃攻击数（当前被封锁的IP数）
+    activeCount := 0
+    for _, counter := range c.counters {
+        if counter.Blocked && time.Now().Before(counter.BlockUntil) {
+            activeCount++
+        }
+    }
+    stats.ActiveAttacks = activeCount
+    
+    // 最常被拦截的IP
+    rows, err := db.Query(`
+        SELECT client_ip, COUNT(*) as count, MAX(created_at) as last_seen 
+        FROM cc_attack_logs 
+        WHERE created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
+        GROUP BY client_ip 
+        ORDER BY count DESC 
+        LIMIT 10
+    `)
+    if err == nil {
+        defer rows.Close()
+        for rows.Next() {
+            var ip BlockedIP
+            var lastSeen time.Time
+            rows.Scan(&ip.IP, &ip.Count, &lastSeen)
+            ip.LastSeen = lastSeen.Format("2006-01-02 15:04:05")
+            stats.TopBlockedIPs = append(stats.TopBlockedIPs, ip)
+        }
+    }
+    
+    // 规则统计
+    rows, err = db.Query(`
+        SELECT rule_id, rule_name, COUNT(*) as blocked 
+        FROM cc_attack_logs 
+        WHERE created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
+        GROUP BY rule_id, rule_name 
+        ORDER BY blocked DESC
+    `)
+    if err == nil {
+        defer rows.Close()
+        for rows.Next() {
+            var ruleStat CCRuleStat
+            rows.Scan(&ruleStat.RuleID, &ruleStat.RuleName, &ruleStat.Blocked)
+            stats.RuleStats = append(stats.RuleStats, ruleStat)
+        }
+    }
+    
+    return stats
+}
+
+// ------------------- 添加CC规则请求 -------------------
+type AddCCRuleRequest struct {
+    Name        string `json:"name" binding:"required"`
+    Domain      string `json:"domain" binding:"required"`
+    Path        string `json:"path"`
+    RateLimit   int    `json:"rate_limit" binding:"min=1"`
+    TimeWindow  int    `json:"time_window" binding:"min=1"`
+    Action      string `json:"action" binding:"oneof=block challenge"`
+    Enabled     bool   `json:"enabled"`
+    Description string `json:"description"`
+}
+
+// ------------------- 添加CC规则接口 -------------------
+func addCCRuleHandler(c *gin.Context) {
+    var req AddCCRuleRequest
+    if err := c.ShouldBindJSON(&req); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+
+    // 插入数据库
+    query := `
+        INSERT INTO cc_rules (name, domain, path, rate_limit, time_window, action, enabled, description)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `
+    
+    result, err := db.Exec(
+        query, 
+        req.Name, req.Domain, req.Path, req.RateLimit, 
+        req.TimeWindow, req.Action, req.Enabled, req.Description,
+    )
+    
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("插入CC规则失败: %v", err)})
+        return
+    }
+
+    id, _ := result.LastInsertId()
+    
+    // 热更新内存规则
+    ccManager.mutex.Lock()
+    newRule := CCRule{
+        ID:          int(id),
+        Name:        req.Name,
+        Domain:      req.Domain,
+        Path:        req.Path,
+        RateLimit:   req.RateLimit,
+        TimeWindow:  req.TimeWindow,
+        Action:      req.Action,
+        Enabled:     req.Enabled,
+        Description: req.Description,
+    }
+    ccManager.rules = append(ccManager.rules, newRule)
+    ccManager.mutex.Unlock()
+
+    c.JSON(http.StatusOK, gin.H{
+        "message": "CC规则添加成功",
+        "id":      id,
+    })
+}
+
+// ------------------- 获取CC规则列表接口 -------------------
+func getCCRulesHandler(c *gin.Context) {
+    ccManager.mutex.RLock()
+    defer ccManager.mutex.RUnlock()
+
+    c.JSON(http.StatusOK, gin.H{
+        "rules": ccManager.rules,
+        "count": len(ccManager.rules),
+    })
+}
+
+// ------------------- 更新CC规则请求 -------------------
+type UpdateCCRuleRequest struct {
+    Name        string `json:"name"`
+    Domain      string `json:"domain"`
+    Path        string `json:"path"`
+    RateLimit   int    `json:"rate_limit" binding:"min=1"`
+    TimeWindow  int    `json:"time_window" binding:"min=1"`
+    Action      string `json:"action" binding:"oneof=block challenge"`
+    Enabled     bool   `json:"enabled"`
+    Description string `json:"description"`
+}
+
+// ------------------- 更新CC规则接口 -------------------
+func updateCCRuleHandler(c *gin.Context) {
+    ruleID := c.Param("id")
+    
+    var req UpdateCCRuleRequest
+    if err := c.ShouldBindJSON(&req); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+
+    // 更新数据库
+    query := `
+        UPDATE cc_rules 
+        SET name = ?, domain = ?, path = ?, rate_limit = ?, time_window = ?, action = ?, enabled = ?, description = ?
+        WHERE id = ?
+    `
+    
+    result, err := db.Exec(
+        query, 
+        req.Name, req.Domain, req.Path, req.RateLimit, 
+        req.TimeWindow, req.Action, req.Enabled, req.Description, ruleID,
+    )
+    
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("更新CC规则失败: %v", err)})
+        return
+    }
+
+    rowsAffected, _ := result.RowsAffected()
+    if rowsAffected == 0 {
+        c.JSON(http.StatusNotFound, gin.H{"error": "规则不存在"})
+        return
+    }
+
+    // 热更新内存规则
+    ccManager.mutex.Lock()
+    for i, rule := range ccManager.rules {
+        if fmt.Sprintf("%d", rule.ID) == ruleID {
+            ccManager.rules[i] = CCRule{
+                ID:          rule.ID,
+                Name:        req.Name,
+                Domain:      req.Domain,
+                Path:        req.Path,
+                RateLimit:   req.RateLimit,
+                TimeWindow:  req.TimeWindow,
+                Action:      req.Action,
+                Enabled:     req.Enabled,
+                Description: req.Description,
+            }
+            break
+        }
+    }
+    ccManager.mutex.Unlock()
+
+    c.JSON(http.StatusOK, gin.H{"message": "CC规则更新成功"})
+}
+
+// ------------------- 删除CC规则接口 -------------------
+func deleteCCRuleHandler(c *gin.Context) {
+    ruleID := c.Param("id")
+    
+    _, err := db.Exec("DELETE FROM cc_rules WHERE id = ?", ruleID)
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("删除CC规则失败: %v", err)})
+        return
+    }
+
+    // 热更新内存规则
+    ccManager.mutex.Lock()
+    for i, rule := range ccManager.rules {
+        if fmt.Sprintf("%d", rule.ID) == ruleID {
+            ccManager.rules = append(ccManager.rules[:i], ccManager.rules[i+1:]...)
+            break
+        }
+    }
+    ccManager.mutex.Unlock()
+
+    c.JSON(http.StatusOK, gin.H{"message": "CC规则删除成功"})
+}
+
+// ------------------- 获取CC统计接口 -------------------
+func getCCStatsHandler(c *gin.Context) {
+    stats := ccManager.getStats()
+    c.JSON(http.StatusOK, stats)
+}
+
+// ------------------- 获取CC攻击日志接口 -------------------
+type CCAttackLogQuery struct {
+    Page      int    `form:"page" binding:"min=1"`
+    PageSize  int    `form:"page_size" binding:"min=1,max=100"`
+    ClientIP  string `form:"client_ip"`
+    Domain    string `form:"domain"`
+    RuleID    string `form:"rule_id"`
+    StartTime string `form:"start_time"`
+    EndTime   string `form:"end_time"`
+}
+
+type CCAttackLogResponse struct {
+    Logs       []CCAttackLog `json:"logs"`
+    Total      int           `json:"total"`
+    Page       int           `json:"page"`
+    PageSize   int           `json:"page_size"`
+    TotalPages int           `json:"total_pages"`
+}
+
+func getCCAttackLogsHandler(c *gin.Context) {
+    var query CCAttackLogQuery
+    if err := c.ShouldBindQuery(&query); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+
+    // 设置默认值
+    if query.Page == 0 {
+        query.Page = 1
+    }
+    if query.PageSize == 0 {
+        query.PageSize = 20
+    }
+
+    // 构建查询条件
+    whereClause := "WHERE 1=1"
+    args := []interface{}{}
+
+    if query.ClientIP != "" {
+        whereClause += " AND client_ip = ?"
+        args = append(args, query.ClientIP)
+    }
+
+    if query.Domain != "" {
+        whereClause += " AND domain = ?"
+        args = append(args, query.Domain)
+    }
+
+    if query.RuleID != "" {
+        whereClause += " AND rule_id = ?"
+        args = append(args, query.RuleID)
+    }
+
+    if query.StartTime != "" {
+        whereClause += " AND created_at >= ?"
+        args = append(args, query.StartTime)
+    }
+
+    if query.EndTime != "" {
+        whereClause += " AND created_at <= ?"
+        args = append(args, query.EndTime)
+    }
+
+    // 查询总数
+    countQuery := fmt.Sprintf("SELECT COUNT(*) FROM cc_attack_logs %s", whereClause)
+    var total int
+    err := db.QueryRow(countQuery, args...).Scan(&total)
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("查询总数失败: %v", err)})
+        return
+    }
+
+    // 查询数据
+    dataQuery := fmt.Sprintf(`
+        SELECT id, client_ip, domain, path, rule_id, rule_name, count, action, created_at 
+        FROM cc_attack_logs %s 
+        ORDER BY created_at DESC 
+        LIMIT ? OFFSET ?
+    `, whereClause)
+
+    offset := (query.Page - 1) * query.PageSize
+    args = append(args, query.PageSize, offset)
+
+    rows, err := db.Query(dataQuery, args...)
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("查询CC攻击日志失败: %v", err)})
+        return
+    }
+    defer rows.Close()
+
+    var logs []CCAttackLog
+    for rows.Next() {
+        var log CCAttackLog
+        err := rows.Scan(
+            &log.ID, &log.ClientIP, &log.Domain, &log.Path, 
+            &log.RuleID, &log.RuleName, &log.Count, &log.Action, &log.CreatedAt,
+        )
+        if err != nil {
+            stdlog.Printf("读取CC攻击日志失败: %v", err)
+            continue
+        }
+        logs = append(logs, log)
+    }
+
+    totalPages := (total + query.PageSize - 1) / query.PageSize
+
+    response := CCAttackLogResponse{
+        Logs:       logs,
+        Total:      total,
+        Page:       query.Page,
+        PageSize:   query.PageSize,
+        TotalPages: totalPages,
+    }
+
+    c.JSON(http.StatusOK, response)
+}
+
+// ------------------- 清空CC计数器接口 -------------------
+func clearCCCountersHandler(c *gin.Context) {
+    ccManager.mutex.Lock()
+    ccManager.counters = make(map[string]*ClientCounter)
+    ccManager.mutex.Unlock()
+
+    c.JSON(http.StatusOK, gin.H{"message": "CC计数器已清空"})
+}
+
+
 // ------------------- 规则 -------------------
 type Judge struct {
 	Position string `json:"position"`
@@ -163,6 +797,72 @@ type AttackStatsResponse struct {
     TopMethods      []MethodStat   `json:"top_methods"`
     HourlyStats     []HourlyStat   `json:"hourly_stats"`
 }
+
+// ------------------- CC规则 -------------------
+type CCRule struct {
+    ID          int    `json:"id"`
+    Name        string `json:"name" binding:"required"`
+    Domain      string `json:"domain" binding:"required"` // 应用的域名
+    Path        string `json:"path"`                     // 路径模式，空表示全站
+    RateLimit   int    `json:"rate_limit" binding:"min=1"` // 请求次数
+    TimeWindow  int    `json:"time_window" binding:"min=1"` // 时间窗口(秒)
+    Action      string `json:"action" binding:"oneof=block challenge"` // 拦截动作
+    Enabled     bool   `json:"enabled"`                   // 是否启用
+    Description string `json:"description"`               // 规则描述
+}
+
+// ------------------- CC攻击记录 -------------------
+type CCAttackLog struct {
+    ID        int    `json:"id"`
+    ClientIP  string `json:"client_ip"`
+    Domain    string `json:"domain"`
+    Path      string `json:"path"`
+    RuleID    int    `json:"rule_id"`
+    RuleName  string `json:"rule_name"`
+    Count     int    `json:"count"`
+    Action    string `json:"action"`
+    CreatedAt string `json:"created_at"`
+}
+
+// ------------------- CC规则管理器 -------------------
+type CCManager struct {
+    rules    []CCRule
+    counters map[string]*ClientCounter // key: "ip:domain:path"
+    mutex    sync.RWMutex
+}
+
+// ------------------- 客户端计数器 -------------------
+type ClientCounter struct {
+    IP       string
+    Domain   string
+    Path     string
+    Count    int
+    LastTime time.Time
+    Blocked  bool
+    BlockUntil time.Time
+}
+
+// ------------------- CC统计 -------------------
+type CCStats struct {
+    TotalBlocked   int            `json:"total_blocked"`
+    TodayBlocked   int            `json:"today_blocked"`
+    ActiveAttacks  int            `json:"active_attacks"`
+    TopBlockedIPs  []BlockedIP    `json:"top_blocked_ips"`
+    RuleStats      []CCRuleStat   `json:"rule_stats"`
+}
+
+type BlockedIP struct {
+    IP      string `json:"ip"`
+    Count   int    `json:"count"`
+    LastSeen string `json:"last_seen"`
+}
+
+type CCRuleStat struct {
+    RuleID   int    `json:"rule_id"`
+    RuleName string `json:"rule_name"`
+    Blocked  int    `json:"blocked"`
+}
+
 
 type RuleStat struct {
     RuleName string `json:"rule_name"`
@@ -1597,6 +2297,20 @@ func handler(w http.ResponseWriter, req *http.Request) {
         return
     }
 
+	// 检查CC规则
+	clientIP := getClientIP(req)
+    ccBlocked, ccRule := ccManager.checkCC(clientIP, host, req.URL.Path)
+    if ccBlocked {
+        atomic.AddUint64(&totalBlocked, 1)
+        
+        stdlog.Printf("CC 拦截: %s %s%s, 规则: %s", 
+            clientIP, host, req.URL.Path, ccRule.Name)
+            
+        w.WriteHeader(http.StatusTooManyRequests)
+        w.Write([]byte(ccBlockPage))
+        return
+    }
+
     // 2. 再检查 WAF 规则
     attacked, log := isAttack(req)
     if attacked {
@@ -3004,6 +3718,15 @@ func StartGinAPI() {
         authGroup.POST("/api/site/:id/replace-certificate", replaceSiteCertificateHandler) // 替换证书
         authGroup.POST("/api/site/:id/remove-certificate", removeSiteCertificateHandler) // 移除证
 
+		// CC防护管理
+		authGroup.POST("/api/cc/rules", addCCRuleHandler)
+		authGroup.GET("/api/cc/rules", getCCRulesHandler)
+		authGroup.PUT("/api/cc/rules/:id", updateCCRuleHandler)
+		authGroup.DELETE("/api/cc/rules/:id", deleteCCRuleHandler)
+		authGroup.GET("/api/cc/stats", getCCStatsHandler)
+		authGroup.GET("/api/cc/logs", getCCAttackLogsHandler)
+		authGroup.POST("/api/cc/clear-counters", clearCCCountersHandler)
+
 
         // 在 authGroup 中添加设置相关的路由
         authGroup.GET("/api/settings", getSettingsHandler)
@@ -3038,6 +3761,7 @@ var interceptPage string
 var NotFoundPage string
 var proxyErrorPage string
 var aclBlock string
+var ccBlockPage string
 
 
 func readWafHtml() {
@@ -3045,6 +3769,7 @@ func readWafHtml() {
     NotFoundPage = loadWAFPage("notfound.html")
     proxyErrorPage = loadWAFPage("proxy_error.html")
 	aclBlock = loadWAFPage("aclBlock.html")
+	ccBlockPage = aclBlock
 }
 
 
@@ -4291,6 +5016,9 @@ func main() {
 
     // 初始化静态文件缓存
     initStaticCache()
+
+	// 初始化CC管理器
+    initCCManager()
 	
 	go statsPrinter()
 	go StartGinAPI()
