@@ -1034,35 +1034,6 @@ func isCacheableStaticFile(path string) bool {
     return cacheableExts[ext]
 }
 
-// 获取内容类型
-func getContentType(filename string) string {
-    ext := strings.ToLower(filepath.Ext(filename))
-    contentTypes := map[string]string{
-        ".css":  "text/css; charset=utf-8",
-        ".js":   "application/javascript",
-        ".png":  "image/png",
-        ".jpg":  "image/jpeg",
-        ".jpeg": "image/jpeg",
-        ".gif":  "image/gif",
-        ".svg":  "image/svg+xml",
-        ".ico":  "image/x-icon",
-        ".woff": "font/woff",
-        ".woff2": "font/woff2",
-        ".ttf":  "font/ttf",
-        ".eot":  "application/vnd.ms-fontobject",
-        ".pdf":  "application/pdf",
-        ".txt":  "text/plain; charset=utf-8",
-        ".xml":  "application/xml",
-        ".json": "application/json",
-        ".html": "text/html; charset=utf-8",
-        ".htm":  "text/html; charset=utf-8",
-    }
-    
-    if contentType, ok := contentTypes[ext]; ok {
-        return contentType
-    }
-    return "application/octet-stream"
-}
 
 // ------------------- 修复从缓存获取文件函数 -------------------
 func getCachedFile(cacheKey string) (*CachedFile, bool) {
@@ -1168,12 +1139,6 @@ func saveToDiskCache(cacheKey string, content []byte) {
     if err != nil {
         stdlog.Printf("保存磁盘缓存失败 %s: %v", cacheKey, err)
     }
-}
-
-// 从磁盘加载缓存
-func loadFromDiskCache(cacheKey string) ([]byte, error) {
-    cacheFile := filepath.Join(staticCacheConfig.CacheDir, cacheKey)
-    return ioutil.ReadFile(cacheFile)
 }
 
 // 删除磁盘缓存
