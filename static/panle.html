@@ -1203,6 +1203,19 @@
                 title: "CC攻击拦截",
                 description: "CC攻击防护规则配置和统计",
                 content: `
+                <div class="card">
+            <div class="card-header">
+                <h3 class="card-title">📊 CC攻击统计</h3>
+                <button class="btn" onclick="refreshCCStats()">
+                    <span>🔄</span> 刷新
+                </button>
+            </div>
+            <div id="cc-stats-container">
+                <div class="loading">加载中...</div>
+            </div>
+        </div>
+
+        
         <div class="card">
             <div class="card-header">
                 <h3 class="card-title">🚫 CC规则列表</h3>
@@ -1211,18 +1224,6 @@
                 </button>
             </div>
             <div id="cc-rules-container">
-                <div class="loading">加载中...</div>
-            </div>
-        </div>
-
-        <div class="card">
-            <div class="card-header">
-                <h3 class="card-title">📊 CC攻击统计</h3>
-                <button class="btn" onclick="refreshCCStats()">
-                    <span>🔄</span> 刷新
-                </button>
-            </div>
-            <div id="cc-stats-container">
                 <div class="loading">加载中...</div>
             </div>
         </div>
