@@ -2560,19 +2560,14 @@ function getSiteHealthStatus(siteId) {
         showModal();
     }
 
-    // 复制文件内容
-    function copyFileContent() {
-        const contentElement = document.querySelector('#modal-body pre');
-        if (contentElement) {
-            const content = contentElement.textContent;
-            navigator.clipboard.writeText(content).then(() => {
-                showMessage('文件内容已复制到剪贴板', 'success');
-            }).catch(err => {
-                console.error('复制失败:', err);
-                showMessage('复制失败', 'error');
-            });
+    // 替换 copyFileContent 函数
+        function copyFileContent() {
+            const contentElement = document.querySelector('#modal-body pre');
+            if (contentElement) {
+                const content = contentElement.textContent;
+                copyToClipboard(content, '文件内容已复制到剪贴板');
+            }
         }
-    }
 
 
 // 更新健康状态显示
@@ -3191,17 +3186,12 @@ function escapeHtml(unsafe) {
 }
 
 
-// 复制格式化的HTTP请求
-function copyFormattedRequest() {
-    const formattedRequest = document.getElementById('formatted-request').textContent;
-    
-    navigator.clipboard.writeText(formattedRequest).then(() => {
-        showMessage('HTTP请求已复制到剪贴板', 'success');
-    }).catch(err => {
-        console.error('复制失败:', err);
-        showMessage('复制失败', 'error');
-    });
-}
+    // 替换 copyFormattedRequest 函数
+    function copyFormattedRequest() {
+        const formattedRequest = document.getElementById('formatted-request').textContent;
+
+        copyToClipboard(formattedRequest, 'HTTP请求已复制到剪贴板');
+    }
 
 
 
@@ -3216,18 +3206,67 @@ function escapeHtml(unsafe) {
         .replace(/'/g, "&#039;");
 }
 
-// 复制日志详情
-function copyLogDetails() {
-    const modalBody = document.getElementById('modal-body');
-    const text = modalBody.innerText;
-    
-    navigator.clipboard.writeText(text).then(() => {
-        showMessage('日志详情已复制到剪贴板', 'success');
-    }).catch(err => {
-        console.error('复制失败:', err);
-        showMessage('复制失败', 'error');
-    });
-}
+    // 替换 copyLogDetails 函数
+    function copyLogDetails() {
+        const modalBody = document.getElementById('modal-body');
+        const text = modalBody.innerText;
+
+        copyToClipboard(text, '日志详情已复制到剪贴板');
+    }
+
+    // 通用的复制到剪贴板函数
+    function copyToClipboard(text, successMessage) {
+        // 方法1: 使用现代 Clipboard API
+        if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(text).then(() => {
+                showMessage(successMessage, 'success');
+            }).catch(err => {
+                // 如果 Clipboard API 失败，回退到传统方法
+                fallbackCopyToClipboard(text, successMessage);
+            });
+        } else {
+            // 使用传统方法
+            fallbackCopyToClipboard(text, successMessage);
+        }
+    }
+    // 传统的复制到剪贴板方法
+    function fallbackCopyToClipboard(text, successMessage) {
+        // 创建一个临时的 textarea 元素
+        const textArea = document.createElement('textarea');
+        textArea.value = text;
+
+        // 避免屏幕闪烁
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-999999px';
+        textArea.style.top = '-999999px';
+        document.body.appendChild(textArea);
+
+        // 选择和复制
+        textArea.focus();
+        textArea.select();
+
+        try {
+            const successful = document.execCommand('copy');
+            if (successful) {
+                showMessage(successMessage, 'success');
+            } else {
+                showMessage('复制失败，请手动选择文本复制', 'error');
+            }
+        } catch (err) {
+            console.error('复制失败:', err);
+            showMessage('复制失败，请手动选择文本复制', 'error');
+
+            // 如果连传统方法都失败，自动选择文本让用户手动复制
+            textArea.style.position = 'static';
+            textArea.style.left = 'auto';
+            textArea.style.top = 'auto';
+            textArea.focus();
+            textArea.select();
+        } finally {
+            // 清理
+            document.body.removeChild(textArea);
+        }
+    }
 
 // 显示日志详情
 async function showLogDetail(logId) {
