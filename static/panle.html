@@ -1081,6 +1081,11 @@
                 <span class="icon">🛡️</span>
                 <span class="text">ACL规则</span>
             </a>
+            <!-- 在现有的导航菜单中添加 -->
+            <a href="javascript:void(0)" class="nav-item" data-page="cc">
+                <span class="icon">🚫</span>
+                <span class="text">CC拦截</span>
+            </a>
             <a href="javascript:void(0)" class="nav-item" data-page="cache">
                 <span class="icon">⚡</span>
                 <span class="text">缓存管理</span>
@@ -1192,6 +1197,64 @@
                         </div>
                     </div>
                 `
+            },
+            // 在 pageContents 对象中添加
+            cc: {
+                title: "CC攻击拦截",
+                description: "CC攻击防护规则配置和统计",
+                content: `
+        <div class="card">
+            <div class="card-header">
+                <h3 class="card-title">🚫 CC规则列表</h3>
+                <button class="btn" onclick="showAddCCRuleModal()">
+                    <span>+</span> 添加规则
+                </button>
+            </div>
+            <div id="cc-rules-container">
+                <div class="loading">加载中...</div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <h3 class="card-title">📊 CC攻击统计</h3>
+                <button class="btn" onclick="refreshCCStats()">
+                    <span>🔄</span> 刷新
+                </button>
+            </div>
+            <div id="cc-stats-container">
+                <div class="loading">加载中...</div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <h3 class="card-title">📝 CC攻击日志</h3>
+                <button class="btn" onclick="clearCCCounters()">
+                    <span>🗑️</span> 清空计数器
+                </button>
+            </div>
+            
+            <div class="form-group">
+                <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                    <input type="text" id="cc-client-ip-filter" class="form-control" placeholder="客户端IP" style="width: 150px;">
+                    <input type="text" id="cc-domain-filter" class="form-control" placeholder="域名" style="width: 150px;">
+                    <input type="text" id="cc-rule-id-filter" class="form-control" placeholder="规则ID" style="width: 120px;">
+                    <input type="date" id="cc-start-date" class="form-control" style="width: 150px;">
+                    <input type="date" id="cc-end-date" class="form-control" style="width: 150px;">
+                    <button class="btn" onclick="loadCCAttackLogs(1)">
+                        <span>🔍</span> 搜索
+                    </button>
+                </div>
+            </div>
+            
+            <div id="cc-logs-container">
+                <div class="loading">加载中...</div>
+            </div>
+            
+            <div id="cc-logs-pagination" class="pagination"></div>
+        </div>
+    `
             },
             // 修改缓存管理页面内容
             cache: {
@@ -1392,6 +1455,11 @@
                             break;
                         case 'settings':
                             loadSettings();
+                            break;
+                        case 'cc':
+                            loadCCRules();
+                            loadCCStats();
+                            loadCCAttackLogs(1);
                             break;
                     }
                 }
@@ -3305,6 +3373,655 @@ async function showLogDetail(logId) {
             document.getElementById('modal').style.display = 'flex';
         }
 
+        // 加载CC规则
+            async function loadCCRules() {
+                try {
+                    const response = await fetch('/api/cc/rules', {
+                        method: 'GET',
+                        credentials: 'include'
+                    });
+
+                    if (response.ok) {
+                        const data = await response.json();
+                        displayCCRules(data.rules);
+                    } else {
+                        document.getElementById('cc-rules-container').innerHTML = '<div class="alert alert-error">加载CC规则失败</div>';
+                    }
+                } catch (error) {
+                    console.error('加载CC规则错误:', error);
+                    document.getElementById('cc-rules-container').innerHTML = '<div class="alert alert-error">加载CC规则失败</div>';
+                }
+            }
+
+            // 显示CC规则
+            function displayCCRules(rules) {
+                const container = document.getElementById('cc-rules-container');
+
+                if (!rules || rules.length === 0) {
+                    container.innerHTML = '<div class="alert">暂无CC规则</div>';
+                    return;
+                }
+
+                let html = `
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>名称</th>
+                        <th>域名</th>
+                        <th>路径</th>
+                        <th>频率限制</th>
+                        <th>时间窗口</th>
+                        <th>动作</th>
+                        <th>状态</th>
+                        <th>描述</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+    `;
+
+                rules.forEach(rule => {
+                    html += `
+            <tr>
+                <td>${rule.id}</td>
+                <td>${rule.name}</td>
+                <td>${rule.domain}</td>
+                <td>${rule.path || '全部'}</td>
+                <td>${rule.rate_limit} 次</td>
+                <td>${rule.time_window} 秒</td>
+                <td>
+                    <span class="status-indicator ${rule.action === 'block' ? 'status-inactive' : 'status-active'}">
+                        ${rule.action === 'block' ? '拦截' : '挑战'}
+                    </span>
+                </td>
+                <td>
+                    <span class="status-indicator ${rule.enabled ? 'status-active' : 'status-inactive'} clickable" 
+                          onclick="toggleCCRuleStatus(${rule.id}, ${!rule.enabled})"
+                          title="点击切换状态">
+                        ${rule.enabled ? '启用' : '禁用'}
+                    </span>
+                </td>
+                <td title="${rule.description || '无描述'}">
+                    ${rule.description ? (rule.description.length > 30 ? rule.description.substring(0, 30) + '...' : rule.description) : '-'}
+                </td>
+                <td>
+                    <div class="action-buttons">
+                        <button class="btn" onclick="showEditCCRuleModal(${rule.id})">编辑</button>
+                        <button class="btn btn-danger" onclick="deleteCCRule(${rule.id})">删除</button>
+                    </div>
+                </td>
+            </tr>
+        `;
+                });
+
+                html += `
+                </tbody>
+            </table>
+        </div>
+    `;
+
+                container.innerHTML = html;
+            }
+
+            // 显示添加CC规则模态框
+            function showAddCCRuleModal() {
+                document.getElementById('modal-title').textContent = '添加CC规则';
+                document.getElementById('modal-body').innerHTML = `
+        <form id="add-cc-form">
+            <div class="form-group">
+                <label class="form-label">规则名称</label>
+                <input type="text" name="name" class="form-control" placeholder="例如: 登录接口防护" required>
+            </div>
+            
+            <div class="form-group">
+                <label class="form-label">应用域名</label>
+                <input type="text" name="domain" class="form-control" placeholder="例如: example.com 或 * (全部域名)" required>
+                <small style="color: #666;">使用 * 表示所有域名</small>
+            </div>
+            
+            <div class="form-group">
+                <label class="form-label">路径模式</label>
+                <input type="text" name="path" class="form-control" placeholder="例如: /login 或留空表示全部路径">
+                <small style="color: #666;">使用通配符匹配路径，留空表示所有路径</small>
+            </div>
+            
+            <div class="form-group">
+                <label class="form-label">频率限制</label>
+                <input type="number" name="rate_limit" class="form-control" placeholder="例如: 10" min="1" required>
+                <small style="color: #666;">在时间窗口内允许的最大请求次数</small>
+            </div>
+            
+            <div class="form-group">
+                <label class="form-label">时间窗口 (秒)</label>
+                <input type="number" name="time_window" class="form-control" placeholder="例如: 60" min="1" required>
+                <small style="color: #666;">统计请求次数的时间窗口</small>
+            </div>
+            
+            <div class="form-group">
+                <label class="form-label">防护动作</label>
+                <select name="action" class="form-control" required>
+                    <option value="block">拦截请求</option>
+                    <option value="challenge">挑战验证</option>
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label class="form-label">规则描述</label>
+                <textarea name="description" class="form-control" placeholder="规则描述信息"></textarea>
+            </div>
+            
+            <div class="form-group">
+                <label style="display: inline-flex; align-items: center; gap: 8px;">
+                    <input type="checkbox" name="enabled" checked> 启用规则
+                </label>
+            </div>
+            
+            <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                <button type="button" class="btn btn-secondary" onclick="closeModal()">取消</button>
+                <button type="submit" class="btn">添加规则</button>
+            </div>
+        </form>
+    `;
+
+                document.getElementById('add-cc-form').addEventListener('submit', function (e) {
+                    e.preventDefault();
+                    addCCRule(new FormData(this));
+                });
+
+                showModal();
+            }
+
+            // 添加CC规则
+            async function addCCRule(formData) {
+                try {
+                    const data = Object.fromEntries(formData);
+                    data.enabled = data.enabled === 'on';
+                    data.rate_limit = parseInt(data.rate_limit);
+                    data.time_window = parseInt(data.time_window);
+
+                    const response = await fetch('/api/cc/rules', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        credentials: 'include',
+                        body: JSON.stringify(data)
+                    });
+
+                    if (response.ok) {
+                        closeModal();
+                        showMessage('CC规则添加成功', 'success');
+                        loadCCRules();
+                    } else {
+                        const error = await response.text();
+                        showMessage('添加失败: ' + error, 'error');
+                    }
+                } catch (error) {
+                    console.error('添加CC规则错误:', error);
+                    showMessage('添加失败', 'error');
+                }
+            }
+
+            // 显示编辑CC规则模态框
+            async function showEditCCRuleModal(ruleId) {
+                try {
+                    const response = await fetch('/api/cc/rules', {
+                        method: 'GET',
+                        credentials: 'include'
+                    });
+
+                    if (response.ok) {
+                        const data = await response.json();
+                        const rule = data.rules.find(r => r.id === ruleId);
+
+                        if (rule) {
+                            document.getElementById('modal-title').textContent = '编辑CC规则';
+                            document.getElementById('modal-body').innerHTML = `
+                    <form id="edit-cc-form">
+                        <input type="hidden" name="id" value="${rule.id}">
+                        <div class="form-group">
+                            <label class="form-label">规则名称</label>
+                            <input type="text" name="name" class="form-control" value="${rule.name}" required>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label class="form-label">应用域名</label>
+                            <input type="text" name="domain" class="form-control" value="${rule.domain}" required>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label class="form-label">路径模式</label>
+                            <input type="text" name="path" class="form-control" value="${rule.path || ''}">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label class="form-label">频率限制</label>
+                            <input type="number" name="rate_limit" class="form-control" value="${rule.rate_limit}" min="1" required>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label class="form-label">时间窗口 (秒)</label>
+                            <input type="number" name="time_window" class="form-control" value="${rule.time_window}" min="1" required>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label class="form-label">防护动作</label>
+                            <select name="action" class="form-control" required>
+                                <option value="block" ${rule.action === 'block' ? 'selected' : ''}>拦截请求</option>
+                                <option value="challenge" ${rule.action === 'challenge' ? 'selected' : ''}>挑战验证</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label class="form-label">规则描述</label>
+                            <textarea name="description" class="form-control">${rule.description || ''}</textarea>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label style="display: inline-flex; align-items: center; gap: 8px;">
+                                <input type="checkbox" name="enabled" ${rule.enabled ? 'checked' : ''}> 启用规则
+                            </label>
+                        </div>
+                        
+                        <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                            <button type="button" class="btn btn-secondary" onclick="closeModal()">取消</button>
+                            <button type="submit" class="btn">更新规则</button>
+                        </div>
+                    </form>
+                `;
+
+                            document.getElementById('edit-cc-form').addEventListener('submit', function (e) {
+                                e.preventDefault();
+                                updateCCRule(new FormData(this));
+                            });
+
+                            showModal();
+                        } else {
+                            showMessage('规则不存在', 'error');
+                        }
+                    } else {
+                        showMessage('加载规则失败', 'error');
+                    }
+                } catch (error) {
+                    console.error('加载规则错误:', error);
+                    showMessage('加载规则失败', 'error');
+                }
+            }
+
+            // 更新CC规则
+            async function updateCCRule(formData) {
+                try {
+                    const data = Object.fromEntries(formData);
+                    data.enabled = data.enabled === 'on';
+                    data.rate_limit = parseInt(data.rate_limit);
+                    data.time_window = parseInt(data.time_window);
+
+                    const response = await fetch(`/api/cc/rules/${data.id}`, {
+                        method: 'PUT',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        credentials: 'include',
+                        body: JSON.stringify(data)
+                    });
+
+                    if (response.ok) {
+                        closeModal();
+                        showMessage('CC规则更新成功', 'success');
+                        loadCCRules();
+                    } else {
+                        const error = await response.text();
+                        showMessage('更新失败: ' + error, 'error');
+                    }
+                } catch (error) {
+                    console.error('更新CC规则错误:', error);
+                    showMessage('更新失败', 'error');
+                }
+            }
+
+            // 切换CC规则状态
+            async function toggleCCRuleStatus(ruleId, enabled) {
+                const action = enabled ? '启用' : '禁用';
+
+                if (!confirm(`确定要${action}这条CC规则吗？`)) return;
+
+                try {
+                    // 这里需要先获取规则详情，然后更新状态
+                    const response = await fetch('/api/cc/rules', {
+                        method: 'GET',
+                        credentials: 'include'
+                    });
+
+                    if (response.ok) {
+                        const data = await response.json();
+                        const rule = data.rules.find(r => r.id === ruleId);
+
+                        if (rule) {
+                            const updateData = {
+                                name: rule.name,
+                                domain: rule.domain,
+                                path: rule.path,
+                                rate_limit: rule.rate_limit,
+                                time_window: rule.time_window,
+                                action: rule.action,
+                                enabled: enabled,
+                                description: rule.description
+                            };
+
+                            const updateResponse = await fetch(`/api/cc/rules/${ruleId}`, {
+                                method: 'PUT',
+                                headers: {
+                                    'Content-Type': 'application/json'
+                                },
+                                credentials: 'include',
+                                body: JSON.stringify(updateData)
+                            });
+
+                            if (updateResponse.ok) {
+                                showMessage(`CC规则${action}成功`, 'success');
+                                loadCCRules();
+                            } else {
+                                showMessage(`${action}失败`, 'error');
+                            }
+                        }
+                    }
+                } catch (error) {
+                    console.error(`${action}CC规则错误:`, error);
+                    showMessage(`${action}失败`, 'error');
+                }
+            }
+
+            // 删除CC规则
+            async function deleteCCRule(id) {
+                if (!confirm('确定要删除这条CC规则吗？')) return;
+
+                try {
+                    const response = await fetch(`/api/cc/rules/${id}`, {
+                        method: 'DELETE',
+                        credentials: 'include'
+                    });
+
+                    if (response.ok) {
+                        showMessage('CC规则删除成功', 'success');
+                        loadCCRules();
+                    } else {
+                        showMessage('删除失败', 'error');
+                    }
+                } catch (error) {
+                    console.error('删除CC规则错误:', error);
+                    showMessage('删除失败', 'error');
+                }
+            }
+
+            // 加载CC统计
+            async function loadCCStats() {
+                try {
+                    const response = await fetch('/api/cc/stats', {
+                        method: 'GET',
+                        credentials: 'include'
+                    });
+
+                    if (response.ok) {
+                        const stats = await response.json();
+                        displayCCStats(stats);
+                    } else {
+                        document.getElementById('cc-stats-container').innerHTML = '<div class="alert alert-error">加载CC统计失败</div>';
+                    }
+                } catch (error) {
+                    console.error('加载CC统计错误:', error);
+                    document.getElementById('cc-stats-container').innerHTML = '<div class="alert alert-error">加载CC统计失败</div>';
+                }
+            }
+
+            // 显示CC统计
+            function displayCCStats(stats) {
+                const container = document.getElementById('cc-stats-container');
+
+                container.innerHTML = `
+        <div class="metric-row">
+            <div class="metric-card">
+                <div class="metric-icon">🚫</div>
+                <div class="metric-content">
+                    <div class="metric-value">${stats.total_blocked}</div>
+                    <div class="metric-label">总拦截次数</div>
+                </div>
+            </div>
+            
+            <div class="metric-card">
+                <div class="metric-icon">📅</div>
+                <div class="metric-content">
+                    <div class="metric-value">${stats.today_blocked}</div>
+                    <div class="metric-label">今日拦截</div>
+                </div>
+            </div>
+            
+            <div class="metric-card">
+                <div class="metric-icon">⚡</div>
+                <div class="metric-content">
+                    <div class="metric-value">${stats.active_attacks}</div>
+                    <div class="metric-label">活跃攻击</div>
+                </div>
+            </div>
+        </div>
+        
+        ${stats.top_blocked_ips && stats.top_blocked_ips.length > 0 ? `
+        <div style="margin-top: 20px;">
+            <h4 style="color: #5210ed; margin-bottom: 15px;">最常被拦截的IP</h4>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>IP地址</th>
+                            <th>拦截次数</th>
+                            <th>最后出现</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${stats.top_blocked_ips.map(ip => `
+                            <tr>
+                                <td>${ip.ip}</td>
+                                <td>${ip.count}</td>
+                                <td>${ip.last_seen}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        ` : ''}
+        
+        ${stats.rule_stats && stats.rule_stats.length > 0 ? `
+        <div style="margin-top: 20px;">
+            <h4 style="color: #5210ed; margin-bottom: 15px;">规则拦截统计</h4>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>规则名称</th>
+                            <th>规则ID</th>
+                            <th>拦截次数</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${stats.rule_stats.map(rule => `
+                            <tr>
+                                <td>${rule.rule_name}</td>
+                                <td>${rule.rule_id}</td>
+                                <td>${rule.blocked}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        ` : ''}
+    `;
+            }
+
+            // 加载CC攻击日志
+            async function loadCCAttackLogs(page) {
+                try {
+                    currentCCLogsPage = page;
+
+                    const params = new URLSearchParams({
+                        page: page,
+                        page_size: currentCCLogsPageSize
+                    });
+
+                    // 添加筛选条件
+                    const clientIP = document.getElementById('cc-client-ip-filter');
+                    const domain = document.getElementById('cc-domain-filter');
+                    const ruleId = document.getElementById('cc-rule-id-filter');
+                    const startDate = document.getElementById('cc-start-date');
+                    const endDate = document.getElementById('cc-end-date');
+
+                    if (clientIP && clientIP.value) params.append('client_ip', clientIP.value);
+                    if (domain && domain.value) params.append('domain', domain.value);
+                    if (ruleId && ruleId.value) params.append('rule_id', ruleId.value);
+                    if (startDate && startDate.value) params.append('start_time', startDate.value);
+                    if (endDate && endDate.value) params.append('end_time', endDate.value);
+
+                    const response = await fetch(`/api/cc/logs?${params}`, {
+                        method: 'GET',
+                        credentials: 'include'
+                    });
+
+                    if (response.ok) {
+                        const data = await response.json();
+                        displayCCAttackLogs(data);
+                    } else {
+                        document.getElementById('cc-logs-container').innerHTML = '<div class="alert alert-error">加载CC攻击日志失败</div>';
+                    }
+                } catch (error) {
+                    console.error('加载CC攻击日志错误:', error);
+                    document.getElementById('cc-logs-container').innerHTML = '<div class="alert alert-error">加载CC攻击日志失败</div>';
+                }
+            }
+
+            // 显示CC攻击日志
+            function displayCCAttackLogs(data) {
+                const container = document.getElementById('cc-logs-container');
+                currentCCLogsTotal = data.total;
+
+                if (!data.logs || data.logs.length === 0) {
+                    container.innerHTML = '<div class="alert">暂无CC攻击日志</div>';
+                    document.getElementById('cc-logs-pagination').innerHTML = '';
+                    return;
+                }
+
+                let html = `
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>时间</th>
+                        <th>客户端IP</th>
+                        <th>域名</th>
+                        <th>路径</th>
+                        <th>规则名称</th>
+                        <th>请求次数</th>
+                        <th>执行动作</th>
+                    </tr>
+                </thead>
+                <tbody>
+    `;
+
+                data.logs.forEach(log => {
+                    html += `
+            <tr>
+                <td>${log.created_at}</td>
+                <td>${log.client_ip}</td>
+                <td>${log.domain}</td>
+                <td>${log.path || '全部'}</td>
+                <td>${log.rule_name}</td>
+                <td>${log.count}</td>
+                <td>
+                    <span class="status-indicator ${log.action === 'block' ? 'status-inactive' : 'status-active'}">
+                        ${log.action === 'block' ? '拦截' : '挑战'}
+                    </span>
+                </td>
+            </tr>
+        `;
+                });
+
+                html += `
+                </tbody>
+            </table>
+        </div>
+    `;
+
+                container.innerHTML = html;
+
+                // 显示分页
+                displayCCPagination(data.total, data.page_size, data.page);
+            }
+
+            // 显示CC分页
+            function displayCCPagination(total, pageSize, currentPage) {
+                const totalPages = Math.ceil(total / pageSize);
+                const pagination = document.getElementById('cc-logs-pagination');
+
+                if (totalPages <= 1) {
+                    pagination.innerHTML = '';
+                    return;
+                }
+
+                let html = '';
+
+                // 上一页
+                if (currentPage > 1) {
+                    html += `<button class="page-btn" onclick="loadCCAttackLogs(${currentPage - 1})">上一页</button>`;
+                }
+
+                // 页码
+                for (let i = 1; i <= totalPages; i++) {
+                    if (i === currentPage) {
+                        html += `<button class="page-btn active">${i}</button>`;
+                    } else if (i === 1 || i === totalPages || (i >= currentPage - 2 && i <= currentPage + 2)) {
+                        html += `<button class="page-btn" onclick="loadCCAttackLogs(${i})">${i}</button>`;
+                    } else if (i === currentPage - 3 || i === currentPage + 3) {
+                        html += `<span class="page-btn">...</span>`;
+                    }
+                }
+
+                // 下一页
+                if (currentPage < totalPages) {
+                    html += `<button class="page-btn" onclick="loadCCAttackLogs(${currentPage + 1})">下一页</button>`;
+                }
+
+                pagination.innerHTML = html;
+            }
+
+            // 清空CC计数器
+            async function clearCCCounters() {
+                if (!confirm('确定要清空所有CC计数器吗？这将重置所有IP的请求计数。')) return;
+
+                try {
+                    const response = await fetch('/api/cc/clear-counters', {
+                        method: 'POST',
+                        credentials: 'include'
+                    });
+
+                    if (response.ok) {
+                        showMessage('CC计数器已清空', 'success');
+                        loadCCStats();
+                    } else {
+                        showMessage('清空计数器失败', 'error');
+                    }
+                } catch (error) {
+                    console.error('清空CC计数器错误:', error);
+                    showMessage('清空计数器失败', 'error');
+                }
+            }
+
+            // 刷新CC统计
+            function refreshCCStats() {
+                loadCCStats();
+                loadCCAttackLogs(1);
+            }
+
         function closeModal() {
             document.getElementById('modal').style.display = 'none';
         }
@@ -3351,7 +4068,10 @@ async function showLogDetail(logId) {
                     total_sites: 0,
                     alive_sites: 0
                 };
-
+            // CC规则管理函数
+                let currentCCLogsPage = 1;
+                let currentCCLogsPageSize = 20;
+                let currentCCLogsTotal = 0;
     </script>
 </body>
 
