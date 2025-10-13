@@ -853,36 +853,46 @@
                     </div>
                 `
             },
+            // 修改缓存管理页面内容
             cache: {
-                title: "缓存管理", 
+                title: "缓存管理",
                 description: "静态缓存配置和统计",
                 content: `
-                    <div class="card">
-                        <div class="card-header">
-                            <h3 class="card-title">⚡ 缓存统计</h3>
-                            <div>
-                                <button class="btn btn-secondary" onclick="clearCache()">
-                                    <span>🗑️</span> 清空缓存
-                                </button>
-                                <button class="btn" onclick="refreshCacheStats()">
-                                    <span>🔄</span> 刷新
-                                </button>
-                            </div>
-                        </div>
-                        <div id="cache-stats-container">
-                            <div class="loading">加载中...</div>
-                        </div>
-                    </div>
-                    
-                    <div class="card">
-                        <div class="card-header">
-                            <h3 class="card-title">⚙️ 缓存配置</h3>
-                        </div>
-                        <div id="cache-config-container">
-                            <div class="loading">加载中...</div>
-                        </div>
-                    </div>
-                `
+        <div class="card">
+            <div class="card-header">
+                <h3 class="card-title">⚡ 缓存统计</h3>
+                <div>
+                    <button class="btn btn-secondary" onclick="clearCache()">
+                        <span>🗑️</span> 清空缓存
+                    </button>
+                    <button class="btn" onclick="refreshCacheStats()">
+                        <span>🔄</span> 刷新
+                    </button>
+                </div>
+            </div>
+            <div id="cache-stats-container">
+                <div class="loading">加载中...</div>
+            </div>
+        </div>
+        
+        <div class="card">
+            <div class="card-header">
+                <h3 class="card-title">📁 缓存文件列表</h3>
+            </div>
+            <div id="cache-files-container">
+                <div class="loading">加载中...</div>
+            </div>
+        </div>
+        
+        <div class="card">
+            <div class="card-header">
+                <h3 class="card-title">⚙️ 缓存配置</h3>
+            </div>
+            <div id="cache-config-container">
+                <div class="loading">加载中...</div>
+            </div>
+        </div>
+    `
             },
             sites: {
                 title: "站点管理",
@@ -1012,38 +1022,40 @@
         });
 
         // 加载页面内容
-        function loadPage(pageId) {
-            currentPage = pageId;
-            const page = pageContents[pageId];
-            if (page) {
-                document.getElementById('page-title').textContent = page.title;
-                document.getElementById('page-description').textContent = page.description;
-                document.getElementById('content-container').innerHTML = page.content;
-                
-                // 加载页面特定数据
-                switch(pageId) {
-                    case 'dashboard':
-                        loadStats();
-                        break;
-                    case 'acl':
-                        loadACLRules();
-                        break;
-                    case 'cache':
-                        loadCacheStats();
-                        loadCacheConfig();
-                        break;
-                    case 'sites':
-                        loadSites();
-                        break;
-                    case 'logs':
-                        loadAttackLogs(1);
-                        break;
-                    case 'settings':
-                        loadSettings();
-                        break;
+        // 修改加载页面内容函数
+            function loadPage(pageId) {
+                currentPage = pageId;
+                const page = pageContents[pageId];
+                if (page) {
+                    document.getElementById('page-title').textContent = page.title;
+                    document.getElementById('page-description').textContent = page.description;
+                    document.getElementById('content-container').innerHTML = page.content;
+
+                    // 加载页面特定数据
+                    switch (pageId) {
+                        case 'dashboard':
+                            loadStats();
+                            break;
+                        case 'acl':
+                            loadACLRules();
+                            break;
+                        case 'cache':
+                            loadCacheStats();
+                            loadCacheConfig();
+                            loadCacheFiles(); // 修复：页面加载时自动加载文件列表
+                            break;
+                        case 'sites':
+                            loadSites();
+                            break;
+                        case 'logs':
+                            loadAttackLogs(1);
+                            break;
+                        case 'settings':
+                            loadSettings();
+                            break;
+                    }
                 }
             }
-        }
 
         // 加载统计数据
         async function loadStats() {
@@ -1311,63 +1323,47 @@
         }
 
         // 显示缓存统计
-        function displayCacheStats(stats) {
-            const container = document.getElementById('cache-stats-container');
+        // 显示缓存统计
+            function displayCacheStats(stats) {
+                const container = document.getElementById('cache-stats-container');
+
+                container.innerHTML = `
+        <div class="metric-row">
+            <div class="metric-card">
+                <div class="metric-icon">📊</div>
+                <div class="metric-content">
+                    <div class="metric-value">${stats.cache_hits}</div>
+                    <div class="metric-label">缓存命中</div>
+                </div>
+            </div>
             
-            container.innerHTML = `
-                <div class="metric-row">
-                    <div class="metric-card">
-                        <div class="metric-icon">📊</div>
-                        <div class="metric-content">
-                            <div class="metric-value">${stats.cache_hits}</div>
-                            <div class="metric-label">缓存命中</div>
-                        </div>
-                    </div>
-                    
-                    <div class="metric-card">
-                        <div class="metric-icon">📉</div>
-                        <div class="metric-content">
-                            <div class="metric-value">${stats.cache_misses}</div>
-                            <div class="metric-label">缓存未命中</div>
-                        </div>
-                    </div>
-                    
-                    <div class="metric-card">
-                        <div class="metric-icon">📈</div>
-                        <div class="metric-content">
-                            <div class="metric-value">${stats.hit_rate}</div>
-                            <div class="metric-label">命中率</div>
-                        </div>
-                    </div>
+            <div class="metric-card clickable" onclick="loadCacheFiles()" style="cursor: pointer;">
+                <div class="metric-icon">📁</div>
+                <div class="metric-content">
+                    <div class="metric-value">${stats.cached_files}</div>
+                    <div class="metric-label">缓存文件数</div>
                 </div>
-                
-                <div class="metric-row">
-                    <div class="metric-card">
-                        <div class="metric-icon">💾</div>
-                        <div class="metric-content">
-                            <div class="metric-value">${stats.current_size}</div>
-                            <div class="metric-label">当前大小</div>
-                        </div>
-                    </div>
-                    
-                    <div class="metric-card">
-                        <div class="metric-icon">📁</div>
-                        <div class="metric-content">
-                            <div class="metric-value">${stats.cached_files}</div>
-                            <div class="metric-label">缓存文件数</div>
-                        </div>
-                    </div>
-                    
-                    <div class="metric-card">
-                        <div class="metric-icon">🔒</div>
-                        <div class="metric-content">
-                            <div class="metric-value">${stats.enable ? '启用' : '禁用'}</div>
-                            <div class="metric-label">缓存状态</div>
-                        </div>
-                    </div>
+            </div>
+            
+            <div class="metric-card">
+                <div class="metric-icon">🔒</div>
+                <div class="metric-content">
+                    <div class="metric-value">${stats.enable ? '启用' : '禁用'}</div>
+                    <div class="metric-label">缓存状态</div>
                 </div>
-            `;
-        }
+            </div>
+        </div>
+        
+        <div class="metric-row">
+            <div class="metric-card small">
+                <div class="metric-content">
+                    <div class="metric-value">${stats.current_size}</div>
+                    <div class="metric-label">缓存大小</div>
+                </div>
+            </div>
+        </div>
+    `;
+            }
 
         // 加载缓存配置
         async function loadCacheConfig() {
@@ -1390,37 +1386,41 @@
         }
 
         // 显示缓存配置
-        function displayCacheConfig(stats) {
-            const container = document.getElementById('cache-config-container');
+        // 修改显示缓存配置函数
+            function displayCacheConfig(stats) {
+                const container = document.getElementById('cache-config-container');
+
+                // 修复：正确解析最大缓存大小
+                const maxSizeMB = stats.max_size ? parseInt(stats.max_size) : 100;
+
+                container.innerHTML = `
+        <form id="cache-config-form">
+            <div class="form-group">
+                <label class="form-label">启用缓存</label>
+                <div>
+                    <label style="display: inline-flex; align-items: center; gap: 8px; margin-right: 20px;">
+                        <input type="radio" name="enable" value="true" ${stats.enable ? 'checked' : ''}> 启用
+                    </label>
+                    <label style="display: inline-flex; align-items: center; gap: 8px;">
+                        <input type="radio" name="enable" value="false" ${!stats.enable ? 'checked' : ''}> 禁用
+                    </label>
+                </div>
+            </div>
             
-            container.innerHTML = `
-                <form id="cache-config-form">
-                    <div class="form-group">
-                        <label class="form-label">启用缓存</label>
-                        <div>
-                            <label style="display: inline-flex; align-items: center; gap: 8px; margin-right: 20px;">
-                                <input type="radio" name="enable" value="true" ${stats.enable ? 'checked' : ''}> 启用
-                            </label>
-                            <label style="display: inline-flex; align-items: center; gap: 8px;">
-                                <input type="radio" name="enable" value="false" ${!stats.enable ? 'checked' : ''}> 禁用
-                            </label>
-                        </div>
-                    </div>
-                    
-                    <div class="form-group">
-                        <label class="form-label">最大缓存大小 (MB)</label>
-                        <input type="number" name="max_size_mb" class="form-control" value="${parseInt(stats.max_size)}">
-                    </div>
-                    
-                    <button type="submit" class="btn">保存配置</button>
-                </form>
-            `;
+            <div class="form-group">
+                <label class="form-label">最大缓存大小 (MB)</label>
+                <input type="number" name="max_size_mb" class="form-control" value="${maxSizeMB}">
+            </div>
             
-            document.getElementById('cache-config-form').addEventListener('submit', function(e) {
-                e.preventDefault();
-                updateCacheConfig(new FormData(this));
-            });
-        }
+            <button type="submit" class="btn">保存配置</button>
+        </form>
+    `;
+
+                document.getElementById('cache-config-form').addEventListener('submit', function (e) {
+                    e.preventDefault();
+                    updateCacheConfig(new FormData(this));
+                });
+            }
 
         // 更新缓存配置
         async function updateCacheConfig(formData) {
@@ -1477,6 +1477,7 @@
         function refreshCacheStats() {
             loadCacheStats();
             loadCacheConfig();
+            loadCacheFiles(); // 同时刷新文件列表
         }
 
         // 切换站点状态
@@ -1697,6 +1698,8 @@ async function toggleSiteStatus(siteId, newStatus) {
             showModal();
         }
 
+
+
         // 加载当前证书信息
         async function loadCurrentCertificateInfo(siteId) {
                 try {
@@ -1872,6 +1875,175 @@ function getSiteHealthStatus(siteId) {
         </span>
     `;
 }
+
+    // 加载缓存文件列表
+    async function loadCacheFiles() {
+        try {
+            const response = await fetch('/api/cache/files', {
+                method: 'GET',
+                credentials: 'include'
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                displayCacheFiles(data.files);
+            } else {
+                document.getElementById('cache-files-container').innerHTML = '<div class="alert alert-error">加载缓存文件列表失败</div>';
+            }
+        } catch (error) {
+            console.error('加载缓存文件列表错误:', error);
+            document.getElementById('cache-files-container').innerHTML = '<div class="alert alert-error">加载缓存文件列表失败</div>';
+        }
+    }
+
+    // 显示缓存文件列表
+    function displayCacheFiles(files) {
+        const container = document.getElementById('cache-files-container');
+
+        if (!files || files.length === 0) {
+            container.innerHTML = '<div class="alert">暂无缓存文件</div>';
+            return;
+        }
+
+        let html = `
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>缓存键</th>
+                        <th>类型</th>
+                        <th>大小</th>
+                        <th>最后修改</th>
+                        <th>过期时间</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+    `;
+
+        files.forEach(file => {
+            // 简化显示缓存键
+            const displayKey = file.key.length > 30 ? file.key.substring(0, 30) + '...' : file.key;
+
+            html += `
+            <tr>
+                <td title="${file.key}">${displayKey}</td>
+                <td>${file.content_type}</td>
+                <td>${file.size}</td>
+                <td>${file.last_modified}</td>
+                <td>${file.expire_at}</td>
+                <td>
+                    <button class="btn" onclick="viewCacheFileContent('${file.key}')">查看内容</button>
+                </td>
+            </tr>
+        `;
+        });
+
+        html += `
+                </tbody>
+            </table>
+        </div>
+        <div style="margin-top: 15px; text-align: center;">
+            <small>共 ${files.length} 个缓存文件</small>
+        </div>
+    `;
+
+        container.innerHTML = html;
+    }
+
+    // 查看缓存文件内容
+    async function viewCacheFileContent(cacheKey) {
+        try {
+            const response = await fetch(`/api/cache/files/${encodeURIComponent(cacheKey)}`, {
+                method: 'GET',
+                credentials: 'include'
+            });
+
+            if (response.ok) {
+                const fileContent = await response.json();
+                showCacheFileContentModal(fileContent);
+            } else {
+                showMessage('获取文件内容失败', 'error');
+            }
+        } catch (error) {
+            console.error('获取文件内容错误:', error);
+            showMessage('获取文件内容失败', 'error');
+        }
+    }
+
+    // 显示缓存文件内容模态框
+    function showCacheFileContentModal(fileContent) {
+        document.getElementById('modal-title').textContent = `缓存文件内容 - ${fileContent.key}`;
+
+        let contentDisplay = '';
+        if (fileContent.content_type.startsWith('text/') ||
+            fileContent.content_type.includes('json') ||
+            fileContent.content_type.includes('javascript')) {
+            // 对于文本内容，使用代码块显示
+            contentDisplay = `
+            <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; border: 1px solid #e9ecef;">
+                <pre style="margin: 0; white-space: pre-wrap; word-break: break-all; font-family: 'Courier New', monospace; font-size: 13px; line-height: 1.4;">${escapeHtml(fileContent.content)}</pre>
+            </div>
+        `;
+        } else {
+            // 对于二进制内容，显示基本信息
+            contentDisplay = `
+            <div class="alert">
+                <p>文件类型: ${fileContent.content_type}</p>
+                <p>文件大小: ${fileContent.size}</p>
+                <p>此为二进制文件，无法直接显示内容。</p>
+            </div>
+        `;
+        }
+
+        document.getElementById('modal-body').innerHTML = `
+        <div>
+            <div style="margin-bottom: 15px;">
+                <table style="width: 100%; border-collapse: collapse;">
+                    <tr>
+                        <td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold; width: 100px;">缓存键</td>
+                        <td style="padding: 8px; border-bottom: 1px solid #eee; word-break: break-all;">${fileContent.key}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold;">内容类型</td>
+                        <td style="padding: 8px; border-bottom: 1px solid #eee;">${fileContent.content_type}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold;">文件大小</td>
+                        <td style="padding: 8px; border-bottom: 1px solid #eee;">${fileContent.size}</td>
+                    </tr>
+                </table>
+            </div>
+            
+            <h4 style="margin-bottom: 10px; color: #5210ed;">文件内容</h4>
+            ${contentDisplay}
+        </div>
+        
+        <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
+            <button type="button" class="btn btn-secondary" onclick="closeModal()">关闭</button>
+            ${fileContent.content_type.startsWith('text/') ? `
+            <button type="button" class="btn" onclick="copyFileContent()">复制内容</button>
+            ` : ''}
+        </div>
+    `;
+
+        showModal();
+    }
+
+    // 复制文件内容
+    function copyFileContent() {
+        const contentElement = document.querySelector('#modal-body pre');
+        if (contentElement) {
+            const content = contentElement.textContent;
+            navigator.clipboard.writeText(content).then(() => {
+                showMessage('文件内容已复制到剪贴板', 'success');
+            }).catch(err => {
+                console.error('复制失败:', err);
+                showMessage('复制失败', 'error');
+            });
+        }
+    }
+
 
 // 更新健康状态显示
 function updateHealthStatusDisplay() {

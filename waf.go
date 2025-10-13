@@ -1781,13 +1781,11 @@ func handler(w http.ResponseWriter, req *http.Request) {
 
 // ------------------- 缓存管理 API -------------------
 type CacheStatsResponse struct {
-    Enable          bool   `json:"enable"`
-    CacheHits       uint64 `json:"cache_hits"`
-    CacheMisses     uint64 `json:"cache_misses"`
-    HitRate         string `json:"hit_rate"`
-    CurrentSize     string `json:"current_size"`
-    MaxSize         string `json:"max_size"`
-    CachedFiles     int    `json:"cached_files"`
+    Enable      bool   `json:"enable"`
+    CacheHits   uint64 `json:"cache_hits"`
+    CachedFiles int    `json:"cached_files"`
+    CurrentSize string `json:"current_size"`
+    MaxSize     string `json:"max_size"` // 确保有这个字段
 }
 
 type CacheConfigRequest struct {
@@ -1803,25 +1801,110 @@ func getCacheStatsHandler(c *gin.Context) {
     cacheMutex.RUnlock()
     
     hits := atomic.LoadUint64(&cacheHits)
-    misses := atomic.LoadUint64(&cacheMisses)
-    total := hits + misses
-    hitRate := "0%"
-    if total > 0 {
-        hitRate = fmt.Sprintf("%.2f%%", float64(hits)/float64(total)*100)
-    }
     
     stats := CacheStatsResponse{
         Enable:      staticCacheConfig.Enable,
         CacheHits:   hits,
-        CacheMisses: misses,
-        HitRate:     hitRate,
-        CurrentSize: fmt.Sprintf("%.2f MB", float64(currentSize)/(1024*1024)),
-        MaxSize:     fmt.Sprintf("%.2f MB", float64(staticCacheConfig.MaxCacheSize)/(1024*1024)),
         CachedFiles: cachedFiles,
+        CurrentSize: fmt.Sprintf("%.2f MB", float64(currentSize)/(1024*1024)),
     }
     
     c.JSON(http.StatusOK, stats)
 }
+
+// ------------------- 缓存文件信息结构 -------------------
+type CacheFileInfo struct {
+    Key         string `json:"key"`
+    Size        string `json:"size"`
+    ContentType string `json:"content_type"`
+    LastModified string `json:"last_modified"`
+    ExpireAt    string `json:"expire_at"`
+}
+
+type CacheFileContent struct {
+    Key         string `json:"key"`
+    Content     string `json:"content"`
+    ContentType string `json:"content_type"`
+    Size        string `json:"size"`
+}
+
+// ------------------- 获取缓存文件列表接口 -------------------
+func getCacheFilesHandler(c *gin.Context) {
+    cacheMutex.RLock()
+    defer cacheMutex.RUnlock()
+    
+    var files []CacheFileInfo
+    for key, cachedFile := range fileCache {
+        fileInfo := CacheFileInfo{
+            Key:         key,
+            Size:        fmt.Sprintf("%.2f KB", float64(cachedFile.Size)/1024),
+            ContentType: cachedFile.ContentType,
+            LastModified: cachedFile.LastModified.Format("2006-01-02 15:04:05"),
+            ExpireAt:    cachedFile.ExpireAt.Format("2006-01-02 15:04:05"),
+        }
+        files = append(files, fileInfo)
+    }
+    
+    // 按最后修改时间排序
+    sort.Slice(files, func(i, j int) bool {
+        cacheMutex.RLock()
+        defer cacheMutex.RUnlock()
+        return fileCache[files[i].Key].LastModified.After(fileCache[files[j].Key].LastModified)
+    })
+    
+    c.JSON(http.StatusOK, gin.H{
+        "files": files,
+        "count": len(files),
+    })
+}
+
+// ------------------- 获取缓存文件内容接口 -------------------
+func getCacheFileContentHandler(c *gin.Context) {
+    cacheKey := c.Param("key")
+    
+    cacheMutex.RLock()
+    cachedFile, exists := fileCache[cacheKey]
+    cacheMutex.RUnlock()
+    
+    if !exists {
+        c.JSON(http.StatusNotFound, gin.H{"error": "缓存文件不存在"})
+        return
+    }
+    
+    var content string
+    // 根据内容类型决定如何显示
+    if isTextContent(cachedFile.ContentType) {
+        content = string(cachedFile.Content)
+    } else {
+        // 对于二进制文件，显示为Base64或简单提示
+        content = fmt.Sprintf("[二进制文件，大小: %.2f KB]", float64(cachedFile.Size)/1024)
+    }
+    
+    response := CacheFileContent{
+        Key:         cacheKey,
+        Content:     content,
+        ContentType: cachedFile.ContentType,
+        Size:        fmt.Sprintf("%.2f KB", float64(cachedFile.Size)/1024),
+    }
+    
+    c.JSON(http.StatusOK, response)
+}
+
+// 检查是否为文本内容
+func isTextContent(contentType string) bool {
+    textTypes := []string{
+        "text/", "application/json", "application/javascript", 
+        "application/xml", "application/xhtml+xml",
+    }
+    
+    for _, textType := range textTypes {
+        if strings.Contains(contentType, textType) {
+            return true
+        }
+    }
+    return false
+}
+
 
 // 更新缓存配置
 func updateCacheConfigHandler(c *gin.Context) {
@@ -2920,6 +3003,8 @@ func StartGinAPI() {
         authGroup.POST("/api/cache/config", updateCacheConfigHandler)
         authGroup.POST("/api/cache/clear", clearCacheHandler)
         authGroup.GET("/api/cache/stats/detail", getCacheStatsDetailHandler) // 新增详细统计
+        authGroup.GET("/api/cache/files", getCacheFilesHandler)
+        authGroup.GET("/api/cache/files/:key", getCacheFileContentHandler)
 
         // 添加站点
         authGroup.POST("/api/site/add", addSiteHandler)
@@ -2953,6 +3038,7 @@ func StartGinAPI() {
         authGroup.POST("/api/site/:id/renew-certificate", renewSiteCertificateHandler) // 重新生成证书
         authGroup.POST("/api/site/:id/replace-certificate", replaceSiteCertificateHandler) // 替换证书
         authGroup.POST("/api/site/:id/remove-certificate", removeSiteCertificateHandler) // 移除证
+
 
         // 在 authGroup 中添加设置相关的路由
         authGroup.GET("/api/settings", getSettingsHandler)
