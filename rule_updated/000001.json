@@ -3,7 +3,7 @@
     "id": "000001",
     "method": "any",
     "description": "检测SQL注入攻击",
-    "relation": "and",
+    "relation": "or",
     "judge": [
         {
             "position": "uri",

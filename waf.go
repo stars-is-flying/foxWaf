@@ -3158,6 +3158,7 @@ func debugPrintRequest(rawURL, head, body string) {
 
 // ------------------- 攻击检测 -------------------
 // ------------------- 攻击检测 -------------------
+// ------------------- 攻击检测 -------------------
 func isAttack(req *http.Request) (bool, *AttackLog) {
     // headers
     var sb strings.Builder
@@ -3195,6 +3196,11 @@ func isAttack(req *http.Request) (bool, *AttackLog) {
         formValues = tryBase64Decode(formValues)
     }
 
+    // 修复：如果规则匹配率为0，直接返回不拦截
+    if RuleMatchRate == 0 {
+        return false, nil
+    }
+
     var rules []Rule
     if methodRules, ok := RULES[req.Method]; ok {
         rules = append(rules, methodRules...)
@@ -3203,7 +3209,8 @@ func isAttack(req *http.Request) (bool, *AttackLog) {
         rules = append(rules, anyRules...)
     }
 
-    if RuleMatchRate < 100 && RuleMatchRate > 0 && len(rules) > 0 {
+    // 修复：只有当 RuleMatchRate > 0 时才应用规则限制
+    if RuleMatchRate > 0 && RuleMatchRate < 100 && len(rules) > 0 {
         limit := len(rules) * RuleMatchRate / 100
         if limit < 1 {
             limit = 1
@@ -4238,4 +4245,4 @@ func main() {
 	go StartGinAPI()
     go startHealthChecker()
 	ReverseProxy()
-} 
+}
