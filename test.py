@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-WAF 性能压力测试脚本 - 增强版
+WAF 性能压力测ss试脚本 - 增强版
 支持大体积请求和 HTTPS
 """
 
