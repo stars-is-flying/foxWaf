@@ -1632,7 +1632,7 @@ func checkSiteHealth(site Site) *SiteHealth {
     health.Latency = time.Since(start).Milliseconds()
     
     // 判断HTTP状态码
-    if resp.StatusCode >= 200 && resp.StatusCode < 400 {
+    if resp.StatusCode >= 0 {
         health.IsAlive = true
         health.Status = resp.StatusCode
     } else {
@@ -2268,12 +2268,14 @@ func handler(w http.ResponseWriter, req *http.Request) {
     var targetURL string
     var enableHTTPS bool
     var siteDomain string
+    var siteHost string
 
     for _, site := range sites {
         if strings.EqualFold(site.Domain, host) && site.Status == 1 {
             targetURL = site.TargetURL
             enableHTTPS = site.EnableHTTPS
             siteDomain = site.Domain
+            siteHost = strings.Split(targetURL, "://")[1]
             break
         }
     }
@@ -2357,7 +2359,7 @@ func handler(w http.ResponseWriter, req *http.Request) {
     }
 
     // 设置重要属性
-    proxyReq.Host = req.Host
+    proxyReq.Host = siteHost
 
     // 拷贝请求头（优化版）
     for k, v := range req.Header {
