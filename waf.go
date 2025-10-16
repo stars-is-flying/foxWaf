@@ -2502,7 +2502,7 @@ func handler(w http.ResponseWriter, req *http.Request) {
     } else {
         finalBody = bodyBytes
         // 检查是否为可缓存的静态文件
-        if staticCacheConfig.Enable && req.Method == "GET" && resp.StatusCode == 200 {
+        if staticCacheConfig.Enable && req.Method == "GET" && resp.StatusCode == 200 && req.URL.String() == req.URL.Path {
             if isCacheableStaticFile(req.URL.Path) {
                 shouldCache = true
             }
