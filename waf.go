@@ -39,6 +39,7 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/gin-gonic/gin"
 	"github.com/fatih/color"
+    "github.com/gorilla/websocket"
 )
 
 import (
@@ -1368,7 +1369,7 @@ var RuleMatchRate int = 100 // 默认 100% 使用
 
 
 //------------注入防开发者模式-----------------
-var EnableAntiDevTools = true
+var EnableAntiDevTools = false
 
 
 
@@ -1404,7 +1405,7 @@ type CachedFile struct {
 }
 
 var staticCacheConfig = StaticCacheConfig{
-    Enable:          true,                    // 默认开启
+    Enable:          false,                    // 默认开启
     CacheDir:        "./static_cache",        // 缓存目录
     MaxCacheSize:    100 * 1024 * 1024,       // 100MB
     DefaultExpire:   24 * time.Hour,          // 24小时
@@ -1731,6 +1732,7 @@ func isCacheableStaticFile(path string) bool {
     }
     
     ext := strings.ToLower(filepath.Ext(path))
+    println(ext)
     return cacheableExts[ext]
 }
 
@@ -2259,10 +2261,54 @@ func injectAntiDevTools(htmlContent string) string {
     return htmlContent + antiDevToolsScript
 }
 
-// ------------------- 修改主处理函数，修复缓存集成 -------------------
 func handler(w http.ResponseWriter, req *http.Request) {
     atomic.AddUint64(&totalRequests, 1)
 
+    // 检查是否为 WebSocket 升级请求
+    if strings.ToLower(req.Header.Get("Upgrade")) == "websocket" {
+        // 查找目标站点
+        host := req.Host
+        var targetURL string
+
+        for _, site := range sites {
+            if strings.EqualFold(site.Domain, host) && site.Status == 1 {
+                targetURL = site.TargetURL
+                break
+            }
+        }
+
+        if targetURL == "" {
+            w.WriteHeader(http.StatusNotFound)
+            w.Write([]byte(NotFoundPage))
+            return
+        }
+
+        // 解析目标 URL 并创建 WebSocket 代理
+        backendURL, err := url.Parse(targetURL)
+        if err != nil {
+            stdlog.Printf("解析目标URL失败: %v", err)
+            w.WriteHeader(http.StatusBadGateway)
+            w.Write([]byte(proxyErrorPage))
+            return
+        }
+
+        proxy := &websocketProxy{backendURL: backendURL}
+        proxy.serveWS(w, req)
+        return
+    }
+
+    // 第一步：立即读取并保存原始请求体
+    var requestBody []byte
+    if req.Body != nil {
+        var err error
+        requestBody, err = io.ReadAll(req.Body)
+        if err != nil {
+            stdlog.Printf("读取请求体失败: %v", err)
+        }
+        // 不立即重置，后面会统一处理
+    }
+
+    // 第二步：所有安全检查使用保存的请求体副本
     // 查找目标站点
     host := req.Host
     var targetURL string
@@ -2290,34 +2336,31 @@ func handler(w http.ResponseWriter, req *http.Request) {
     blocked, aclRule := aclManager.checkACL(req, host)
     if blocked {
         atomic.AddUint64(&totalBlocked, 1)
-        
-        stdlog.Printf("ACL 拦截: %s %s, 规则: %s", 
-            getClientIP(req), req.URL.Path, aclRule.Description)
-            
+        stdlog.Printf("ACL 拦截: %s %s, 规则: %s", getClientIP(req), req.URL.Path, aclRule.Description)
         w.WriteHeader(http.StatusForbidden)
         w.Write([]byte(aclBlock))
         return
     }
 
-	// 检查CC规则
-	clientIP := getClientIP(req)
+    // 检查CC规则
+    clientIP := getClientIP(req)
     ccBlocked, ccRule := ccManager.checkCC(clientIP, host, req.URL.Path)
     if ccBlocked {
         atomic.AddUint64(&totalBlocked, 1)
-        
-        stdlog.Printf("CC 拦截: %s %s%s, 规则: %s", 
-            clientIP, host, req.URL.Path, ccRule.Name)
-            
+        stdlog.Printf("CC 拦截: %s %s%s, 规则: %s", clientIP, host, req.URL.Path, ccRule.Name)
         w.WriteHeader(http.StatusTooManyRequests)
         w.Write([]byte(ccBlockPage))
         return
     }
 
-    // 2. 再检查 WAF 规则
+    // 2. 再检查 WAF 规则 - 使用保存的请求体副本
+    // 临时设置请求体供 WAF 检查
+    if len(requestBody) > 0 {
+        req.Body = io.NopCloser(bytes.NewBuffer(requestBody))
+    }
     attacked, log := isAttack(req)
     if attacked {
         atomic.AddUint64(&totalBlocked, 1)
-
         if cfg.IsWriteDbAuto {
             attackChan <- *log
             w.WriteHeader(http.StatusForbidden)
@@ -2330,18 +2373,15 @@ func handler(w http.ResponseWriter, req *http.Request) {
         return
     }
 
-    // 3. 检查静态文件缓存（修复缓存逻辑）
+    // 3. 检查静态文件缓存
     if staticCacheConfig.Enable && req.Method == "GET" {
         cacheKey := generateCacheKey(req.URL.Path + "|" + siteDomain)
         if cachedFile, found := getCachedFile(cacheKey); found {
-            // 设置缓存头
             w.Header().Set("Content-Type", cachedFile.ContentType)
             w.Header().Set("Content-Length", fmt.Sprintf("%d", cachedFile.Size))
-            w.Header().Set("Cache-Control", "public, max-age=3600") // 1小时浏览器缓存
+            w.Header().Set("Cache-Control", "public, max-age=3600")
             w.Header().Set("X-Cache", "HIT")
             w.Header().Set("X-Cache-Key", cacheKey)
-            
-            // 写入缓存的响应
             w.WriteHeader(http.StatusOK)
             w.Write(cachedFile.Content)
             stdlog.Printf("缓存命中: %s%s", host, req.URL.Path)
@@ -2349,8 +2389,15 @@ func handler(w http.ResponseWriter, req *http.Request) {
         }
     }
 
-    // 构造代理请求
-    proxyReq, err := http.NewRequest(req.Method, targetURL+req.RequestURI, req.Body)
+    // 第四步：构造代理请求 - 使用保存的原始请求体
+    var bodyReader io.Reader
+    if len(requestBody) > 0 {
+        bodyReader = bytes.NewBuffer(requestBody)
+    } else {
+        bodyReader = nil
+    }
+
+    proxyReq, err := http.NewRequest(req.Method, targetURL+req.RequestURI, bodyReader)
     if err != nil {
         stdlog.Printf("创建反向代理请求失败: %v", err)
         w.WriteHeader(http.StatusBadGateway)
@@ -2369,11 +2416,35 @@ func handler(w http.ResponseWriter, req *http.Request) {
         proxyReq.Header[k] = v
     }
 
-    // 配置传输层
     transport := &http.Transport{
         MaxIdleConns:        100,
+        MaxIdleConnsPerHost: 20,
         IdleConnTimeout:     90 * time.Second,
-        TLSHandshakeTimeout: 10 * time.Second,
+        TLSHandshakeTimeout: 15 * time.Second,
+        ResponseHeaderTimeout: 30 * time.Second,
+        ExpectContinueTimeout: 1 * time.Second,
+    }
+
+    // 调试：输出发送的请求 - 使用保存的请求体
+    fmt.Printf("\n🚀 代理请求到后端站点: %s\n", targetURL+req.RequestURI)
+    debugPrintRequestWithBody(proxyReq, requestBody)
+
+    // 添加调试：验证代理请求体内容
+    if proxyReq.Body != nil {
+        // 临时读取代理请求的 Body 来验证内容
+        tempBody, err := io.ReadAll(proxyReq.Body)
+        if err != nil {
+            stdlog.Printf("检查代理请求体失败: %v", err)
+        } else {
+            stdlog.Printf("代理请求体验证 - 长度: %d bytes", len(tempBody))
+            if len(tempBody) > 0 {
+                stdlog.Printf("代理请求体验证 - 前100字符: %.100s", string(tempBody))
+            } else {
+                stdlog.Printf("警告: 代理请求体验证 - 为空!")
+            }
+            // 重置 Body
+            proxyReq.Body = io.NopCloser(bytes.NewBuffer(tempBody))
+        }
     }
 
     if enableHTTPS {
@@ -3925,13 +3996,176 @@ func readBase64() {
     base64Regex = regexp.MustCompile("(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?")
 }
 
-
-// 工具：输出 URL 编码和 Base64 编码后的请求
-func debugPrintRequest(rawURL, head, body string) {
-    println(rawURL)
-	println(head)
-	println(body)
+// ------------------- WebSocket 代理结构 -------------------
+type websocketProxy struct {
+    backendURL *url.URL
 }
+
+var upgrader = websocket.Upgrader{
+    CheckOrigin: func(r *http.Request) bool {
+        return true // 允许所有来源，生产环境应该更严格
+    },
+    ReadBufferSize:  1024,
+    WriteBufferSize: 1024,
+}
+
+// ------------------- WebSocket 处理函数 -------------------
+func (p *websocketProxy) serveWS(w http.ResponseWriter, req *http.Request) {
+    // 查找目标站点
+    host := req.Host
+    var targetURL string
+    var siteHost string
+
+    // 只检查站点是否存在，不经过 WAF、ACL、CC
+    for _, site := range sites {
+        if strings.EqualFold(site.Domain, host) && site.Status == 1 {
+            targetURL = site.TargetURL
+            siteHost = strings.Split(targetURL, "://")[1]
+            break
+        }
+    }
+
+    if targetURL == "" {
+        w.WriteHeader(http.StatusNotFound)
+        w.Write([]byte(NotFoundPage))
+        return
+    }
+
+    // 构建后端 WebSocket URL
+    backendURL := *p.backendURL
+    if strings.HasPrefix(targetURL, "https://") {
+        backendURL.Scheme = "wss"
+    } else {
+        backendURL.Scheme = "ws"
+    }
+    backendURL.Path = req.URL.Path
+    backendURL.RawQuery = req.URL.RawQuery
+
+    // 开始 WebSocket 代理
+    p.proxyWebSocket(w, req, &backendURL, siteHost)
+}
+
+func (p *websocketProxy) proxyWebSocket(w http.ResponseWriter, req *http.Request, backendURL *url.URL, siteHost string) {
+    // 设置后端连接
+    dialer := websocket.DefaultDialer
+    
+    // 创建新的请求头，完全手动控制
+    header := http.Header{}
+    
+    // 只拷贝必要的头，排除所有 WebSocket 相关头
+    for k, v := range req.Header {
+        switch strings.ToLower(k) {
+        case "upgrade", "connection", "sec-websocket-key", "sec-websocket-version", 
+             "sec-websocket-extensions", "sec-websocket-protocol", "sec-websocket-accept":
+            // 跳过所有 WebSocket 特定头
+            continue
+        case "host":
+            // 使用目标站点的 host
+            header.Set("Host", siteHost)
+        case "cookie", "user-agent", "accept", "accept-language", "accept-encoding":
+            // 拷贝这些常用头
+            header[k] = v
+        default:
+            // 对于其他头，只拷贝非 WebSocket 相关的
+            if !strings.HasPrefix(strings.ToLower(k), "sec-websocket") {
+                header[k] = v
+            }
+        }
+    }
+    
+    // 设置必要的转发头
+    header.Set("X-Forwarded-For", getClientIP(req))
+    header.Set("X-Forwarded-Host", req.Host)
+    header.Set("X-Forwarded-Proto", "http")
+    if req.TLS != nil {
+        header.Set("X-Forwarded-Proto", "https")
+    }
+
+    // 连接后端 WebSocket
+    connBackend, resp, err := dialer.Dial(backendURL.String(), header)
+    if err != nil {
+        stdlog.Printf("WebSocket 后端连接失败: %v", err)
+        stdlog.Printf("请求头: %v", header)
+        if resp != nil {
+            for k, v := range resp.Header {
+                w.Header()[k] = v
+            }
+            w.WriteHeader(resp.StatusCode)
+            io.Copy(w, resp.Body)
+            resp.Body.Close()
+        } else {
+            http.Error(w, "WebSocket 代理错误", http.StatusBadGateway)
+        }
+        return
+    }
+    defer connBackend.Close()
+
+    // 升级客户端连接
+    connClient, err := upgrader.Upgrade(w, req, nil)
+    if err != nil {
+        stdlog.Printf("WebSocket 客户端升级失败: %v", err)
+        return
+    }
+    defer connClient.Close()
+
+    stdlog.Printf("WebSocket 代理建立: %s%s", req.Host, req.URL.Path)
+
+    // 启动双向数据转发
+    var wg sync.WaitGroup
+    wg.Add(2)
+
+    // 客户端 -> 后端
+    go func() {
+        defer wg.Done()
+        defer connClient.Close()
+        defer connBackend.Close()
+        
+        for {
+            msgType, msg, err := connClient.ReadMessage()
+            if err != nil {
+                if websocket.IsUnexpectedCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+                    stdlog.Printf("WebSocket 客户端读取错误: %v", err)
+                }
+                break
+            }
+            
+            err = connBackend.WriteMessage(msgType, msg)
+            if err != nil {
+                stdlog.Printf("WebSocket 后端写入错误: %v", err)
+                break
+            }
+        }
+    }()
+
+    // 后端 -> 客户端  
+    go func() {
+        defer wg.Done()
+        defer connClient.Close()
+        defer connBackend.Close()
+        
+        for {
+            msgType, msg, err := connBackend.ReadMessage()
+            if err != nil {
+                if websocket.IsUnexpectedCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+                    stdlog.Printf("WebSocket 后端读取错误: %v", err)
+                }
+                break
+            }
+            
+            err = connClient.WriteMessage(msgType, msg)
+            if err != nil {
+                stdlog.Printf("WebSocket 客户端写入错误: %v", err)
+                break
+            }
+        }
+    }()
+
+    wg.Wait()
+    stdlog.Printf("WebSocket 连接关闭: %s%s", req.Host, req.URL.Path)
+}
+
+// ------------------- 调试函数 -------------------
+
 
 
 // ------------------- 攻击检测 -------------------
@@ -4926,6 +5160,105 @@ type SystemSettings struct {
     RuleMatchRate      int  `json:"rule_match_rate"`
     Base64Depth        int  `json:"base64_depth"`
     URLDepth           int  `json:"url_depth"`
+}
+func debugPrintRequestWithBody(req *http.Request, bodyBytes []byte) {
+    fmt.Printf("\n=== 发送请求 ===\n")
+    fmt.Printf("%s %s %s\n", req.Method, req.URL.RequestURI(), req.Proto)
+    
+    // 输出 Host
+    fmt.Printf("Host: %s\n", req.Host)
+    
+    // 输出请求头
+    for key, values := range req.Header {
+        for _, value := range values {
+            fmt.Printf("%s: %s\n", key, value)
+        }
+    }
+    
+    // 输出空行分隔头部和主体
+    fmt.Println()
+    
+    // 输出请求体 - 使用传入的 bodyBytes
+    if bodyBytes != nil && len(bodyBytes) > 0 {
+        contentType := req.Header.Get("Content-Type")
+        
+        if strings.Contains(contentType, "application/x-www-form-urlencoded") {
+            fmt.Printf("表单数据 (%d bytes):\n", len(bodyBytes))
+            if values, err := url.ParseQuery(string(bodyBytes)); err == nil {
+                for key, vals := range values {
+                    for _, val := range vals {
+                        fmt.Printf("  %s: %s\n", key, val)
+                    }
+                }
+            } else {
+                fmt.Printf("解析表单数据失败: %v\n", err)
+                fmt.Printf("原始数据: %s\n", string(bodyBytes))
+            }
+        } else if strings.Contains(contentType, "application/json") {
+            fmt.Printf("JSON 数据 (%d bytes):\n", len(bodyBytes))
+            var prettyJSON bytes.Buffer
+            if err := json.Indent(&prettyJSON, bodyBytes, "", "  "); err == nil {
+                fmt.Printf("%s\n", prettyJSON.String())
+            } else {
+                fmt.Printf("%s\n", string(bodyBytes))
+            }
+        } else if strings.Contains(contentType, "multipart/form-data") {
+            fmt.Printf("Multipart 表单数据 (%d bytes):\n", len(bodyBytes))
+            fmt.Printf("%s\n", string(bodyBytes))
+        } else {
+            fmt.Printf("原始数据 (%d bytes):\n", len(bodyBytes))
+            // 限制输出长度，避免控制台被刷屏
+            if len(bodyBytes) > 1024 {
+                fmt.Printf("%s\n[... 数据过长，已截断 ...]\n", string(bodyBytes[:1024]))
+            } else {
+                fmt.Printf("%s\n", string(bodyBytes))
+            }
+        }
+    } else {
+        fmt.Println("[空请求体]")
+    }
+    
+    fmt.Printf("=== 请求结束 ===\n\n")
+}
+
+func debugPrintResponse(resp *http.Response, bodyBytes []byte) {
+    fmt.Printf("\n=== 收到响应 ===\n")
+    fmt.Printf("%s %s\n", resp.Proto, resp.Status)
+    
+    // 输出响应头
+    for key, values := range resp.Header {
+        for _, value := range values {
+            fmt.Printf("%s: %s\n", key, value)
+        }
+    }
+    
+    // 输出空行分隔头部和主体
+    fmt.Println()
+    
+    // 输出响应体
+    if len(bodyBytes) > 0 {
+        // 尝试以字符串形式输出，如果包含不可打印字符则显示为十六进制
+        if utf8.Valid(bodyBytes) {
+            // 限制输出长度，避免控制台被刷屏
+            if len(bodyBytes) > 1024 {
+                fmt.Printf("%s\n[... 响应体过长，已截断 ...]\n", string(bodyBytes[:1024]))
+            } else {
+                fmt.Printf("%s\n", string(bodyBytes))
+            }
+        } else {
+            fmt.Printf("[二进制数据，长度: %d 字节]\n", len(bodyBytes))
+            // 可选：输出前128字节的十六进制
+            if len(bodyBytes) > 128 {
+                fmt.Printf("前128字节: %x\n", bodyBytes[:128])
+            } else {
+                fmt.Printf("十六进制: %x\n", bodyBytes)
+            }
+        }
+    } else {
+        fmt.Println("[空响应体]")
+    }
+    
+    fmt.Printf("=== 响应结束 ===\n\n")
 }
 
 // ------------------- 更新设置接口 -------------------
