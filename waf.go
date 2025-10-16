@@ -1504,7 +1504,7 @@ func checkSiteHealthEnhanced(site Site) *SiteHealth {
     health.Latency = time.Since(start).Milliseconds()
     
     // 判断HTTP状态码
-    if resp.StatusCode >= 200 && resp.StatusCode < 400 {
+    if resp.StatusCode >= 0 {
         health.IsAlive = true
         health.Status = resp.StatusCode
     } else {
@@ -5219,46 +5219,6 @@ func debugPrintRequestWithBody(req *http.Request, bodyBytes []byte) {
     }
     
     fmt.Printf("=== 请求结束 ===\n\n")
-}
-
-func debugPrintResponse(resp *http.Response, bodyBytes []byte) {
-    fmt.Printf("\n=== 收到响应 ===\n")
-    fmt.Printf("%s %s\n", resp.Proto, resp.Status)
-    
-    // 输出响应头
-    for key, values := range resp.Header {
-        for _, value := range values {
-            fmt.Printf("%s: %s\n", key, value)
-        }
-    }
-    
-    // 输出空行分隔头部和主体
-    fmt.Println()
-    
-    // 输出响应体
-    if len(bodyBytes) > 0 {
-        // 尝试以字符串形式输出，如果包含不可打印字符则显示为十六进制
-        if utf8.Valid(bodyBytes) {
-            // 限制输出长度，避免控制台被刷屏
-            if len(bodyBytes) > 1024 {
-                fmt.Printf("%s\n[... 响应体过长，已截断 ...]\n", string(bodyBytes[:1024]))
-            } else {
-                fmt.Printf("%s\n", string(bodyBytes))
-            }
-        } else {
-            fmt.Printf("[二进制数据，长度: %d 字节]\n", len(bodyBytes))
-            // 可选：输出前128字节的十六进制
-            if len(bodyBytes) > 128 {
-                fmt.Printf("前128字节: %x\n", bodyBytes[:128])
-            } else {
-                fmt.Printf("十六进制: %x\n", bodyBytes)
-            }
-        }
-    } else {
-        fmt.Println("[空响应体]")
-    }
-    
-    fmt.Printf("=== 响应结束 ===\n\n")
 }
 
 // ------------------- 更新设置接口 -------------------
