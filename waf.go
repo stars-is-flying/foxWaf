@@ -703,7 +703,8 @@ func clearCCCountersHandler(c *gin.Context) {
 }
 
 
-// ------------------- 规则 -------------------
+
+
 // ------------------- 规则 -------------------
 type Judge struct {
 	Position string `json:"position"`
@@ -721,6 +722,7 @@ type Rule struct {
 	Method      string  `json:"method"`
     Relation    string  `json:"relation"`
 	Judges      []Judge `json:"judge"`
+	Enabled     bool    `json:"enabled"` // 新增：是否启用规则
 }
 
 var RULES map[string][]Rule
@@ -3576,6 +3578,8 @@ func getSitesHandler(c *gin.Context) {
     })
 }
 
+
+
 // ------------------- 删除站点接口 -------------------
 func deleteSiteHandler(c *gin.Context) {
     var req DeleteSiteRequest
@@ -3659,6 +3663,88 @@ type UpdateSiteCertRequest struct {
     SiteID int `json:"site_id" binding:"required"`
     CertID int `json:"cert_id" binding:"required"`
 }
+
+type RuleStatusRequest struct {
+    RuleID string `json:"rule_id" binding:"required"`
+    Enable bool   `json:"enable"`
+}
+
+// ------------------- 启用/禁用规则接口 -------------------
+func updateRuleStatusHandler(c *gin.Context) {
+    var req RuleStatusRequest
+    if err := c.ShouldBindJSON(&req); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+
+    found := false
+    for method, rules := range RULES {
+        for i, rule := range rules {
+            if rule.ID == req.RuleID {
+                // 更新规则状态
+                RULES[method][i].Enabled = req.Enable
+                found = true
+                
+                action := "启用"
+                if !req.Enable {
+                    action = "禁用"
+                }
+                stdlog.Printf("规则状态更新: %s (%s) - %s", rule.Name, rule.ID, action)
+                break
+            }
+        }
+        if found {
+            break
+        }
+    }
+
+    if !found {
+        c.JSON(http.StatusNotFound, gin.H{"error": "规则不存在"})
+        return
+    }
+
+    action := "启用"
+    if !req.Enable {
+        action = "禁用"
+    }
+    
+    c.JSON(http.StatusOK, gin.H{
+        "message": fmt.Sprintf("规则%s成功", action),
+        "rule_id": req.RuleID,
+        "enabled": req.Enable,
+    })
+}
+
+// ------------------- 重新加载规则接口 -------------------
+func reloadRulesHandler(c *gin.Context) {
+    // 保存当前的启用状态
+    enabledStatus := make(map[string]bool)
+    for _, rules := range RULES {
+        for _, rule := range rules {
+            enabledStatus[rule.ID] = rule.Enabled
+        }
+    }
+    
+    // 重新加载规则
+    readRule()
+    
+    // 恢复之前的启用状态
+    for method, rules := range RULES {
+        for i, rule := range rules {
+            if enabled, exists := enabledStatus[rule.ID]; exists {
+                RULES[method][i].Enabled = enabled
+            }
+        }
+    }
+    
+    c.JSON(http.StatusOK, gin.H{
+        "message": "规则重新加载成功",
+        "preserved_status": len(enabledStatus),
+    })
+}
+
+
+
 
 func updateSiteCertHandler(c *gin.Context) {
     var req UpdateSiteCertRequest
@@ -3806,6 +3892,10 @@ func StartGinAPI() {
         // 在 authGroup 中添加设置相关的路由
         authGroup.GET("/api/settings", getSettingsHandler)
         authGroup.POST("/api/settings", updateSettingsHandler)
+
+        //规则相关接口
+        authGroup.POST("/api/rules/status", updateRuleStatusHandler)
+        authGroup.POST("/api/rules/reload", reloadRulesHandler)
     }
 
     // 统一返回404页面
@@ -4217,10 +4307,20 @@ func isAttack(req *http.Request) (bool, *AttackLog) {
 
     var rules []Rule
     if methodRules, ok := RULES[req.Method]; ok {
-        rules = append(rules, methodRules...)
+        // 只添加启用的规则
+        for _, rule := range methodRules {
+            if rule.Enabled {
+                rules = append(rules, rule)
+            }
+        }
     }
     if anyRules, ok := RULES["any"]; ok {
-        rules = append(rules, anyRules...)
+        // 只添加启用的规则
+        for _, rule := range anyRules {
+            if rule.Enabled {
+                rules = append(rules, rule)
+            }
+        }
     }
 
     // 修复：只有当 RuleMatchRate > 0 时才应用规则限制
@@ -4402,6 +4502,10 @@ func readRule() {
 				return nil
 			}
 			for _, r := range rules {
+				// 设置默认启用状态
+				if r.Enabled == false {
+					r.Enabled = true // 默认启用所有规则
+				}
 				for i := range r.Judges {
 					if r.Judges[i].Rix != "" {
 						r.Judges[i].regex, _ = regexp.Compile(r.Judges[i].Rix)
@@ -4415,6 +4519,10 @@ func readRule() {
 				fmt.Printf("解析 JSON 失败: %s, 错误: %v\n", path, err)
 				return nil
 			}
+			// 设置默认启用状态
+			if r.Enabled == false {
+				r.Enabled = true // 默认启用所有规则
+			}
 			for i := range r.Judges {
 				if r.Judges[i].Rix != "" {
 					r.Judges[i].regex, _ = regexp.Compile(r.Judges[i].Rix)
@@ -4427,11 +4535,17 @@ func readRule() {
 	})
 
 	total := 0
+	enabledCount := 0
 	for _, rules := range RULES {
 		total += len(rules)
+		for _, rule := range rules {
+			if rule.Enabled {
+				enabledCount++
+			}
+		}
 	}
     
-	fmt.Printf("所有规则加载完成！方法数: %d，总规则数: %d\n", len(RULES), total)
+	fmt.Printf("所有规则加载完成！方法数: %d，总规则数: %d，启用规则数: %d\n", len(RULES), total, enabledCount)
 }
 
 // ------------------- 数据库 -------------------

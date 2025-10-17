@@ -3,7 +3,7 @@
     "id": "000002",
     "method": "PUT",
     "description": "CVE",
-    "relation": "or",
+    "relation": "and",
     "judge": [
         {
             "position": "uri",
@@ -11,8 +11,7 @@
         },
         {
             "position": "request_header",
-            "rix": "kabubu",
-            "action": "not"
+            "rix": "kabubu"
         }
     ]
 }
