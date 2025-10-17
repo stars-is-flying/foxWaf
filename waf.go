@@ -704,10 +704,12 @@ func clearCCCountersHandler(c *gin.Context) {
 
 
 // ------------------- 规则 -------------------
+// ------------------- 规则 -------------------
 type Judge struct {
 	Position string `json:"position"`
 	Content  string `json:"content"`
 	Rix      string `json:"rix"`
+	Action   string `json:"action"` // "is" 或 "not"，默认为 "is"
 
 	regex *regexp.Regexp
 }
@@ -4254,6 +4256,7 @@ func isAttack(req *http.Request) (bool, *AttackLog) {
 }
 
 // 评估单条规则
+// 评估单条规则
 func evaluateRule(rule Rule, rawURL, head, body, paramValues, formValues string, isBodyNull bool) (bool, []string) {
     if len(rule.Judges) == 0 {
         return false, nil
@@ -4286,11 +4289,28 @@ func evaluateRule(rule Rule, rawURL, head, body, paramValues, formValues string,
         }
 
         matchedStr := match(target, judge)
-        if matchedStr != "" {
-            matchResults = append(matchResults, true)
-            matchedValues = append(matchedValues, matchedStr)
+        
+        // 根据 action 判断匹配结果
+        judgeAction := judge.Action
+        if judgeAction == "" {
+            judgeAction = "is" // 默认值为 "is"
+        }
+        
+        var judgeResult bool
+        if judgeAction == "is" {
+            // "is" 关系：匹配到内容即为真
+            judgeResult = (matchedStr != "")
+        } else if judgeAction == "not" {
+            // "not" 关系：没有匹配到内容即为真
+            judgeResult = (matchedStr == "")
         } else {
-            matchResults = append(matchResults, false)
+            // 未知的 action，默认使用 "is"
+            judgeResult = (matchedStr != "")
+        }
+        
+        matchResults = append(matchResults, judgeResult)
+        if matchedStr != "" {
+            matchedValues = append(matchedValues, matchedStr)
         }
     }
     
