@@ -3934,7 +3934,7 @@ func readWafHtml() {
     NotFoundPage = loadWAFPage("notfound.html")
     proxyErrorPage = loadWAFPage("proxy_error.html")
 	aclBlock = loadWAFPage("aclBlock.html")
-	ccBlockPage = aclBlock
+	ccBlockPage = loadWAFPage("ccBlock.html")
 }
 
 

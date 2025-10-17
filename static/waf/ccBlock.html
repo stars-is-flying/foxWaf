@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>拦截提示</title>
+    <link rel="icon"
+        href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🦊</text></svg>">
+    <style>
+        body {
+            background: #fffafc;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            font-family: "Comic Sans MS", "Microsoft YaHei", sans-serif;
+            color: #444;
+        }
+
+        .rabbit {
+            font-size: 120px;
+            animation: bounce 0.8s infinite alternate;
+        }
+
+        @keyframes bounce {
+            from {
+                transform: translateY(0);
+            }
+
+            to {
+                transform: translateY(-8px);
+            }
+        }
+
+        .message {
+            margin-top: 20px;
+            font-size: 22px;
+            text-align: center;
+        }
+
+        .small {
+            font-size: 14px;
+            color: #888;
+            margin-top: 8px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="rabbit">(⊙﹏⊙)🦊</div>
+    <div class="message">
+        不要骚扰小狐狸,哼！<br>
+    </div>
+    <div class="small">WAF 安全防护页面</div>
+</body>
+
+</html>
