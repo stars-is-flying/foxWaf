@@ -71,6 +71,16 @@ var cfg Config // 全局配置
 
 var ccManager *CCManager
 
+
+
+var blockedRuleId []string = make([]string, 0)
+
+func getBlockedRuleId(c *gin.Context) {
+    c.JSON(http.StatusOK, gin.H{
+        "id": blockedRuleId,
+    })
+}
+
 // ------------------- 初始化CC管理器 -------------------
 func initCCManager() {
     ccManager = &CCManager{
@@ -3669,6 +3679,16 @@ type RuleStatusRequest struct {
     Enable bool   `json:"enable"`
 }
 
+func removeFromSlice(slice []string, id string) []string {
+    result := []string{}
+    for _, v := range slice {
+        if v != id {
+            result = append(result, v)
+        }
+    }
+    return result
+}
+
 // ------------------- 启用/禁用规则接口 -------------------
 func updateRuleStatusHandler(c *gin.Context) {
     var req RuleStatusRequest
@@ -3683,6 +3703,11 @@ func updateRuleStatusHandler(c *gin.Context) {
             if rule.ID == req.RuleID {
                 // 更新规则状态
                 RULES[method][i].Enabled = req.Enable
+                if req.Enable == false {
+                    blockedRuleId = append(blockedRuleId, rule.ID)
+                }else {
+                     blockedRuleId = removeFromSlice(blockedRuleId, rule.ID)
+                }
                 found = true
                 
                 action := "启用"
@@ -3896,6 +3921,7 @@ func StartGinAPI() {
         //规则相关接口
         authGroup.POST("/api/rules/status", updateRuleStatusHandler)
         authGroup.POST("/api/rules/reload", reloadRulesHandler)
+        authGroup.GET("/api/rule/blockRuleId", getBlockedRuleId)
     }
 
     // 统一返回404页面
