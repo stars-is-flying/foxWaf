@@ -1098,6 +1098,10 @@
                 <span class="icon">📝</span>
                 <span class="text">攻击日志</span>
             </a>
+            <a href="javascript:void(0)" class="nav-item" data-page="blocked_rules">
+        <span class="icon">🚫</span>
+        <span class="text">被禁用的规则</span>
+    </a>
             <a href="javascript:void(0)" class="nav-item" data-page="settings">
                 <span class="icon">⚙️</span>
                 <span class="text">系统设置</span>
@@ -1406,8 +1410,142 @@
             </form>
         </div>
     `
-            }
+            },
+            blocked_rules: {
+        title: "被禁用的规则",
+        description: "查看和管理被禁用的防护规则",
+        content: `
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">🚫 被禁用的规则列表</h3>
+                    <button class="btn" onclick="loadBlockedRules()">
+                        <span>🔄</span> 刷新
+                    </button>
+                </div>
+                <div id="blocked-rules-container">
+                    <div class="loading">加载中...</div>
+                </div>
+            </div>
+        `
+    }
         }
+
+        // 显示被禁用的规则
+// 改进的显示被禁用规则函数
+async function displayBlockedRules(blockedRuleIds) {
+    const container = document.getElementById('blocked-rules-container');
+
+    if (!blockedRuleIds || blockedRuleIds.length === 0) {
+        container.innerHTML = '<div class="alert">暂无被禁用的规则</div>';
+        return;
+    }
+
+    // 获取所有规则来显示名称（这里需要你提供获取所有规则的接口）
+    const allRules = await getAllRules();
+    
+    let html = `
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>规则ID</th>
+                        <th>规则名称</th>
+                        <th>规则方法</th>
+                        <th>状态</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+    `;
+
+    blockedRuleIds.forEach(ruleId => {
+        // 在实际使用中，这里应该从 allRules 中查找规则名称
+        const ruleName = `规则 ${ruleId}`; // 临时显示
+        const ruleMethod = '未知'; // 临时显示
+        
+        html += `
+            <tr>
+                <td>${ruleId}</td>
+                <td>${ruleName}</td>
+                <td>${ruleMethod}</td>
+                <td>
+                    <span class="status-indicator status-inactive">
+                        已禁用
+                    </span>
+                </td>
+                <td>
+                    <button class="btn btn-success" onclick="enableRule('${ruleId}')">
+                        启用
+                    </button>
+                </td>
+            </tr>
+        `;
+    });
+
+    html += `
+                </tbody>
+            </table>
+        </div>
+        <div style="margin-top: 15px;">
+            <small>共 ${blockedRuleIds.length} 条被禁用的规则</small>
+        </div>
+    `;
+
+    container.innerHTML = html;
+}
+
+// 启用规则
+async function enableRule(ruleId) {
+    if (!confirm(`确定要启用规则 ID: ${ruleId} 吗？`)) return;
+    
+    try {
+        const response = await fetch('/api/rules/status', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            credentials: 'include',
+            body: JSON.stringify({
+                rule_id: ruleId,
+                enable: true
+            })
+        });
+
+        if (response.ok) {
+            showMessage(`规则 ${ruleId} 已启用`, 'success');
+            // 刷新被禁用的规则列表
+            loadBlockedRules();
+        } else {
+            const error = await response.text();
+            showMessage('启用失败: ' + error, 'error');
+        }
+    } catch (error) {
+        console.error('启用规则错误:', error);
+        showMessage('启用失败', 'error');
+    }
+}
+
+
+
+        // 加载被禁用的规则
+async function loadBlockedRules() {
+    try {
+        const response = await fetch('/api/rule/blockRuleId', {
+            method: 'GET',
+            credentials: 'include'
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            displayBlockedRules(data.id);
+        } else {
+            document.getElementById('blocked-rules-container').innerHTML = '<div class="alert alert-error">加载被禁用规则失败</div>';
+        }
+    } catch (error) {
+        console.error('加载被禁用规则错误:', error);
+        document.getElementById('blocked-rules-container').innerHTML = '<div class="alert alert-error">加载被禁用规则失败</div>';
+    }
+}
 
         // 页面切换功能
         document.querySelectorAll('.nav-item').forEach(item => {
@@ -1462,9 +1600,26 @@
                             loadCCStats();
                             loadCCAttackLogs(1);
                             break;
+                        case 'blocked_rules':  // 新增
+                            loadBlockedRules();
+                            break;
                     }
                 }
             }
+
+            // 获取所有规则用于显示名称
+async function getAllRules() {
+    try {
+        // 这里需要调用获取所有规则的接口
+        // 暂时返回空对象，实际使用时需要实现这个接口
+        return {};
+    } catch (error) {
+        console.error('获取规则列表错误:', error);
+        return {};
+    }
+}
+
+
 
             // 计算存活站点数量
                 function calculateAliveSites() {
@@ -2820,60 +2975,95 @@ async function checkSingleSiteHealth(siteId) {
         }
 
         // 显示攻击日志
-        function displayAttackLogs(data) {
-            const container = document.getElementById('logs-container');
-            currentLogsTotal = data.total;
-            
-            if (!data.logs || data.logs.length === 0) {
-                container.innerHTML = '<div class="alert">暂无攻击日志</div>';
-                document.getElementById('logs-pagination').innerHTML = '';
-                return;
-            }
-            
-            let html = `
-                <div class="table-container">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>时间</th>
-                                <th>方法</th>
-                                <th>规则名称</th>
-                                <th>规则ID</th>
-                                <th>匹配内容</th>
-                                <th>URL</th>
-                                <th>操作</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-            `;
-            
-            data.logs.forEach(log => {
-                html += `
+function displayAttackLogs(data) {
+    const container = document.getElementById('logs-container');
+    currentLogsTotal = data.total;
+    
+    if (!data.logs || data.logs.length === 0) {
+        container.innerHTML = '<div class="alert">暂无攻击日志</div>';
+        document.getElementById('logs-pagination').innerHTML = '';
+        return;
+    }
+    
+    let html = `
+        <div class="table-container">
+            <table>
+                <thead>
                     <tr>
-                        <td>${log.created_at}</td>
-                        <td>${log.method}</td>
-                        <td>${log.rule_name}</td>
-                        <td>${log.rule_id}</td>
-                        <td title="${log.matched_value}">${log.matched_value.length > 30 ? log.matched_value.substring(0, 30) + '...' : log.matched_value}</td>
-                        <td title="${log.url}">${log.url.length > 30 ? log.url.substring(0, 30) + '...' : log.url}</td>
-                        <td>
-                            <button class="btn" onclick="showLogDetail(${log.id})">详情</button>
-                        </td>
+                        <th>时间</th>
+                        <th>方法</th>
+                        <th>规则名称</th>
+                        <th>规则ID</th>
+                        <th>匹配内容</th>
+                        <th>URL</th>
+                        <th>操作</th>
                     </tr>
-                `;
-            });
-            
-            html += `
-                        </tbody>
-                    </table>
-                </div>
-            `;
-            
-            container.innerHTML = html;
-            
-            // 显示分页
-            displayPagination(data.total, data.page_size, data.page);
+                </thead>
+                <tbody>
+    `;
+    
+    data.logs.forEach(log => {
+        html += `
+            <tr>
+                <td>${log.created_at}</td>
+                <td>${log.method}</td>
+                <td>${log.rule_name}</td>
+                <td>${log.rule_id}</td>
+                <td title="${log.matched_value}">${log.matched_value.length > 30 ? log.matched_value.substring(0, 30) + '...' : log.matched_value}</td>
+                <td title="${log.url}">${log.url.length > 30 ? log.url.substring(0, 30) + '...' : log.url}</td>
+                <td>
+                    <div class="action-buttons">
+                        <button class="btn" onclick="showLogDetail(${log.id})">详情</button>
+                        <button class="btn btn-secondary" onclick="disableRule('${log.rule_id}', '${log.rule_name}')">禁用规则</button>
+                    </div>
+                </td>
+            </tr>
+        `;
+    });
+    
+    html += `
+                </tbody>
+            </table>
+        </div>
+    `;
+    
+    container.innerHTML = html;
+    
+    // 显示分页
+    displayPagination(data.total, data.page_size, data.page);
+}
+
+// 禁用规则
+async function disableRule(ruleId, ruleName) {
+    if (!confirm(`确定要禁用规则 "${ruleName}" (ID: ${ruleId}) 吗？`)) return;
+    
+    try {
+        const response = await fetch('/api/rules/status', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            credentials: 'include',
+            body: JSON.stringify({
+                rule_id: ruleId,
+                enable: false
+            })
+        });
+
+        if (response.ok) {
+            showMessage(`规则 "${ruleName}" 已禁用`, 'success');
+            // 刷新被禁用的规则列表
+            loadBlockedRules();
+        } else {
+            const error = await response.text();
+            showMessage('禁用失败: ' + error, 'error');
         }
+    } catch (error) {
+        console.error('禁用规则错误:', error);
+        showMessage('禁用失败', 'error');
+    }
+}
+
 
         // 显示分页
         function displayPagination(total, pageSize, currentPage) {
@@ -4115,4 +4305,4 @@ async function showLogDetail(logId) {
     </script>
 </body>
 
-</html>  现在 我需要你帮我实现一个功能, 在每一个攻击日志条目后面加一个禁用按钮来表示禁用这条规则， 然后新添加一个导航栏， 里面显示被禁用的规则id
+</html> 
