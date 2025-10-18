@@ -1060,6 +1060,59 @@
     background: #ff4757;
 }
 
+/* 表格滚动容器样式 */
+.table-scroll-container {
+    max-height: 500px;
+    overflow-y: auto;
+    margin-bottom: 15px;
+    border-radius: 12px;
+    border: 1px solid rgba(82, 16, 237, 0.1);
+}
+
+/* 美化滚动条 */
+.table-scroll-container::-webkit-scrollbar {
+    width: 8px;
+}
+
+.table-scroll-container::-webkit-scrollbar-track {
+    background: rgba(82, 16, 237, 0.05);
+    border-radius: 4px;
+}
+
+.table-scroll-container::-webkit-scrollbar-thumb {
+    background: linear-gradient(135deg, #5210ed, #8b5cf6);
+    border-radius: 4px;
+}
+
+.table-scroll-container::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(135deg, #4510c5, #7a52e0);
+}
+
+/* 表格头部固定 */
+.table-scroll-container table thead {
+    position: sticky;
+    top: 0;
+    background: linear-gradient(135deg, #5210ed, #8b5cf6);
+    z-index: 10;
+}
+
+/* 表格样式调整 */
+.table-scroll-container table {
+    margin-bottom: 0;
+}
+
+.table-scroll-container table th {
+    position: relative;
+}
+
+/* 分页信息样式 */
+.pagination-info {
+    text-align: center;
+    margin: 10px 0;
+    color: #666;
+    font-size: 14px;
+}
+
 
     </style>
 </head>
@@ -1440,11 +1493,19 @@ async function displayBlockedRules(blockedRuleIds) {
         return;
     }
 
+    // 分页处理
+    const pageSize = 10;
+    const totalPages = Math.ceil(blockedRuleIds.length / pageSize);
+    const currentPage = 1;
+    const startIndex = (currentPage - 1) * pageSize;
+    const endIndex = startIndex + pageSize;
+    const displayRules = blockedRuleIds.slice(startIndex, endIndex);
+
     // 获取所有规则来显示名称（这里需要你提供获取所有规则的接口）
     const allRules = await getAllRules();
     
     let html = `
-        <div class="table-container">
+        <div class="table-scroll-container">
             <table>
                 <thead>
                     <tr>
@@ -1458,7 +1519,7 @@ async function displayBlockedRules(blockedRuleIds) {
                 <tbody>
     `;
 
-    blockedRuleIds.forEach(ruleId => {
+    displayRules.forEach(ruleId => {
         // 在实际使用中，这里应该从 allRules 中查找规则名称
         const ruleName = `规则 ${ruleId}`; // 临时显示
         const ruleMethod = '未知'; // 临时显示
@@ -1466,7 +1527,7 @@ async function displayBlockedRules(blockedRuleIds) {
         html += `
             <tr>
                 <td>${ruleId}</td>
-                <td>${ruleName}</td>
+                <td title="${ruleName}">${ruleName.length > 15 ? ruleName.substring(0, 15) + '...' : ruleName}</td>
                 <td>${ruleMethod}</td>
                 <td>
                     <span class="status-indicator status-inactive">
@@ -1486,8 +1547,8 @@ async function displayBlockedRules(blockedRuleIds) {
                 </tbody>
             </table>
         </div>
-        <div style="margin-top: 15px;">
-            <small>共 ${blockedRuleIds.length} 条被禁用的规则</small>
+        <div class="pagination-info">
+            显示 1-${displayRules.length} 条，共 ${blockedRuleIds.length} 条被禁用的规则
         </div>
     `;
 
@@ -1768,66 +1829,77 @@ async function getAllRules() {
 
         // 显示ACL规则
         function displayACLRules(rules) {
-            const container = document.getElementById('acl-rules-container');
-            
-            if (!rules || rules.length === 0) {
-                container.innerHTML = '<div class="alert">暂无ACL规则</div>';
-                return;
-            }
-            
-            let html = `
-                <div class="table-container">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>ID</th>
-                                <th>类型</th>
-                                <th>主机</th>
-                                <th>规则类型</th>
-                                <th>模式</th>
-                                <th>动作</th>
-                                <th>描述</th>
-                                <th>状态</th>
-                                <th>操作</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-            `;
-            
-            rules.forEach(rule => {
-                html += `
+    const container = document.getElementById('acl-rules-container');
+    
+    if (!rules || rules.length === 0) {
+        container.innerHTML = '<div class="alert">暂无ACL规则</div>';
+        return;
+    }
+    
+    // 分页处理
+    const pageSize = 10;
+    const totalPages = Math.ceil(rules.length / pageSize);
+    const currentPage = 1;
+    const startIndex = (currentPage - 1) * pageSize;
+    const endIndex = startIndex + pageSize;
+    const displayRules = rules.slice(startIndex, endIndex);
+    
+    let html = `
+        <div class="table-scroll-container">
+            <table>
+                <thead>
                     <tr>
-                        <td>${rule.id}</td>
-                        <td>${rule.type}</td>
-                        <td>${rule.host || '-'}</td>
-                        <td>${rule.rule_type}</td>
-                        <td title="${rule.pattern}">${rule.pattern.length > 30 ? rule.pattern.substring(0, 30) + '...' : rule.pattern}</td>
-                        <td>
-                            <span class="status-indicator ${rule.action === 'allow' ? 'status-active' : 'status-inactive'}">
-                                ${rule.action === 'allow' ? '允许' : '阻止'}
-                            </span>
-                        </td>
-                        <td>${rule.description || '-'}</td>
-                        <td>
-                            <span class="status-indicator ${rule.enabled ? 'status-active' : 'status-inactive'}">
-                                ${rule.enabled ? '启用' : '禁用'}
-                            </span>
-                        </td>
-                        <td>
-                            <button class="btn btn-danger" onclick="deleteACLRule(${rule.id})">删除</button>
-                        </td>
+                        <th>ID</th>
+                        <th>类型</th>
+                        <th>主机</th>
+                        <th>规则类型</th>
+                        <th>模式</th>
+                        <th>动作</th>
+                        <th>描述</th>
+                        <th>状态</th>
+                        <th>操作</th>
                     </tr>
-                `;
-            });
-            
-            html += `
-                        </tbody>
-                    </table>
-                </div>
-            `;
-            
-            container.innerHTML = html;
-        }
+                </thead>
+                <tbody>
+    `;
+    
+    displayRules.forEach(rule => {
+        html += `
+            <tr>
+                <td>${rule.id}</td>
+                <td>${rule.type}</td>
+                <td>${rule.host || '-'}</td>
+                <td>${rule.rule_type}</td>
+                        <td title="${rule.pattern}">${rule.pattern.length > 20 ? rule.pattern.substring(0, 20) + '...' : rule.pattern}</td>
+                <td>
+                    <span class="status-indicator ${rule.action === 'allow' ? 'status-active' : 'status-inactive'}">
+                        ${rule.action === 'allow' ? '允许' : '阻止'}
+                    </span>
+                </td>
+                <td title="${rule.description || '-'}">${rule.description ? (rule.description.length > 15 ? rule.description.substring(0, 15) + '...' : rule.description) : '-'}</td>
+                <td>
+                    <span class="status-indicator ${rule.enabled ? 'status-active' : 'status-inactive'}">
+                        ${rule.enabled ? '启用' : '禁用'}
+                    </span>
+                </td>
+                <td>
+                    <button class="btn btn-danger" onclick="deleteACLRule(${rule.id})">删除</button>
+                </td>
+            </tr>
+        `;
+    });
+    
+    html += `
+                </tbody>
+            </table>
+        </div>
+        <div class="pagination-info">
+            显示 1-${displayRules.length} 条，共 ${rules.length} 条规则
+        </div>
+    `;
+    
+    container.innerHTML = html;
+}
 
         // 显示添加ACL规则模态框
         function showAddACLModal() {
@@ -2191,15 +2263,23 @@ async function toggleSiteStatus(siteId, newStatus) {
         // 显示站点列表
     // 修改displaySites函数，显示证书信息
     function displaySites(sites) {
-        const container = document.getElementById('sites-container');
+    const container = document.getElementById('sites-container');
 
-        if (!sites || sites.length === 0) {
-            container.innerHTML = '<div class="alert">暂无站点</div>';
-            return;
-        }
+    if (!sites || sites.length === 0) {
+        container.innerHTML = '<div class="alert">暂无站点</div>';
+        return;
+    }
 
-        let html = `
-        <div class="table-container">
+    // 分页处理
+    const pageSize = 10;
+    const totalPages = Math.ceil(sites.length / pageSize);
+    const currentPage = 1;
+    const startIndex = (currentPage - 1) * pageSize;
+    const endIndex = startIndex + pageSize;
+    const displaySites = sites.slice(startIndex, endIndex);
+
+    let html = `
+        <div class="table-scroll-container">
             <table>
                 <thead>
                     <tr>
@@ -2216,29 +2296,29 @@ async function toggleSiteStatus(siteId, newStatus) {
                 <tbody>
     `;
 
-        sites.forEach(site => {
-            // 获取站点健康状态
-            const isTargetAlive = window.siteHealthData && window.siteHealthData[site.id] ? window.siteHealthData[site.id].is_alive : false;
-            const rowClass = isTargetAlive ? 'row-alive' : 'row-dead';
+    displaySites.forEach(site => {
+        // 获取站点健康状态
+        const isTargetAlive = window.siteHealthData && window.siteHealthData[site.id] ? window.siteHealthData[site.id].is_alive : false;
+        const rowClass = isTargetAlive ? 'row-alive' : 'row-dead';
 
-            // 证书状态
-            let certStatus = '';
-            if (site.enable_https) {
-                if (site.cert_id) {
-                    certStatus = '<span class="status-indicator status-active" title="已配置证书">✅ 已配置</span>';
-                } else {
-                    certStatus = '<span class="status-indicator status-inactive" title="未配置证书">❌ 无证书</span>';
-                }
+        // 证书状态
+        let certStatus = '';
+        if (site.enable_https) {
+            if (site.cert_id) {
+                certStatus = '<span class="status-indicator status-active" title="已配置证书">✅ 已配置</span>';
             } else {
-                certStatus = '<span class="status-indicator">-</span>';
+                certStatus = '<span class="status-indicator status-inactive" title="未配置证书">❌ 无证书</span>';
             }
+        } else {
+            certStatus = '<span class="status-indicator">-</span>';
+        }
 
-            html += `
+        html += `
             <tr class="${rowClass}">
                 <td>${site.id}</td>
-                <td>${site.name}</td>
-                <td>${site.domain}</td>
-                <td title="${site.target_url}">${site.target_url.length > 30 ? site.target_url.substring(0, 30) + '...' : site.target_url}</td>
+                <td title="${site.name}">${site.name.length > 15 ? site.name.substring(0, 15) + '...' : site.name}</td>
+                <td title="${site.domain}">${site.domain.length > 15 ? site.domain.substring(0, 15) + '...' : site.domain}</td>
+                <td title="${site.target_url}">${site.target_url.length > 20 ? site.target_url.substring(0, 20) + '...' : site.target_url}</td>
                 <td>
                     <span class="status-indicator ${site.enable_https ? 'status-active' : 'status-inactive'} clickable" 
                           onclick="toggleSiteHTTPS(${site.id}, ${!site.enable_https})"
@@ -2264,16 +2344,19 @@ async function toggleSiteStatus(siteId, newStatus) {
                 </td>
             </tr>
         `;
-        });
+    });
 
-        html += `
+    html += `
                 </tbody>
             </table>
         </div>
+        <div class="pagination-info">
+            显示 1-${displaySites.length} 条，共 ${sites.length} 个站点
+        </div>
     `;
 
-        container.innerHTML = html;
-    }
+    container.innerHTML = html;
+}
     // 管理站点证书
         function manageSiteCertificate(siteId, domain) {
             document.getElementById('modal-title').textContent = `管理证书 - ${domain}`;
@@ -2582,16 +2665,82 @@ function getSiteHealthStatus(siteId) {
     }
 
     // 显示缓存文件列表
-    function displayCacheFiles(files) {
-        const container = document.getElementById('cache-files-container');
+    function displayCCAttackLogs(data) {
+    const container = document.getElementById('cc-logs-container');
+    currentCCLogsTotal = data.total;
 
-        if (!files || files.length === 0) {
-            container.innerHTML = '<div class="alert">暂无缓存文件</div>';
-            return;
-        }
+    if (!data.logs || data.logs.length === 0) {
+        container.innerHTML = '<div class="alert">暂无CC攻击日志</div>';
+        document.getElementById('cc-logs-pagination').innerHTML = '';
+        return;
+    }
 
-        let html = `
-        <div class="table-container">
+    let html = `
+        <div class="table-scroll-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>时间</th>
+                        <th>客户端IP</th>
+                        <th>域名</th>
+                        <th>路径</th>
+                        <th>规则名称</th>
+                        <th>请求次数</th>
+                        <th>执行动作</th>
+                    </tr>
+                </thead>
+                <tbody>
+    `;
+
+    data.logs.forEach(log => {
+        html += `
+            <tr>
+                <td>${log.created_at}</td>
+                <td>${log.client_ip}</td>
+                <td title="${log.domain}">${log.domain.length > 15 ? log.domain.substring(0, 15) + '...' : log.domain}</td>
+                <td title="${log.path || '全部'}">${log.path ? (log.path.length > 15 ? log.path.substring(0, 15) + '...' : log.path) : '全部'}</td>
+                <td title="${log.rule_name}">${log.rule_name.length > 15 ? log.rule_name.substring(0, 15) + '...' : log.rule_name}</td>
+                <td>${log.count}</td>
+                <td>
+                    <span class="status-indicator ${log.action === 'block' ? 'status-inactive' : 'status-active'}">
+                        ${log.action === 'block' ? '拦截' : '挑战'}
+                    </span>
+                </td>
+            </tr>
+        `;
+    });
+
+    html += `
+                </tbody>
+            </table>
+        </div>
+    `;
+
+    container.innerHTML = html;
+
+    // 显示分页
+    displayCCPagination(data.total, data.page_size, data.page);
+}
+
+// 显示缓存文件列表
+function displayCacheFiles(files) {
+    const container = document.getElementById('cache-files-container');
+
+    if (!files || files.length === 0) {
+        container.innerHTML = '<div class="alert">暂无缓存文件</div>';
+        return;
+    }
+
+    // 分页处理
+    const pageSize = 10;
+    const totalPages = Math.ceil(files.length / pageSize);
+    const currentPage = 1;
+    const startIndex = (currentPage - 1) * pageSize;
+    const endIndex = startIndex + pageSize;
+    const displayFiles = files.slice(startIndex, endIndex);
+
+    let html = `
+        <div class="table-scroll-container">
             <table>
                 <thead>
                     <tr>
@@ -2606,35 +2755,72 @@ function getSiteHealthStatus(siteId) {
                 <tbody>
     `;
 
-        files.forEach(file => {
-            // 简化显示缓存键
-            const displayKey = file.key.length > 30 ? file.key.substring(0, 30) + '...' : file.key;
+    displayFiles.forEach(file => {
+        // 简化显示缓存键
+        const displayKey = file.key.length > 25 ? file.key.substring(0, 25) + '...' : file.key;
+        const displayType = file.content_type ? (file.content_type.length > 15 ? file.content_type.substring(0, 15) + '...' : file.content_type) : '未知';
 
-            html += `
+        html += `
             <tr>
                 <td title="${file.key}">${displayKey}</td>
-                <td>${file.content_type}</td>
-                <td>${file.size}</td>
-                <td>${file.last_modified}</td>
-                <td>${file.expire_at}</td>
+                <td title="${file.content_type || '未知'}">${displayType}</td>
+                <td>${formatFileSize(file.size || 0)}</td>
+                <td>${file.last_modified || '未知'}</td>
+                <td>${file.expire_at || '永不过期'}</td>
                 <td>
-                    <button class="btn" onclick="viewCacheFileContent('${file.key}')">查看内容</button>
+                    <div class="action-buttons">
+                        <button class="btn" onclick="viewCacheFileContent('${file.key}')">查看内容</button>
+                        <button class="btn btn-danger" onclick="deleteCacheFile('${file.key}')">删除</button>
+                    </div>
                 </td>
             </tr>
         `;
-        });
+    });
 
-        html += `
+    html += `
                 </tbody>
             </table>
         </div>
-        <div style="margin-top: 15px; text-align: center;">
-            <small>共 ${files.length} 个缓存文件</small>
+        <div class="pagination-info">
+            显示 1-${displayFiles.length} 个，共 ${files.length} 个缓存文件
         </div>
     `;
 
-        container.innerHTML = html;
+    container.innerHTML = html;
+}
+
+// 格式化文件大小
+function formatFileSize(bytes) {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+// 删除缓存文件
+async function deleteCacheFile(cacheKey) {
+    if (!confirm(`确定要删除缓存文件 "${cacheKey}" 吗？`)) return;
+    
+    try {
+        const response = await fetch(`/api/cache/files/${encodeURIComponent(cacheKey)}`, {
+            method: 'DELETE',
+            credentials: 'include'
+        });
+
+        if (response.ok) {
+            showMessage('缓存文件删除成功', 'success');
+            loadCacheFiles(); // 重新加载文件列表
+        } else {
+            const error = await response.text();
+            showMessage('删除失败: ' + error, 'error');
+        }
+    } catch (error) {
+        console.error('删除缓存文件错误:', error);
+        showMessage('删除失败', 'error');
     }
+}
+
 
     // 查看缓存文件内容
     async function viewCacheFileContent(cacheKey) {
@@ -2986,7 +3172,7 @@ function displayAttackLogs(data) {
     }
     
     let html = `
-        <div class="table-container">
+        <div class="table-scroll-container">
             <table>
                 <thead>
                     <tr>
@@ -3007,10 +3193,10 @@ function displayAttackLogs(data) {
             <tr>
                 <td>${log.created_at}</td>
                 <td>${log.method}</td>
-                <td>${log.rule_name}</td>
+                <td title="${log.rule_name}">${log.rule_name.length > 15 ? log.rule_name.substring(0, 15) + '...' : log.rule_name}</td>
                 <td>${log.rule_id}</td>
-                <td title="${log.matched_value}">${log.matched_value.length > 30 ? log.matched_value.substring(0, 30) + '...' : log.matched_value}</td>
-                <td title="${log.url}">${log.url.length > 30 ? log.url.substring(0, 30) + '...' : log.url}</td>
+                <td title="${log.matched_value}">${log.matched_value.length > 20 ? log.matched_value.substring(0, 20) + '...' : log.matched_value}</td>
+                <td title="${log.url}">${log.url.length > 20 ? log.url.substring(0, 20) + '...' : log.url}</td>
                 <td>
                     <div class="action-buttons">
                         <button class="btn" onclick="showLogDetail(${log.id})">详情</button>
@@ -3625,15 +3811,23 @@ async function showLogDetail(logId) {
 
             // 显示CC规则
             function displayCCRules(rules) {
-                const container = document.getElementById('cc-rules-container');
+    const container = document.getElementById('cc-rules-container');
 
-                if (!rules || rules.length === 0) {
-                    container.innerHTML = '<div class="alert">暂无CC规则</div>';
-                    return;
-                }
+    if (!rules || rules.length === 0) {
+        container.innerHTML = '<div class="alert">暂无CC规则</div>';
+        return;
+    }
 
-                let html = `
-        <div class="table-container">
+    // 分页处理
+    const pageSize = 10;
+    const totalPages = Math.ceil(rules.length / pageSize);
+    const currentPage = 1;
+    const startIndex = (currentPage - 1) * pageSize;
+    const endIndex = startIndex + pageSize;
+    const displayRules = rules.slice(startIndex, endIndex);
+
+    let html = `
+        <div class="table-scroll-container">
             <table>
                 <thead>
                     <tr>
@@ -3652,13 +3846,13 @@ async function showLogDetail(logId) {
                 <tbody>
     `;
 
-                rules.forEach(rule => {
-                    html += `
+    displayRules.forEach(rule => {
+        html += `
             <tr>
                 <td>${rule.id}</td>
-                <td>${rule.name}</td>
-                <td>${rule.domain}</td>
-                <td>${rule.path || '全部'}</td>
+                <td title="${rule.name}">${rule.name.length > 15 ? rule.name.substring(0, 15) + '...' : rule.name}</td>
+                <td title="${rule.domain}">${rule.domain.length > 15 ? rule.domain.substring(0, 15) + '...' : rule.domain}</td>
+                <td title="${rule.path || '全部'}">${rule.path ? (rule.path.length > 15 ? rule.path.substring(0, 15) + '...' : rule.path) : '全部'}</td>
                 <td>${rule.rate_limit} 次</td>
                 <td>${rule.time_window} 秒</td>
                 <td>
@@ -3674,7 +3868,7 @@ async function showLogDetail(logId) {
                     </span>
                 </td>
                 <td title="${rule.description || '无描述'}">
-                    ${rule.description ? (rule.description.length > 30 ? rule.description.substring(0, 30) + '...' : rule.description) : '-'}
+                    ${rule.description ? (rule.description.length > 15 ? rule.description.substring(0, 15) + '...' : rule.description) : '-'}
                 </td>
                 <td>
                     <div class="action-buttons">
@@ -3684,16 +3878,19 @@ async function showLogDetail(logId) {
                 </td>
             </tr>
         `;
-                });
+    });
 
-                html += `
+    html += `
                 </tbody>
             </table>
         </div>
+        <div class="pagination-info">
+            显示 1-${displayRules.length} 条，共 ${rules.length} 条CC规则
+        </div>
     `;
 
-                container.innerHTML = html;
-            }
+    container.innerHTML = html;
+}
 
             // 显示添加CC规则模态框
             function showAddCCRuleModal() {
@@ -4132,17 +4329,17 @@ async function showLogDetail(logId) {
 
             // 显示CC攻击日志
             function displayCCAttackLogs(data) {
-                const container = document.getElementById('cc-logs-container');
-                currentCCLogsTotal = data.total;
+    const container = document.getElementById('cc-logs-container');
+    currentCCLogsTotal = data.total;
 
-                if (!data.logs || data.logs.length === 0) {
-                    container.innerHTML = '<div class="alert">暂无CC攻击日志</div>';
-                    document.getElementById('cc-logs-pagination').innerHTML = '';
-                    return;
-                }
+    if (!data.logs || data.logs.length === 0) {
+        container.innerHTML = '<div class="alert">暂无CC攻击日志</div>';
+        document.getElementById('cc-logs-pagination').innerHTML = '';
+        return;
+    }
 
-                let html = `
-        <div class="table-container">
+    let html = `
+        <div class="table-scroll-container">
             <table>
                 <thead>
                     <tr>
@@ -4158,14 +4355,14 @@ async function showLogDetail(logId) {
                 <tbody>
     `;
 
-                data.logs.forEach(log => {
-                    html += `
+    data.logs.forEach(log => {
+        html += `
             <tr>
                 <td>${log.created_at}</td>
                 <td>${log.client_ip}</td>
-                <td>${log.domain}</td>
-                <td>${log.path || '全部'}</td>
-                <td>${log.rule_name}</td>
+                <td title="${log.domain}">${log.domain.length > 15 ? log.domain.substring(0, 15) + '...' : log.domain}</td>
+                <td title="${log.path || '全部'}">${log.path ? (log.path.length > 15 ? log.path.substring(0, 15) + '...' : log.path) : '全部'}</td>
+                <td title="${log.rule_name}">${log.rule_name.length > 15 ? log.rule_name.substring(0, 15) + '...' : log.rule_name}</td>
                 <td>${log.count}</td>
                 <td>
                     <span class="status-indicator ${log.action === 'block' ? 'status-inactive' : 'status-active'}">
@@ -4174,19 +4371,19 @@ async function showLogDetail(logId) {
                 </td>
             </tr>
         `;
-                });
+    });
 
-                html += `
+    html += `
                 </tbody>
             </table>
         </div>
     `;
 
-                container.innerHTML = html;
+    container.innerHTML = html;
 
-                // 显示分页
-                displayCCPagination(data.total, data.page_size, data.page);
-            }
+    // 显示分页
+    displayCCPagination(data.total, data.page_size, data.page);
+}
 
             // 显示CC分页
             function displayCCPagination(total, pageSize, currentPage) {
@@ -4305,4 +4502,4 @@ async function showLogDetail(logId) {
     </script>
 </body>
 
-</html> 
+</html>
