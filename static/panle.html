@@ -728,12 +728,6 @@
     margin-bottom: 15px;
 }
 
-.gauge-chart {
-    width: 200px;
-    height: 120px;
-    margin: 0 auto;
-    position: relative;
-}
 
 .gauge-background {
     width: 100%;
@@ -805,13 +799,6 @@
     text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
-/* 站点状态仪表盘 */
-.sites-gauge {
-    width: 200px;
-    height: 200px;
-    margin: 0 auto;
-    position: relative;
-}
 
 .sites-gauge-circle {
     width: 100%;
@@ -916,44 +903,11 @@
     position: relative;
 }
 
-.gauge-background {
-    width: 100%;
-    height: 60px;
-    background: linear-gradient(90deg, 
-        #ff4757 0%, 
-        #ffa502 25%, 
-        #2ed573 50%, 
-        #1e90ff 75%, 
-        #5352ed 100%);
-    border-radius: 100px 100px 0 0;
-    position: relative;
-    overflow: hidden;
-}
 
-.gauge-fill {
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(255, 255, 255, 0.3);
-    transform-origin: bottom center;
-    transform: rotate(0deg);
-    transition: transform 1s ease-in-out;
-}
 
-.gauge-needle {
-    position: absolute;
-    bottom: 0;
-    left: 50%;
-    width: 4px;
-    height: 90px;
-    background: #5210ed;
-    transform-origin: bottom center;
-    transform: translateX(-50%) rotate(0deg);
-    transition: transform 1s ease-in-out;
-    border-radius: 2px 2px 0 0;
-}
+
+
+
 
 .gauge-needle::after {
     content: '';
@@ -1113,6 +1067,55 @@
     font-size: 14px;
 }
 
+/* 系统监控卡片样式 */
+.system-monitor-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 20px;
+    margin-top: 20px;
+}
+
+.monitor-card {
+    background: rgba(255, 255, 255, 0.95);
+    padding: 20px;
+    border-radius: 16px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    text-align: center;
+}
+
+.monitor-value {
+    font-size: 28px;
+    font-weight: bold;
+    color: #5210ed;
+    margin-bottom: 5px;
+}
+
+.monitor-label {
+    font-size: 14px;
+    color: #666;
+    margin-bottom: 10px;
+}
+
+.monitor-details {
+    font-size: 12px;
+    color: #888;
+    margin-top: 10px;
+}
+
+/* 响应式调整 */
+@media (max-width: 768px) {
+    .system-monitor-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .dashboard-charts {
+        grid-template-columns: 1fr;
+    }
+}
+
+
+
 
     </style>
 </head>
@@ -1197,9 +1200,9 @@
         // 页面内容定义
         const pageContents = {
             dashboard: {
-                title: "数据概览",
-                description: "系统运行状态和统计信息",
-                content: `
+    title: "数据概览",
+    description: "系统运行状态和统计信息",
+    content: `
         <div class="dashboard-grid">
             <div class="metric-row">
                 <div class="metric-card">
@@ -1234,10 +1237,44 @@
                     </div>
                 </div>
             </div>
+
+            <!-- 新增：系统监控仪表盘 -->
+            <div class="dashboard-charts">
+                <div class="chart-container">
+                    <div class="chart-title">📊 端口请求速率</div>
+                    <div id="port-stats-container">
+                        <div class="loading">加载中...</div>
+                    </div>
+                </div>
+                
+                <div class="chart-container">
+                    <div class="chart-title">💻 CPU使用率</div>
+                    <div id="cpu-stats-container">
+                        <div class="loading">加载中...</div>
+                    </div>
+                </div>
+                
+                <div class="chart-container">
+                    <div class="chart-title">💾 内存使用率</div>
+                    <div id="memory-stats-container">
+                        <div class="loading">加载中...</div>
+                    </div>
+                </div>
+            </div>
+
             
             
+            <div class="refresh-section">
+                <button class="refresh-btn" onclick="refreshAllStats()">
+                    <span class="refresh-icon">🔄</span> 刷新数据
+                </button>
+                <div class="last-update">
+                    最后更新: <span id="last-update">${new Date().toLocaleTimeString()}</span>
+                </div>
+            </div>
+        </div>
     `
-            },
+},
             acl: {
                 title: "ACL规则管理",
                 description: "访问控制列表规则配置",
@@ -1624,49 +1661,48 @@ async function loadBlockedRules() {
             });
         });
 
-        // 加载页面内容
-        // 修改加载页面内容函数
-            function loadPage(pageId) {
-                currentPage = pageId;
-                const page = pageContents[pageId];
-                if (page) {
-                    document.getElementById('page-title').textContent = page.title;
-                    document.getElementById('page-description').textContent = page.description;
-                    document.getElementById('content-container').innerHTML = page.content;
+        // 修改页面加载函数，在dashboard页面加载系统监控数据
+function loadPage(pageId) {
+    currentPage = pageId;
+    const page = pageContents[pageId];
+    if (page) {
+        document.getElementById('page-title').textContent = page.title;
+        document.getElementById('page-description').textContent = page.description;
+        document.getElementById('content-container').innerHTML = page.content;
 
-                    // 加载页面特定数据
-                    switch (pageId) {
-                        case 'dashboard':
-                            loadStats();
-                            break;
-                        case 'acl':
-                            loadACLRules();
-                            break;
-                        case 'cache':
-                            loadCacheStats();
-                            loadCacheConfig();
-                            loadCacheFiles(); // 修复：页面加载时自动加载文件列表
-                            break;
-                        case 'sites':
-                            loadSites();
-                            break;
-                        case 'logs':
-                            loadAttackLogs(1);
-                            break;
-                        case 'settings':
-                            loadSettings();
-                            break;
-                        case 'cc':
-                            loadCCRules();
-                            loadCCStats();
-                            loadCCAttackLogs(1);
-                            break;
-                        case 'blocked_rules':  // 新增
-                            loadBlockedRules();
-                            break;
-                    }
-                }
-            }
+        // 加载页面特定数据
+        switch (pageId) {
+            case 'dashboard':
+                loadStats(); // 这会同时加载基本统计和系统监控
+                break;
+            case 'acl':
+                loadACLRules();
+                break;
+            case 'cache':
+                loadCacheStats();
+                loadCacheConfig();
+                loadCacheFiles();
+                break;
+            case 'sites':
+                loadSites();
+                break;
+            case 'logs':
+                loadAttackLogs(1);
+                break;
+            case 'settings':
+                loadSettings();
+                break;
+            case 'cc':
+                loadCCRules();
+                loadCCStats();
+                loadCCAttackLogs(1);
+                break;
+            case 'blocked_rules':
+                loadBlockedRules();
+                break;
+        }
+    }
+}
 
             // 获取所有规则用于显示名称
 async function getAllRules() {
@@ -1679,6 +1715,122 @@ async function getAllRules() {
         return {};
     }
 }
+
+// 加载系统监控数据
+async function loadSystemMonitor() {
+    try {
+        const response = await fetch('/api/monitor/system', {
+            method: 'GET',
+            credentials: 'include'
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            displaySystemMonitor(data);
+        } else {
+            console.error('获取系统监控数据失败:', response.status);
+            displaySystemMonitorError();
+        }
+    } catch (error) {
+        console.error('获取系统监控数据错误:', error);
+        displaySystemMonitorError();
+    }
+}
+
+// 显示系统监控数据
+function displaySystemMonitor(data) {
+    // 显示端口统计
+    displayPortStats(data.port_stats);
+    
+    // 显示CPU统计
+    displayCPUStats(data.cpu_stats);
+    
+    // 显示内存统计
+    displayMemoryStats(data.memory_stats);
+}
+
+// 显示端口统计
+function displayPortStats(portStats) {
+    const container = document.getElementById('port-stats-container');
+    
+    container.innerHTML = `
+        <div style="text-align: center;">
+            <div style="font-size: 24px; font-weight: bold; color: #5210ed; margin-bottom: 10px;">
+                ${portStats.total_connections}
+            </div>
+            <div style="font-size: 14px; color: #666; margin-bottom: 15px;">
+                总连接数
+            </div>
+            <div style="display: flex; justify-content: space-around; font-size: 12px;">
+                <div>
+                    <div style="color: #2ed573;">80端口</div>
+                    <div style="font-weight: bold;">${portStats.port_80_rate}</div>
+                </div>
+                <div>
+                    <div style="color: #1e90ff;">443端口</div>
+                    <div style="font-weight: bold;">${portStats.port_443_rate}</div>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+// 显示CPU统计
+function displayCPUStats(cpuStats) {
+    const container = document.getElementById('cpu-stats-container');
+    const usagePercent = parseFloat(cpuStats.usage_percent);
+    
+    container.innerHTML = `
+        <div style="text-align: center;">
+            <div style="font-size: 24px; font-weight: bold; color: #5210ed; margin-bottom: 10px;">
+                ${usagePercent.toFixed(1)}%
+            </div>
+            <div style="font-size: 14px; color: #666; margin-bottom: 15px;">
+                CPU使用率
+            </div>
+            <div style="font-size: 12px; color: #888;">
+                负载: ${cpuStats.load_average_1} | ${cpuStats.load_average_5} | ${cpuStats.load_average_15}
+            </div>
+            <div style="font-size: 11px; color: #888;">
+                ${cpuStats.cores} 核心
+            </div>
+        </div>
+    `;
+}
+
+// 显示内存统计
+function displayMemoryStats(memoryStats) {
+    const container = document.getElementById('memory-stats-container');
+    const usagePercent = parseFloat(memoryStats.usage_percent);
+    
+    container.innerHTML = `
+        <div style="text-align: center;">
+            <div style="font-size: 24px; font-weight: bold; color: #5210ed; margin-bottom: 10px;">
+                ${usagePercent.toFixed(1)}%
+            </div>
+            <div style="font-size: 14px; color: #666; margin-bottom: 15px;">
+                内存使用率
+            </div>
+            <div style="font-size: 12px; color: #666;">
+                已用: ${memoryStats.used}
+            </div>
+            <div style="font-size: 11px; color: #888;">
+                总共: ${memoryStats.total}
+            </div>
+        </div>
+    `;
+}
+
+// 显示系统监控错误
+function displaySystemMonitorError() {
+    const errorHtml = '<div class="alert alert-error">系统监控数据加载失败</div>';
+    
+    document.getElementById('port-stats-container').innerHTML = errorHtml;
+    document.getElementById('cpu-stats-container').innerHTML = errorHtml;
+    document.getElementById('memory-stats-container').innerHTML = errorHtml;
+}
+
+
 
 
 
@@ -1695,96 +1847,68 @@ async function getAllRules() {
                         return aliveCount;
                     }
 
-                // 更新仪表盘
-                    function updateGauges(totalRequests, blockedRequests, totalSites, aliveSites) {
-                        // 请求分布仪表盘
-                        updateRequestsGauge(totalRequests, blockedRequests);
-
-                        // 站点状态仪表盘
-                        updateSitesGauge(totalSites, aliveSites);
-                    }
-
-                    // 更新仪表盘
-                        function updateGauges(totalRequests, blockedRequests, totalSites, aliveSites) {
-                            // 请求分布仪表盘
-                            updateRequestsGauge(totalRequests, blockedRequests);
-
-                            // 站点状态仪表盘
-                            updateSitesGauge(totalSites, aliveSites);
-                        }
-
-                        // 更新请求分布仪表盘
-                        function updateRequestsGauge(totalRequests, blockedRequests) {
-                            const gaugeContainer = document.getElementById('requests-gauge');
-
-                            // 计算拦截率
-                            const blockRate = totalRequests > 0 ? (blockedRequests / totalRequests) * 100 : 0;
-
-                            gaugeContainer.innerHTML = `
-        <div class="gauge-background">
-            <div class="gauge-fill" style="transform: rotate(${180 - (blockRate * 1.8)}deg);"></div>
-            <div class="gauge-needle" style="transform: translateX(-50%) rotate(${blockRate * 1.8 - 90}deg);"></div>
-        </div>
-        <div class="gauge-value">${blockRate.toFixed(1)}%</div>
-        <div class="gauge-labels">
-            <span>0%</span>
-            <span>安全</span>
-            <span>100%</span>
-        </div>
-        <div style="margin-top: 10px; font-size: 12px; color: #666;">
-            拦截率: ${blockRate.toFixed(1)}%
-        </div>
-    `;
-                        }
+                
+                        
 
 
         // 加载统计数据
-            async function loadStats() {
-                    try {
-                        const response = await fetch('/api/stats', {
-                            method: 'GET',
-                            credentials: 'include'
-                        });
+            // 加载统计数据
+async function loadStats() {
+    try {
+        // 并行加载基本统计和系统监控
+        const [statsResponse, monitorResponse] = await Promise.all([
+            fetch('/api/stats', { method: 'GET', credentials: 'include' }),
+            fetch('/api/monitor/system', { method: 'GET', credentials: 'include' })
+        ]);
 
-                        if (response.ok) {
-                            const stats = await response.json();
+        // 处理基本统计数据
+        if (statsResponse.ok) {
+            const stats = await statsResponse.json();
+            
+            // 计算存活站点数量
+            const aliveSites = calculateAliveSites();
 
-                            // 计算存活站点数量
-                            const aliveSites = calculateAliveSites();
+            // 检查数据变化并添加动画
+            checkAndAnimateValueChange('total-requests', stats.total_requests, previousStats.total_requests);
+            checkAndAnimateValueChange('blocked-requests', stats.blocked_requests, previousStats.blocked_requests);
+            checkAndAnimateValueChange('total-sites', stats.total_sites, previousStats.total_sites);
+            checkAndAnimateValueChange('alive-sites', aliveSites, previousStats.alive_sites);
 
-                            // 检查数据是否有变化并添加跳动效果
-                            checkAndAnimateValueChange('total-requests', stats.total_requests, previousStats.total_requests);
-                            checkAndAnimateValueChange('blocked-requests', stats.blocked_requests, previousStats.blocked_requests);
-                            checkAndAnimateValueChange('total-sites', stats.total_sites, previousStats.total_sites);
-                            checkAndAnimateValueChange('alive-sites', aliveSites, previousStats.alive_sites);
+            // 更新页面显示
+            document.getElementById('total-requests').textContent = stats.total_requests.toLocaleString();
+            document.getElementById('blocked-requests').textContent = stats.blocked_requests.toLocaleString();
+            document.getElementById('total-sites').textContent = stats.total_sites;
+            document.getElementById('alive-sites').textContent = aliveSites;
 
-                            // 更新页面显示
-                            document.getElementById('total-requests').textContent = stats.total_requests.toLocaleString();
-                            document.getElementById('blocked-requests').textContent = stats.blocked_requests.toLocaleString();
-                            document.getElementById('total-sites').textContent = stats.total_sites;
-                            document.getElementById('alive-sites').textContent = aliveSites;
 
-                            // 更新仪表盘
-                            updateGauges(stats.total_requests, stats.blocked_requests, stats.total_sites, aliveSites);
+            // 保存当前数据用于下次比较
+            previousStats = {
+                total_requests: stats.total_requests,
+                blocked_requests: stats.blocked_requests,
+                total_sites: stats.total_sites,
+                alive_sites: aliveSites
+            };
+        } else {
+            console.error('获取统计数据失败:', statsResponse.status);
+        }
 
-                            // 更新最后更新时间
-                            document.getElementById('last-update').textContent = new Date().toLocaleTimeString();
+        // 处理系统监控数据
+        if (monitorResponse.ok) {
+            const monitorData = await monitorResponse.json();
+            displaySystemMonitor(monitorData);
+        } else {
+            console.error('获取系统监控数据失败:', monitorResponse.status);
+            displaySystemMonitorError();
+        }
 
-                            // 保存当前数据用于下次比较
-                            previousStats = {
-                                total_requests: stats.total_requests,
-                                blocked_requests: stats.blocked_requests,
-                                total_sites: stats.total_sites,
-                                alive_sites: aliveSites
-                            };
-                        } else {
-                            console.error('获取统计数据失败:', response.status);
-                        }
-                    } catch (error) {
-                        console.error('获取统计数据错误:', error);
-                    }
-                }
+        // 更新最后更新时间
+        document.getElementById('last-update').textContent = new Date().toLocaleTimeString();
 
+    } catch (error) {
+        console.error('获取数据错误:', error);
+        displaySystemMonitorError();
+    }
+}
             // 检查数值变化并添加动画
                 function checkAndAnimateValueChange(elementId, newValue, oldValue) {
                         if (newValue !== oldValue) {
@@ -2357,6 +2481,12 @@ async function toggleSiteStatus(siteId, newStatus) {
 
     container.innerHTML = html;
 }
+
+// 刷新所有统计数据
+function refreshAllStats() {
+    loadStats();
+    loadSiteHealthStatus();
+}
     // 管理站点证书
         function manageSiteCertificate(siteId, domain) {
             document.getElementById('modal-title').textContent = `管理证书 - ${domain}`;
@@ -2548,35 +2678,7 @@ async function toggleSiteStatus(siteId, newStatus) {
                     showMessage('替换失败', 'error');
                 }
             }
-            // 更新站点状态仪表盘
-                function updateSitesGauge(totalSites, aliveSites) {
-                    const gaugeContainer = document.getElementById('sites-gauge');
-
-                    // 计算存活率
-                    const aliveRate = totalSites > 0 ? (aliveSites / totalSites) * 100 : 0;
-                    const deadSites = totalSites - aliveSites;
-
-                    gaugeContainer.innerHTML = `
-        <div class="sites-gauge">
-            <div class="sites-gauge-circle" style="--alive-percent: ${aliveRate}%">
-                <div class="sites-gauge-inner">
-                    <div class="sites-gauge-value">${aliveRate.toFixed(0)}%</div>
-                    <div class="sites-gauge-label">存活率</div>
-                </div>
-            </div>
-        </div>
-        <div class="sites-gauge-legend">
-            <div class="legend-item">
-                <div class="legend-color legend-alive"></div>
-                <span>存活: ${aliveSites}</span>
-            </div>
-            <div class="legend-item">
-                <div class="legend-color legend-dead"></div>
-                <span>异常: ${deadSites}</span>
-            </div>
-        </div>
-    `;
-                }
+            
 
         // 移除证书（禁用HTTPS）
         // 移除证书（禁用HTTPS）
@@ -4467,26 +4569,27 @@ async function showLogDetail(logId) {
         }
 
         // 初始化
-        document.addEventListener('DOMContentLoaded', function () {
-                // 初始化模态框关闭功能
-                document.querySelector('.close-modal').addEventListener('click', closeModal);
-                document.getElementById('modal').addEventListener('click', function (e) {
-                    if (e.target === this) closeModal();
-                });
+        // 在初始化部分修改定时刷新
+document.addEventListener('DOMContentLoaded', function() {
+    // 初始化模态框关闭功能
+    document.querySelector('.close-modal').addEventListener('click', closeModal);
+    document.getElementById('modal').addEventListener('click', function(e) {
+        if (e.target === this) closeModal();
+    });
 
-                // 加载第一个页面
-                loadPage('dashboard');
+    // 加载第一个页面
+    loadPage('dashboard');
 
-                // 每3秒自动刷新统计数据（数据概览页面）
-                setInterval(() => {
-                    if (currentPage === 'dashboard') {
-                        loadStats();
-                    }
-                }, 3000);
+    // 每3秒自动刷新统计数据（数据概览页面）
+    setInterval(() => {
+        if (currentPage === 'dashboard') {
+            loadStats();
+        }
+    }, 3000);
 
-                // 初始加载健康状态
-                loadSiteHealthStatus();
-            });
+    // 初始加载健康状态
+    loadSiteHealthStatus();
+});
 
         // 全局变量存储上一次的数据
             let previousStats = {

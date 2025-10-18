@@ -33,6 +33,7 @@ import (
     "strconv"
     "encoding/csv"
     "sort"
+    "os/exec"
 	
 	
     
@@ -2818,6 +2819,8 @@ func updateSiteStatusHandler(c *gin.Context) {
     })
 }
 
+
+
 // 重新加载单个站点的证书
 func reloadSiteCertificate(siteID int) error {
     query := `
@@ -3922,6 +3925,11 @@ func StartGinAPI() {
         authGroup.POST("/api/rules/status", updateRuleStatusHandler)
         authGroup.POST("/api/rules/reload", reloadRulesHandler)
         authGroup.GET("/api/rule/blockRuleId", getBlockedRuleId)
+
+        // 在 authGroup 中添加系统监控路由
+        authGroup.GET("/api/monitor/system", getSystemMonitorHandler)
+        authGroup.GET("/api/monitor/connections", getConnectionsHandler)
+        authGroup.GET("/api/monitor/history", getMonitorHistoryHandler)
     }
 
     // 统一返回404页面
@@ -5415,6 +5423,471 @@ func updateSettingsHandler(c *gin.Context) {
     })
 }
 
+// ------------------- 系统监控数据结构 -------------------
+type SystemMonitorResponse struct {
+    PortStats    PortStats    `json:"port_stats"`
+    CPUStats     CPUStats     `json:"cpu_stats"`
+    MemoryStats  MemoryStats  `json:"memory_stats"`
+    Timestamp    string       `json:"timestamp"`
+}
+
+type PortStats struct {
+    Port80Rate  string `json:"port_80_rate"`  // 80端口速率
+    Port443Rate string `json:"port_443_rate"` // 443端口速率
+    TotalConnections int `json:"total_connections"` // 总连接数
+}
+
+type CPUStats struct {
+    UsagePercent  string `json:"usage_percent"`  // CPU使用率
+    LoadAverage1  string `json:"load_average_1"` // 1分钟负载
+    LoadAverage5  string `json:"load_average_5"` // 5分钟负载
+    LoadAverage15 string `json:"load_average_15"` // 15分钟负载
+    Cores         int    `json:"cores"`          // CPU核心数
+}
+
+type MemoryStats struct {
+    Total       string `json:"total"`        // 总内存
+    Used        string `json:"used"`         // 已使用内存
+    Available   string `json:"available"`    // 可用内存
+    UsagePercent string `json:"usage_percent"` // 内存使用率
+}
+
+// ------------------- 网络连接统计 -------------------
+type ConnectionInfo struct {
+    Protocol string `json:"protocol"`
+    LocalPort string `json:"local_port"`
+    State    string `json:"state"`
+}
+
+var (
+    lastPort80Count  int
+    lastPort443Count int
+    lastCheckTime    time.Time
+    portStatsMutex   sync.RWMutex
+)
+
+// ------------------- 初始化端口统计 -------------------
+func initPortStats() {
+    lastCheckTime = time.Now()
+    lastPort80Count = getCurrentConnections(80)
+    lastPort443Count = getCurrentConnections(443)
+    
+    // 启动端口统计更新协程
+    go updatePortStatsWorker()
+}
+
+// ------------------- 更新端口统计工作器 -------------------
+func updatePortStatsWorker() {
+    ticker := time.NewTicker(2 * time.Second)
+    defer ticker.Stop()
+    
+    for range ticker.C {
+        portStatsMutex.Lock()
+        lastPort80Count = getCurrentConnections(80)
+        lastPort443Count = getCurrentConnections(443)
+        lastCheckTime = time.Now()
+        portStatsMutex.Unlock()
+    }
+}
+
+// ------------------- 获取当前端口连接数 -------------------
+func getCurrentConnections(port int) int {
+    // 方法1: 使用netstat命令
+    cmd := exec.Command("netstat", "-an", "|", "grep", fmt.Sprintf(":%d", port), "|", "wc", "-l")
+    output, err := cmd.Output()
+    if err == nil {
+        count, err := strconv.Atoi(strings.TrimSpace(string(output)))
+        if err == nil {
+            return count
+        }
+    }
+    
+    // 方法2: 读取/proc/net/tcp和tcp6
+    tcpFiles := []string{"/proc/net/tcp", "/proc/net/tcp6"}
+    total := 0
+    
+    for _, file := range tcpFiles {
+        content, err := ioutil.ReadFile(file)
+        if err != nil {
+            continue
+        }
+        
+        lines := strings.Split(string(content), "\n")
+        for _, line := range lines {
+            if strings.Contains(line, fmt.Sprintf(":%04X", port)) {
+                total++
+            }
+        }
+    }
+    
+    return total
+}
+
+// ------------------- 获取端口速率 -------------------
+func getPortStats() PortStats {
+    portStatsMutex.RLock()
+    defer portStatsMutex.RUnlock()
+    
+    current80 := getCurrentConnections(80)
+    current443 := getCurrentConnections(443)
+    
+    // 计算连接变化率（基于上次统计）
+    timeDiff := time.Since(lastCheckTime).Seconds()
+    if timeDiff < 1 {
+        timeDiff = 1
+    }
+    
+    rate80 := float64(current80-lastPort80Count) / timeDiff
+    rate443 := float64(current443-lastPort443Count) / timeDiff
+    
+    return PortStats{
+        Port80Rate:       fmt.Sprintf("%.2f conn/s", rate80),
+        Port443Rate:      fmt.Sprintf("%.2f conn/s", rate443),
+        TotalConnections: current80 + current443,
+    }
+}
+
+// ------------------- 获取CPU统计信息 -------------------
+func getCPUStats() CPUStats {
+    // 获取CPU使用率
+    usagePercent, err := getCPUUsage()
+    if err != nil {
+        stdlog.Printf("获取CPU使用率失败: %v", err)
+        usagePercent = 0
+    }
+    
+    // 获取负载平均值
+    loadAvg, err := getLoadAverage()
+    if err != nil {
+        stdlog.Printf("获取负载平均值失败: %v", err)
+        loadAvg = [3]float64{0, 0, 0}
+    }
+    
+    // 获取CPU核心数
+    cores, err := getCPUCores()
+    if err != nil {
+        stdlog.Printf("获取CPU核心数失败: %v", err)
+        cores = 1
+    }
+    
+    return CPUStats{
+        UsagePercent:  fmt.Sprintf("%.2f%%", usagePercent),
+        LoadAverage1:  fmt.Sprintf("%.2f", loadAvg[0]),
+        LoadAverage5:  fmt.Sprintf("%.2f", loadAvg[1]),
+        LoadAverage15: fmt.Sprintf("%.2f", loadAvg[2]),
+        Cores:         cores,
+    }
+}
+
+// ------------------- 获取CPU使用率 -------------------
+func getCPUUsage() (float64, error) {
+    // 读取/proc/stat获取CPU信息
+    content, err := ioutil.ReadFile("/proc/stat")
+    if err != nil {
+        return 0, err
+    }
+    
+    lines := strings.Split(string(content), "\n")
+    for _, line := range lines {
+        if strings.HasPrefix(line, "cpu ") {
+            fields := strings.Fields(line)
+            if len(fields) >= 8 {
+                user, _ := strconv.ParseUint(fields[1], 10, 64)
+                nice, _ := strconv.ParseUint(fields[2], 10, 64)
+                system, _ := strconv.ParseUint(fields[3], 10, 64)
+                idle, _ := strconv.ParseUint(fields[4], 10, 64)
+                iowait, _ := strconv.ParseUint(fields[5], 10, 64)
+                irq, _ := strconv.ParseUint(fields[6], 10, 64)
+                softirq, _ := strconv.ParseUint(fields[7], 10, 64)
+                
+                total := user + nice + system + idle + iowait + irq + softirq
+                used := total - idle
+                
+                if total > 0 {
+                    return float64(used) / float64(total) * 100, nil
+                }
+            }
+        }
+    }
+    
+    return 0, fmt.Errorf("无法解析CPU信息")
+}
+
+// ------------------- 获取负载平均值 -------------------
+func getLoadAverage() ([3]float64, error) {
+    content, err := ioutil.ReadFile("/proc/loadavg")
+    if err != nil {
+        return [3]float64{0, 0, 0}, err
+    }
+    
+    fields := strings.Fields(string(content))
+    if len(fields) >= 3 {
+        var load [3]float64
+        for i := 0; i < 3; i++ {
+            load[i], _ = strconv.ParseFloat(fields[i], 64)
+        }
+        return load, nil
+    }
+    
+    return [3]float64{0, 0, 0}, fmt.Errorf("无法解析负载平均值")
+}
+
+// ------------------- 获取CPU核心数 -------------------
+func getCPUCores() (int, error) {
+    content, err := ioutil.ReadFile("/proc/cpuinfo")
+    if err != nil {
+        return 0, err
+    }
+    
+    cores := 0
+    lines := strings.Split(string(content), "\n")
+    for _, line := range lines {
+        if strings.HasPrefix(line, "processor") {
+            cores++
+        }
+    }
+    
+    if cores == 0 {
+        return 1, nil
+    }
+    
+    return cores, nil
+}
+
+// ------------------- 获取内存统计信息 -------------------
+func getMemoryStats() MemoryStats {
+    content, err := ioutil.ReadFile("/proc/meminfo")
+    if err != nil {
+        stdlog.Printf("读取内存信息失败: %v", err)
+        return MemoryStats{
+            Total:     "N/A",
+            Used:      "N/A", 
+            Available: "N/A",
+            UsagePercent: "N/A",
+        }
+    }
+    
+    var total, available, free, buffers, cached uint64
+    
+    lines := strings.Split(string(content), "\n")
+    for _, line := range lines {
+        fields := strings.Fields(line)
+        if len(fields) < 2 {
+            continue
+        }
+        
+        value, _ := strconv.ParseUint(fields[1], 10, 64)
+        
+        switch fields[0] {
+        case "MemTotal:":
+            total = value
+        case "MemAvailable:":
+            available = value
+        case "MemFree:":
+            free = value
+        case "Buffers:":
+            buffers = value
+        case "Cached:":
+            cached = value
+        }
+    }
+    
+    // 如果没有MemAvailable，则计算可用内存
+    if available == 0 {
+        available = free + buffers + cached
+    }
+    
+    used := total - available
+    usagePercent := 0.0
+    if total > 0 {
+        usagePercent = float64(used) / float64(total) * 100
+    }
+    
+    return MemoryStats{
+        Total:        formatBytes(total * 1024), // 转换为字节
+        Used:         formatBytes(used * 1024),
+        Available:    formatBytes(available * 1024),
+        UsagePercent: fmt.Sprintf("%.2f%%", usagePercent),
+    }
+}
+
+// ------------------- 格式化字节大小 -------------------
+func formatBytes(bytes uint64) string {
+    const unit = 1024
+    if bytes < unit {
+        return fmt.Sprintf("%d B", bytes)
+    }
+    div, exp := uint64(unit), 0
+    for n := bytes / unit; n >= unit; n /= unit {
+        div *= unit
+        exp++
+    }
+    return fmt.Sprintf("%.2f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
+}
+
+// ------------------- 获取系统监控信息接口 -------------------
+func getSystemMonitorHandler(c *gin.Context) {
+    // 并行获取各种统计信息
+    var portStats PortStats
+    var cpuStats CPUStats
+    var memoryStats MemoryStats
+    
+    var wg sync.WaitGroup
+    wg.Add(3)
+    
+    go func() {
+        defer wg.Done()
+        portStats = getPortStats()
+    }()
+    
+    go func() {
+        defer wg.Done()
+        cpuStats = getCPUStats()
+    }()
+    
+    go func() {
+        defer wg.Done()
+        memoryStats = getMemoryStats()
+    }()
+    
+    wg.Wait()
+    
+    response := SystemMonitorResponse{
+        PortStats:   portStats,
+        CPUStats:    cpuStats,
+        MemoryStats: memoryStats,
+        Timestamp:   time.Now().Format("2006-01-02 15:04:05"),
+    }
+    
+    c.JSON(http.StatusOK, response)
+}
+
+// ------------------- 获取实时连接列表接口 -------------------
+func getConnectionsHandler(c *gin.Context) {
+    connections, err := getCurrentConnectionsList()
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("获取连接列表失败: %v", err)})
+        return
+    }
+    
+    c.JSON(http.StatusOK, gin.H{
+        "connections": connections,
+        "count":       len(connections),
+        "timestamp":   time.Now().Format("2006-01-02 15:04:05"),
+    })
+}
+
+// ------------------- 获取当前连接列表 -------------------
+func getCurrentConnectionsList() ([]ConnectionInfo, error) {
+    var connections []ConnectionInfo
+    
+    // 读取TCP连接信息
+    tcpFiles := []string{"/proc/net/tcp", "/proc/net/tcp6"}
+    
+    for _, file := range tcpFiles {
+        content, err := ioutil.ReadFile(file)
+        if err != nil {
+            continue
+        }
+        
+        lines := strings.Split(string(content), "\n")
+        for i, line := range lines {
+            if i == 0 || strings.TrimSpace(line) == "" {
+                continue // 跳过标题行和空行
+            }
+            
+            fields := strings.Fields(line)
+            if len(fields) >= 4 {
+                // 解析本地地址（格式为IP:PORT，十六进制）
+                localAddr := fields[1]
+                state := fields[3]
+                
+                // 提取端口号（十六进制转十进制）
+                parts := strings.Split(localAddr, ":")
+                if len(parts) == 2 {
+                    portHex := parts[1]
+                    port, err := strconv.ParseInt(portHex, 16, 32)
+                    if err == nil {
+                        // 只关注80和443端口
+                        if port == 80 || port == 443 {
+                            connections = append(connections, ConnectionInfo{
+                                Protocol:  "TCP",
+                                LocalPort: fmt.Sprintf("%d", port),
+                                State:     state,
+                            })
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    return connections, nil
+}
+
+// ------------------- 获取监控历史数据接口 -------------------
+type MonitorHistoryResponse struct {
+    Timestamps []string  `json:"timestamps"`
+    CPUUsage   []float64 `json:"cpu_usage"`
+    MemoryUsage []float64 `json:"memory_usage"`
+    Connections []int     `json:"connections"`
+}
+
+// 简单的历史数据存储（生产环境建议使用数据库）
+var (
+    monitorHistory     []SystemMonitorResponse
+    historyMutex       sync.RWMutex
+    maxHistorySize     = 100
+)
+
+// ------------------- 监控历史记录工作器 -------------------
+func startMonitorHistoryWorker() {
+    ticker := time.NewTicker(30 * time.Second) // 每30秒记录一次
+    defer ticker.Stop()
+    
+    for range ticker.C {
+        stats := SystemMonitorResponse{
+            PortStats:   getPortStats(),
+            CPUStats:    getCPUStats(),
+            MemoryStats: getMemoryStats(),
+            Timestamp:   time.Now().Format("15:04:05"),
+        }
+        
+        historyMutex.Lock()
+        monitorHistory = append(monitorHistory, stats)
+        if len(monitorHistory) > maxHistorySize {
+            monitorHistory = monitorHistory[1:]
+        }
+        historyMutex.Unlock()
+    }
+}
+
+// ------------------- 获取监控历史接口 -------------------
+func getMonitorHistoryHandler(c *gin.Context) {
+    historyMutex.RLock()
+    defer historyMutex.RUnlock()
+    
+    var response MonitorHistoryResponse
+    
+    for _, record := range monitorHistory {
+        response.Timestamps = append(response.Timestamps, record.Timestamp)
+        
+        // 解析CPU使用率
+        cpuUsage, _ := strconv.ParseFloat(strings.TrimSuffix(record.CPUStats.UsagePercent, "%"), 64)
+        response.CPUUsage = append(response.CPUUsage, cpuUsage)
+        
+        // 解析内存使用率
+        memUsage, _ := strconv.ParseFloat(strings.TrimSuffix(record.MemoryStats.UsagePercent, "%"), 64)
+        response.MemoryUsage = append(response.MemoryUsage, memUsage)
+        
+        response.Connections = append(response.Connections, record.PortStats.TotalConnections)
+    }
+    
+    c.JSON(http.StatusOK, response)
+}
+
+
+
 // ------------------- 获取设置接口 -------------------
 func getSettingsHandler(c *gin.Context) {
     settings := SystemSettings{
@@ -5474,6 +5947,9 @@ func main() {
 
 	// 初始化CC管理器
     initCCManager()
+
+    // 初始化端口统计
+    initPortStats()
 	
 	go statsPrinter()
 	go StartGinAPI()
