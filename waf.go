@@ -35,6 +35,7 @@ import (
     "sort"
     "os/exec"
     "archive/zip"
+    "runtime/debug"
 	
 	
     
@@ -98,19 +99,15 @@ func initCCManager() {
 }
 
 // ------------------- 从数据库加载CC规则 -------------------
+// 修复所有数据库查询，确保正确关闭
 func loadCCRulesFromDB() {
     ccManager.mutex.Lock()
     defer ccManager.mutex.Unlock()
 
-    query := `
-        SELECT id, name, domain, path, rate_limit, time_window, action, enabled, description 
-        FROM cc_rules 
-        ORDER BY id ASC
-    `
+    query := `SELECT id, name, domain, path, rate_limit, time_window, action, enabled, description FROM cc_rules ORDER BY id ASC`
     
     rows, err := db.Query(query)
     if err != nil {
-        // 如果表不存在，创建表
         if strings.Contains(err.Error(), "doesn't exist") {
             createCCTable()
             return
@@ -134,6 +131,11 @@ func loadCCRulesFromDB() {
             continue
         }
         ccManager.rules = append(ccManager.rules, rule)
+    }
+    
+    // 检查rows错误
+    if err := rows.Err(); err != nil {
+        stdlog.Printf("遍历CC规则行时出错: %v", err)
     }
 
     stdlog.Printf("加载了 %d 条 CC 规则", len(ccManager.rules))
@@ -239,10 +241,11 @@ func insertDefaultCCRules() {
 
 // ------------------- CC检测逻辑 -------------------
 func (c *CCManager) checkCC(clientIP, domain, path string) (bool, *CCRule) {
+    // 先获取读锁来检查规则
     c.mutex.RLock()
-    defer c.mutex.RUnlock()
-
+    
     // 检查所有启用的规则
+    var matchedRules []CCRule
     for _, rule := range c.rules {
         if !rule.Enabled {
             continue
@@ -260,12 +263,29 @@ func (c *CCManager) checkCC(clientIP, domain, path string) (bool, *CCRule) {
                 continue
             }
         }
-
-        // 检查频率限制
-        counterKey := fmt.Sprintf("%s:%s:%s", clientIP, domain, path)
+        
+        // 保存匹配的规则
+        matchedRules = append(matchedRules, rule)
+    }
+    
+    // 如果没有匹配的规则，直接返回
+    if len(matchedRules) == 0 {
+        c.mutex.RUnlock()
+        return false, nil
+    }
+    
+    // 释放读锁，获取写锁进行计数器操作
+    c.mutex.RUnlock()
+    c.mutex.Lock()
+    defer c.mutex.Unlock()
+    
+    now := time.Now()
+    counterKey := fmt.Sprintf("%s:%s:%s", clientIP, domain, path)
+    
+    // 再次检查计数器
+    for _, rule := range matchedRules {
         counter, exists := c.counters[counterKey]
         
-        now := time.Now()
         if !exists {
             counter = &ClientCounter{
                 IP:       clientIP,
@@ -295,10 +315,11 @@ func (c *CCManager) checkCC(clientIP, domain, path string) (bool, *CCRule) {
             counter.Blocked = true
             counter.BlockUntil = now.Add(time.Duration(rule.TimeWindow) * time.Second)
             
-            // 记录攻击日志
-            go c.logCCAttack(clientIP, domain, path, &rule, counter.Count)
+            // 记录攻击日志 - 使用规则的副本避免并发问题
+            ruleCopy := rule
+            go c.logCCAttack(clientIP, domain, path, &ruleCopy, counter.Count)
             
-            return true, &rule
+            return true, &ruleCopy
         }
 
         // 如果还在封锁期内，直接拦截
@@ -330,22 +351,29 @@ func (c *CCManager) logCCAttack(clientIP, domain, path string, rule *CCRule, cou
 }
 
 // ------------------- 定时清理过期的计数器 -------------------
+// 改进CC管理器的清理机制
 func (c *CCManager) cleanupWorker() {
-    ticker := time.NewTicker(1 * time.Minute)
+    ticker := time.NewTicker(30 * time.Second) // 减少清理间隔
     defer ticker.Stop()
     
     for range ticker.C {
         c.mutex.Lock()
         now := time.Now()
+        cleanedCount := 0
         
         for key, counter := range c.counters {
-            // 清理超过1小时未活动的计数器
-            if now.Sub(counter.LastTime).Hours() > 1 {
+            // 清理超过30分钟未活动的计数器
+            if now.Sub(counter.LastTime).Minutes() > 30 {
                 delete(c.counters, key)
+                cleanedCount++
             }
         }
         
         c.mutex.Unlock()
+        
+        if cleanedCount > 0 {
+            stdlog.Printf("CC计数器清理: 清理了 %d 个过期计数器", cleanedCount)
+        }
     }
 }
 
@@ -1926,6 +1954,7 @@ func getCacheStatsDetailHandler(c *gin.Context) {
 
 
 // ------------------- 修复缓存清理 -------------------
+// 改进缓存清理
 func cleanupExpiredCache() {
     cacheMutex.Lock()
     defer cacheMutex.Unlock()
@@ -1934,22 +1963,47 @@ func cleanupExpiredCache() {
     cleanedSize := int64(0)
     cleanedCount := 0
     
+    // 首先清理过期的缓存
     for key, cachedFile := range fileCache {
         if now.After(cachedFile.ExpireAt) {
             currentCacheSize -= cachedFile.Size
             cleanedSize += cachedFile.Size
             cleanedCount++
             delete(fileCache, key)
-            
-            // 删除磁盘缓存
             go deleteDiskCache(key)
         }
     }
     
-    // 如果还是超过限制，按LRU清理
+    // 如果仍然超过限制，按LRU清理到限制的70%
     if currentCacheSize > staticCacheConfig.MaxCacheSize {
-        stdlog.Printf("缓存仍然超过限制，执行LRU清理")
-        cleanupLRUCache()
+        targetSize := staticCacheConfig.MaxCacheSize * 70 / 100
+        
+        // 按最后修改时间排序
+        type cacheItem struct {
+            key    string
+            file   *CachedFile
+        }
+        
+        var items []cacheItem
+        for key, file := range fileCache {
+            items = append(items, cacheItem{key, file})
+        }
+        
+        sort.Slice(items, func(i, j int) bool {
+            return items[i].file.LastModified.Before(items[j].file.LastModified)
+        })
+        
+        for _, item := range items {
+            if currentCacheSize <= targetSize {
+                break
+            }
+            
+            currentCacheSize -= item.file.Size
+            delete(fileCache, item.key)
+            cleanedCount++
+            cleanedSize += item.file.Size
+            go deleteDiskCache(item.key)
+        }
     }
     
     if cleanedCount > 0 {
@@ -1957,6 +2011,21 @@ func cleanupExpiredCache() {
             cleanedCount, float64(cleanedSize)/(1024*1024))
     }
 }
+
+// 添加全局恢复机制
+func safeHandler(h http.HandlerFunc) http.HandlerFunc {
+    return func(w http.ResponseWriter, r *http.Request) {
+        defer func() {
+            if err := recover(); err != nil {
+                stdlog.Printf("处理请求时发生panic: %v", err)
+                w.WriteHeader(http.StatusInternalServerError)
+                w.Write([]byte("服务器内部错误"))
+            }
+        }()
+        h(w, r)
+    }
+}
+
 
 
 // ------------------- 添加LRU缓存清理 -------------------
@@ -2276,6 +2345,22 @@ func injectAntiDevTools(htmlContent string) string {
     return htmlContent + antiDevToolsScript
 }
 
+var httpTransport *http.Transport
+
+func init() {
+    httpTransport = &http.Transport{
+        MaxIdleConns:        100,
+        MaxIdleConnsPerHost: 20,
+        IdleConnTimeout:     30 * time.Second,
+        TLSHandshakeTimeout: 10 * time.Second,
+        ResponseHeaderTimeout: 30 * time.Second,
+        ExpectContinueTimeout: 1 * time.Second,
+        DisableKeepAlives:   false, // 启用连接复用
+    }
+}
+
+
+
 func handler(w http.ResponseWriter, req *http.Request) {
     atomic.AddUint64(&totalRequests, 1)
 
@@ -2469,7 +2554,7 @@ func handler(w http.ResponseWriter, req *http.Request) {
     }
 
     client := &http.Client{
-        Transport: transport,
+        Transport: httpTransport,
         Timeout:   30 * time.Second,
     }
 
@@ -4608,9 +4693,11 @@ func initDb() {
 		panic(fmt.Errorf("连接 MySQL 失败: %v", err))
 	}
 
-	db.SetMaxOpenConns(20)
-	db.SetMaxIdleConns(10)
-	db.SetConnMaxLifetime(time.Minute * 5)
+	// 优化连接池配置
+    db.SetMaxOpenConns(50)           // 减少最大连接数
+    db.SetMaxIdleConns(10)           // 减少空闲连接数
+    db.SetConnMaxLifetime(time.Hour) // 连接最大生命周期
+    db.SetConnMaxIdleTime(10 * time.Minute) // 空闲连接超时
 
 	if err := db.Ping(); err != nil {
     panic(fmt.Errorf("ping数据库失败: %w", err))
@@ -6711,6 +6798,10 @@ func setAdmin() {
 
 
 func main() {
+
+    debug.SetMaxThreads(10000)
+
+
 	setAdmin()
 	ReadConfig()
 	initDb()
@@ -6730,6 +6821,9 @@ func main() {
 
     // 初始化端口统计
     initPortStats()
+
+    go startMonitorHistoryWorker()
+
 	
 	go statsPrinter()
 	go StartGinAPI()
