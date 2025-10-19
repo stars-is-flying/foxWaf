@@ -1,0 +1,16 @@
+{
+  "id": "1",
+  "name": "test",
+  "description": "",
+  "method": "GET",
+  "relation": "and",
+  "judges": [
+    {
+      "position": "uri",
+      "content": "test1",
+      "rix": "test12",
+      "action": "is"
+    }
+  ],
+  "enabled": true
+}

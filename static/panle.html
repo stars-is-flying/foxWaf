@@ -1157,7 +1157,12 @@
             <a href="javascript:void(0)" class="nav-item" data-page="blocked_rules">
         <span class="icon">🚫</span>
         <span class="text">被禁用的规则</span>
-    </a>
+            </a>
+            <!-- 在现有的导航菜单中添加 -->
+<a href="javascript:void(0)" class="nav-item" data-page="custom_rules">
+    <span class="icon">📝</span>
+    <span class="text">规则管理</span>
+</a>
             <a href="javascript:void(0)" class="nav-item" data-page="settings">
                 <span class="icon">⚙️</span>
                 <span class="text">系统设置</span>
@@ -1517,7 +1522,62 @@
                 </div>
             </div>
         `
-    }
+    },
+    // 在 pageContents 对象中添加
+custom_rules: {
+    title: "自定义规则管理",
+    description: "管理用户自定义的WAF防护规则",
+    content: `
+        <div class="card">
+            <div class="card-header">
+                <h3 class="card-title">📝 自定义规则列表</h3>
+                <div>
+                    <button class="btn btn-secondary" onclick="exportCustomRules()">
+                        <span>📤</span> 导出规则
+                    </button>
+                    <button class="btn btn-secondary" onclick="showImportRulesModal()">
+                        <span>📥</span> 导入规则
+                    </button>
+                    <button class="btn" onclick="showAddCustomRuleModal()">
+                        <span>+</span> 添加规则
+                    </button>
+                </div>
+            </div>
+            <div id="custom-rules-container">
+                <div class="loading">加载中...</div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <h3 class="card-title">ℹ️ 规则说明</h3>
+            </div>
+            <div style="padding: 20px;">
+                <h4 style="color: #5210ed; margin-bottom: 15px;">规则配置说明</h4>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                    <div>
+                        <h5>位置 (Position):</h5>
+                        <ul style="color: #666; line-height: 1.6;">
+                            <li><strong>uri</strong> - 请求URL路径</li>
+                            <li><strong>request_header</strong> - 请求头</li>
+                            <li><strong>request_body</strong> - 请求体</li>
+                            <li><strong>parameter_value</strong> - URL参数值</li>
+                            <li><strong>form_values</strong> - 表单值</li>
+                        </ul>
+                    </div>
+                    <div>
+                        <h5>匹配方式:</h5>
+                        <ul style="color: #666; line-height: 1.6;">
+                            <li><strong>Content</strong> - 简单字符串匹配</li>
+                            <li><strong>Rix (正则)</strong> - 正则表达式匹配</li>
+                            <li><strong>Action</strong> - "is" 匹配 / "not" 不匹配</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `
+}
         }
 
         // 显示被禁用的规则
@@ -1700,7 +1760,691 @@ function loadPage(pageId) {
             case 'blocked_rules':
                 loadBlockedRules();
                 break;
+            // 在 loadPage 函数的 switch 语句中添加
+            case 'custom_rules':
+                loadCustomRules();
+                break;
         }
+    }
+}
+
+// 加载自定义规则
+async function loadCustomRules() {
+    try {
+        const response = await fetch('/api/custom-rules', {
+            method: 'GET',
+            credentials: 'include'
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            displayCustomRules(data.rules);
+        } else {
+            document.getElementById('custom-rules-container').innerHTML = '<div class="alert alert-error">加载自定义规则失败</div>';
+        }
+    } catch (error) {
+        console.error('加载自定义规则错误:', error);
+        document.getElementById('custom-rules-container').innerHTML = '<div class="alert alert-error">加载自定义规则失败</div>';
+    }
+}
+
+// 显示自定义规则
+function displayCustomRules(rules) {
+    const container = document.getElementById('custom-rules-container');
+
+    if (!rules || rules.length === 0) {
+        container.innerHTML = `
+            <div class="alert" style="text-align: center; padding: 40px;">
+                <div style="font-size: 48px; margin-bottom: 20px;">📝</div>
+                <h3 style="color: #5210ed; margin-bottom: 10px;">暂无自定义规则</h3>
+                <p style="color: #666; margin-bottom: 20px;">开始创建您的第一条自定义规则来增强WAF防护能力</p>
+                <button class="btn" onclick="showAddCustomRuleModal()">
+                    <span>+</span> 创建第一条规则
+                </button>
+            </div>
+        `;
+        return;
+    }
+
+    let html = `
+        <div class="table-scroll-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>名称</th>
+                        <th>方法</th>
+                        <th>关系</th>
+                        <th>判断条件</th>
+                        <th>状态</th>
+                        <th>描述</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+    `;
+
+    rules.forEach(rule => {
+        const judgesText = rule.judge.map(judge => {
+            let text = `${judge.position}: `;
+            if (judge.rix) {
+                text += `正则(${judge.rix.length > 10 ? judge.rix.substring(0, 10) + '...' : judge.rix})`;
+            } else if (judge.content) {
+                text += `内容(${judge.content.length > 10 ? judge.content.substring(0, 10) + '...' : judge.content})`;
+            }
+            if (judge.action) {
+                text += ` [${judge.action}]`;
+            }
+            return text;
+        }).join('; ');
+
+        html += `
+            <tr>
+                <td>${rule.id}</td>
+                <td title="${rule.name}">${rule.name.length > 15 ? rule.name.substring(0, 15) + '...' : rule.name}</td>
+                <td>
+                    <span class="status-indicator ${rule.method === 'any' ? 'status-active' : 'status-inactive'}">
+                        ${rule.method}
+                    </span>
+                </td>
+                <td>${rule.relation || 'and'}</td>
+                <td title="${judgesText}">${judgesText.length > 20 ? judgesText.substring(0, 20) + '...' : judgesText}</td>
+                <td>
+                    <span class="status-indicator ${rule.enabled ? 'status-active' : 'status-inactive'} clickable" 
+                          onclick="toggleCustomRuleStatus('${rule.id}', ${!rule.enabled})"
+                          title="点击切换状态">
+                        ${rule.enabled ? '启用' : '禁用'}
+                    </span>
+                </td>
+                <td title="${rule.description || '无描述'}">
+                    ${rule.description ? (rule.description.length > 15 ? rule.description.substring(0, 15) + '...' : rule.description) : '-'}
+                </td>
+                <td>
+                    <div class="action-buttons">
+                        <button class="btn" onclick="showEditCustomRuleModal('${rule.id}')">编辑</button>
+                        <button class="btn btn-danger" onclick="deleteCustomRule('${rule.id}')">删除</button>
+                    </div>
+                </td>
+            </tr>
+        `;
+    });
+
+    html += `
+                </tbody>
+            </table>
+        </div>
+        <div class="pagination-info">
+            共 ${rules.length} 条自定义规则
+        </div>
+    `;
+
+    container.innerHTML = html;
+}
+
+// 显示添加自定义规则模态框
+function showAddCustomRuleModal() {
+    document.getElementById('modal-title').textContent = '添加自定义规则';
+    document.getElementById('modal-body').innerHTML = `
+        <form id="add-custom-rule-form">
+            <div class="form-group">
+                <label class="form-label">规则名称</label>
+                <input type="text" name="name" class="form-control" placeholder="例如: SQL注入防护" required>
+            </div>
+            
+            <div class="form-group">
+                <label class="form-label">HTTP方法</label>
+                <select name="method" class="form-control" required>
+                    <option value="GET">GET</option>
+                    <option value="POST">POST</option>
+                    <option value="PUT">PUT</option>
+                    <option value="DELETE">DELETE</option>
+                    <option value="any">任意方法 (any)</option>
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label class="form-label">条件关系</label>
+                <select name="relation" class="form-control" required>
+                    <option value="and">AND (所有条件都要满足)</option>
+                    <option value="or">OR (任意条件满足)</option>
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label class="form-label">规则描述</label>
+                <textarea name="description" class="form-control" placeholder="规则描述信息"></textarea>
+            </div>
+            
+            <div class="form-group">
+                <label class="form-label">判断条件</label>
+                <div id="judges-container">
+                    <div class="judge-item" style="border: 1px solid #ddd; padding: 15px; margin-bottom: 10px; border-radius: 8px;">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 10px; margin-bottom: 10px;">
+                            <select name="position" class="form-control" required>
+                                <option value="uri">URI</option>
+                                <option value="request_header">请求头</option>
+                                <option value="request_body">请求体</option>
+                                <option value="parameter_value">参数值</option>
+                                <option value="form_values">表单值</option>
+                            </select>
+                            <input type="text" name="content" class="form-control" placeholder="匹配内容 (可选)">
+                            <input type="text" name="rix" class="form-control" placeholder="正则表达式 (可选)">
+                            <select name="action" class="form-control">
+                                <option value="is">匹配 (is)</option>
+                                <option value="not">不匹配 (not)</option>
+                            </select>
+                        </div>
+                        <button type="button" class="btn btn-danger" onclick="removeJudge(this)" style="padding: 5px 10px; font-size: 12px;">删除条件</button>
+                    </div>
+                </div>
+                <button type="button" class="btn btn-secondary" onclick="addJudge()" style="margin-top: 10px;">
+                    <span>+</span> 添加条件
+                </button>
+            </div>
+            
+            <div class="form-group">
+                <label style="display: inline-flex; align-items: center; gap: 8px;">
+                    <input type="checkbox" name="enabled" checked> 启用规则
+                </label>
+            </div>
+            
+            <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                <button type="button" class="btn btn-secondary" onclick="closeModal()">取消</button>
+                <button type="submit" class="btn">添加规则</button>
+            </div>
+        </form>
+    `;
+
+    document.getElementById('add-custom-rule-form').addEventListener('submit', function(e) {
+        e.preventDefault();
+        addCustomRule(new FormData(this));
+    });
+
+    showModal();
+}
+
+// 修改添加判断条件的HTML，确保默认值正确
+function addJudge() {
+    const container = document.getElementById('judges-container');
+    const judgeItem = document.createElement('div');
+    judgeItem.className = 'judge-item';
+    judgeItem.style.cssText = 'border: 1px solid #ddd; padding: 15px; margin-bottom: 10px; border-radius: 8px;';
+    
+    judgeItem.innerHTML = `
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 10px; margin-bottom: 10px;">
+            <select name="position" class="form-control" required>
+                <option value="uri">URI</option>
+                <option value="request_header">请求头</option>
+                <option value="request_body">请求体</option>
+                <option value="parameter_value">参数值</option>
+                <option value="form_values">表单值</option>
+            </select>
+            <input type="text" name="content" class="form-control" placeholder="匹配内容 (与正则二选一)">
+            <input type="text" name="rix" class="form-control" placeholder="正则表达式 (与内容二选一)">
+            <select name="action" class="form-control">
+                <option value="is">匹配 (is)</option>
+                <option value="not">不匹配 (not)</option>
+            </select>
+        </div>
+        <div style="font-size: 12px; color: #666; margin-bottom: 8px;">
+            <strong>提示:</strong> 内容和正则表达式至少填写一个
+        </div>
+        <button type="button" class="btn btn-danger" onclick="removeJudge(this)" style="padding: 5px 10px; font-size: 12px;">删除条件</button>
+    `;
+    
+    container.appendChild(judgeItem);
+}
+
+
+// 删除判断条件
+function removeJudge(button) {
+    const judgeItem = button.closest('.judge-item');
+    if (document.querySelectorAll('.judge-item').length > 1) {
+        judgeItem.remove();
+    } else {
+        showMessage('至少需要保留一个判断条件', 'error');
+    }
+}
+
+// 修改添加自定义规则函数
+async function addCustomRule(formData) {
+    try {
+        const data = Object.fromEntries(formData);
+        
+        // 处理判断条件
+        const judges = [];
+        const judgeItems = document.querySelectorAll('.judge-item');
+        
+        judgeItems.forEach(item => {
+            const judge = {
+                position: item.querySelector('select[name="position"]').value,
+                content: item.querySelector('input[name="content"]').value,
+                rix: item.querySelector('input[name="rix"]').value,
+                action: item.querySelector('select[name="action"]').value || 'is' // 默认值
+            };
+            
+            // 如果内容和正则都为空，跳过这个条件
+            if (!judge.content && !judge.rix) {
+                return;
+            }
+            
+            // 如果正则表达式不为空，验证正则格式
+            if (judge.rix) {
+                try {
+                    new RegExp(judge.rix);
+                } catch (e) {
+                    showMessage(`正则表达式格式错误: ${judge.rix}`, 'error');
+                    throw new Error('正则表达式格式错误');
+                }
+            }
+            
+            judges.push(judge);
+        });
+        
+        if (judges.length === 0) {
+            showMessage('至少需要配置一个有效的判断条件', 'error');
+            return;
+        }
+        
+        // 构建正确的请求数据
+        const requestData = {
+            name: data.name,
+            description: data.description || '',
+            method: data.method,
+            relation: data.relation || 'and',
+            judges: judges,
+            enabled: data.enabled === 'on'
+        };
+
+        console.log('发送的数据:', requestData); // 调试用
+
+        const response = await fetch('/api/custom-rules', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            credentials: 'include',
+            body: JSON.stringify(requestData)
+        });
+
+        if (response.ok) {
+            const result = await response.json();
+            closeModal();
+            showMessage('自定义规则添加成功', 'success');
+            loadCustomRules();
+        } else {
+            const errorText = await response.text();
+            let errorMessage = '添加失败';
+            try {
+                const errorData = JSON.parse(errorText);
+                errorMessage = errorData.error || errorText;
+            } catch {
+                errorMessage = errorText;
+            }
+            showMessage('添加失败: ' + errorMessage, 'error');
+        }
+    } catch (error) {
+        console.error('添加自定义规则错误:', error);
+        if (error.message !== '正则表达式格式错误') {
+            showMessage('添加失败: ' + error.message, 'error');
+        }
+    }
+}
+
+// 显示编辑自定义规则模态框
+async function showEditCustomRuleModal(ruleId) {
+    try {
+        const response = await fetch('/api/custom-rules', {
+            method: 'GET',
+            credentials: 'include'
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            const rule = data.rules.find(r => r.id === ruleId);
+
+            if (rule) {
+                document.getElementById('modal-title').textContent = '编辑自定义规则';
+                document.getElementById('modal-body').innerHTML = `
+                    <form id="edit-custom-rule-form">
+                        <input type="hidden" name="id" value="${rule.id}">
+                        <div class="form-group">
+                            <label class="form-label">规则名称</label>
+                            <input type="text" name="name" class="form-control" value="${rule.name}" required>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label class="form-label">HTTP方法</label>
+                            <select name="method" class="form-control" required>
+                                <option value="GET" ${rule.method === 'GET' ? 'selected' : ''}>GET</option>
+                                <option value="POST" ${rule.method === 'POST' ? 'selected' : ''}>POST</option>
+                                <option value="PUT" ${rule.method === 'PUT' ? 'selected' : ''}>PUT</option>
+                                <option value="DELETE" ${rule.method === 'DELETE' ? 'selected' : ''}>DELETE</option>
+                                <option value="any" ${rule.method === 'any' ? 'selected' : ''}>任意方法 (any)</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label class="form-label">条件关系</label>
+                            <select name="relation" class="form-control" required>
+                                <option value="and" ${rule.relation === 'and' ? 'selected' : ''}>AND (所有条件都要满足)</option>
+                                <option value="or" ${rule.relation === 'or' ? 'selected' : ''}>OR (任意条件满足)</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label class="form-label">规则描述</label>
+                            <textarea name="description" class="form-control">${rule.description || ''}</textarea>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label class="form-label">判断条件</label>
+                            <div id="edit-judges-container">
+                                ${rule.judge.map((judge, index) => `
+                                    <div class="judge-item" style="border: 1px solid #ddd; padding: 15px; margin-bottom: 10px; border-radius: 8px;">
+                                        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 10px; margin-bottom: 10px;">
+                                            <select name="position" class="form-control" required>
+                                                <option value="uri" ${judge.position === 'uri' ? 'selected' : ''}>URI</option>
+                                                <option value="request_header" ${judge.position === 'request_header' ? 'selected' : ''}>请求头</option>
+                                                <option value="request_body" ${judge.position === 'request_body' ? 'selected' : ''}>请求体</option>
+                                                <option value="parameter_value" ${judge.position === 'parameter_value' ? 'selected' : ''}>参数值</option>
+                                                <option value="form_values" ${judge.position === 'form_values' ? 'selected' : ''}>表单值</option>
+                                            </select>
+                                            <input type="text" name="content" class="form-control" value="${judge.content || ''}" placeholder="匹配内容 (可选)">
+                                            <input type="text" name="rix" class="form-control" value="${judge.rix || ''}" placeholder="正则表达式 (可选)">
+                                            <select name="action" class="form-control">
+                                                <option value="is" ${judge.action === 'is' ? 'selected' : ''}>匹配 (is)</option>
+                                                <option value="not" ${judge.action === 'not' ? 'selected' : ''}>不匹配 (not)</option>
+                                            </select>
+                                        </div>
+                                        <button type="button" class="btn btn-danger" onclick="removeJudge(this)" style="padding: 5px 10px; font-size: 12px;">删除条件</button>
+                                    </div>
+                                `).join('')}
+                            </div>
+                            <button type="button" class="btn btn-secondary" onclick="addEditJudge()" style="margin-top: 10px;">
+                                <span>+</span> 添加条件
+                            </button>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label style="display: inline-flex; align-items: center; gap: 8px;">
+                                <input type="checkbox" name="enabled" ${rule.enabled ? 'checked' : ''}> 启用规则
+                            </label>
+                        </div>
+                        
+                        <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                            <button type="button" class="btn btn-secondary" onclick="closeModal()">取消</button>
+                            <button type="submit" class="btn">更新规则</button>
+                        </div>
+                    </form>
+                `;
+
+                document.getElementById('edit-custom-rule-form').addEventListener('submit', function(e) {
+                    e.preventDefault();
+                    updateCustomRule(new FormData(this));
+                });
+
+                showModal();
+            } else {
+                showMessage('规则不存在', 'error');
+            }
+        } else {
+            showMessage('加载规则失败', 'error');
+        }
+    } catch (error) {
+        console.error('加载规则错误:', error);
+        showMessage('加载规则失败', 'error');
+    }
+}
+
+// 同样修改编辑模态框的添加条件函数
+function addEditJudge() {
+    const container = document.getElementById('edit-judges-container');
+    const judgeItem = document.createElement('div');
+    judgeItem.className = 'judge-item';
+    judgeItem.style.cssText = 'border: 1px solid #ddd; padding: 15px; margin-bottom: 10px; border-radius: 8px;';
+    
+    judgeItem.innerHTML = `
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 10px; margin-bottom: 10px;">
+            <select name="position" class="form-control" required>
+                <option value="uri">URI</option>
+                <option value="request_header">请求头</option>
+                <option value="request_body">请求体</option>
+                <option value="parameter_value">参数值</option>
+                <option value="form_values">表单值</option>
+            </select>
+            <input type="text" name="content" class="form-control" placeholder="匹配内容 (与正则二选一)">
+            <input type="text" name="rix" class="form-control" placeholder="正则表达式 (与内容二选一)">
+            <select name="action" class="form-control">
+                <option value="is">匹配 (is)</option>
+                <option value="not">不匹配 (not)</option>
+            </select>
+        </div>
+        <div style="font-size: 12px; color: #666; margin-bottom: 8px;">
+            <strong>提示:</strong> 内容和正则表达式至少填写一个
+        </div>
+        <button type="button" class="btn btn-danger" onclick="removeJudge(this)" style="padding: 5px 10px; font-size: 12px;">删除条件</button>
+    `;
+    
+    container.appendChild(judgeItem);
+}
+
+
+// 修改更新自定义规则函数
+// 修改更新自定义规则函数
+async function updateCustomRule(formData) {
+    try {
+        const data = Object.fromEntries(formData);
+        
+        // 处理判断条件 - 确保字段名称正确
+        const judges = [];
+        const judgeItems = document.querySelectorAll('#edit-judges-container .judge-item');
+        
+        judgeItems.forEach(item => {
+            const judge = {
+                position: item.querySelector('select[name="position"]').value,
+                content: item.querySelector('input[name="content"]').value,
+                rix: item.querySelector('input[name="rix"]').value,
+                action: item.querySelector('select[name="action"]').value || 'is'
+            };
+            
+            if (!judge.content && !judge.rix) {
+                return;
+            }
+            
+            if (judge.rix) {
+                try {
+                    new RegExp(judge.rix);
+                } catch (e) {
+                    showMessage(`正则表达式格式错误: ${judge.rix}`, 'error');
+                    throw new Error('正则表达式格式错误');
+                }
+            }
+            
+            judges.push(judge);
+        });
+        
+        if (judges.length === 0) {
+            showMessage('至少需要配置一个有效的判断条件', 'error');
+            return;
+        }
+        
+        // 构建正确的请求数据 - 使用 judges 而不是 judge
+        const requestData = {
+            name: data.name,
+            description: data.description || '',
+            method: data.method,
+            relation: data.relation || 'and',
+            judges: judges,  // 关键修复：使用 judges 而不是 judge
+            enabled: data.enabled === 'on'
+        };
+
+        const response = await fetch(`/api/custom-rules/${data.id}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            credentials: 'include',
+            body: JSON.stringify(requestData)
+        });
+
+        if (response.ok) {
+            closeModal();
+            showMessage('自定义规则更新成功', 'success');
+            loadCustomRules();
+        } else {
+            const errorText = await response.text();
+            let errorMessage = '更新失败';
+            try {
+                const errorData = JSON.parse(errorText);
+                errorMessage = errorData.error || errorText;
+            } catch {
+                errorMessage = errorText;
+            }
+            showMessage('更新失败: ' + errorMessage, 'error');
+        }
+    } catch (error) {
+        console.error('更新自定义规则错误:', error);
+        if (error.message !== '正则表达式格式错误') {
+            showMessage('更新失败: ' + error.message, 'error');
+        }
+    }
+}
+
+// 切换自定义规则状态
+// 切换自定义规则状态
+async function toggleCustomRuleStatus(ruleId, enabled) {
+    const action = enabled ? '启用' : '禁用';
+    
+    if (!confirm(`确定要${action}这条规则吗？`)) return;
+    
+    try {
+        const response = await fetch(`/api/custom-rules/${ruleId}/toggle`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            credentials: 'include',
+            body: JSON.stringify({ enabled })
+        });
+
+        if (response.ok) {
+            showMessage(`规则${action}成功`, 'success');
+            loadCustomRules();
+        } else {
+            const error = await response.text();
+            showMessage(`${action}失败: ${error}`, 'error');
+        }
+    } catch (error) {
+        console.error(`${action}规则错误:`, error);
+        showMessage(`${action}失败`, 'error');
+    }
+}
+
+// 删除自定义规则
+async function deleteCustomRule(ruleId) {
+    if (!confirm('确定要删除这条规则吗？此操作不可恢复。')) return;
+    
+    try {
+        const response = await fetch(`/api/custom-rules/${ruleId}`, {
+            method: 'DELETE',
+            credentials: 'include'
+        });
+
+        if (response.ok) {
+            showMessage('规则删除成功', 'success');
+            loadCustomRules();
+        } else {
+            showMessage('删除失败', 'error');
+        }
+    } catch (error) {
+        console.error('删除规则错误:', error);
+        showMessage('删除失败', 'error');
+    }
+}
+
+// 导出规则
+function exportCustomRules() {
+    window.open('/api/custom-rules/export', '_blank');
+}
+
+// 显示导入规则模态框
+function showImportRulesModal() {
+    document.getElementById('modal-title').textContent = '导入自定义规则';
+    document.getElementById('modal-body').innerHTML = `
+        <form id="import-rules-form" enctype="multipart/form-data">
+            <div class="form-group">
+                <label class="form-label">选择规则文件</label>
+                <input type="file" name="file" class="form-control" accept=".zip" required>
+                <small style="color: #666;">请选择之前导出的ZIP格式规则文件</small>
+            </div>
+            
+            <div class="alert alert-success">
+                <strong>导入说明:</strong>
+                <ul style="margin: 10px 0 0 20px;">
+                    <li>仅支持ZIP格式的规则备份文件</li>
+                    <li>导入的规则会覆盖同ID的现有规则</li>
+                    <li>建议在导入前先导出当前规则作为备份</li>
+                </ul>
+            </div>
+            
+            <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
+                <button type="button" class="btn btn-secondary" onclick="closeModal()">取消</button>
+                <button type="submit" class="btn">导入规则</button>
+            </div>
+        </form>
+    `;
+
+    document.getElementById('import-rules-form').addEventListener('submit', function(e) {
+        e.preventDefault();
+        importCustomRules(new FormData(this));
+    });
+
+    showModal();
+}
+
+// 导入规则
+async function importCustomRules(formData) {
+    try {
+        const response = await fetch('/api/custom-rules/import', {
+            method: 'POST',
+            credentials: 'include',
+            body: formData
+        });
+
+        if (response.ok) {
+            const result = await response.json();
+            closeModal();
+            showMessage(`规则导入成功，共导入 ${result.imported_count} 条规则`, 'success');
+            loadCustomRules();
+        } else {
+            const error = await response.text();
+            showMessage('导入失败: ' + error, 'error');
+        }
+    } catch (error) {
+        console.error('导入规则错误:', error);
+        showMessage('导入失败: ' + error.message, 'error');
+    }
+}
+
+// 重新加载自定义规则
+async function reloadCustomRules() {
+    try {
+        const response = await fetch('/api/custom-rules/reload', {
+            method: 'POST',
+            credentials: 'include'
+        });
+
+        if (response.ok) {
+            const result = await response.json();
+            showMessage(`规则重新加载成功，共加载 ${result.count} 条规则`, 'success');
+            loadCustomRules();
+        } else {
+            showMessage('重新加载失败', 'error');
+        }
+    } catch (error) {
+        console.error('重新加载规则错误:', error);
+        showMessage('重新加载失败', 'error');
     }
 }
 

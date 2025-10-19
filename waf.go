@@ -34,6 +34,7 @@ import (
     "encoding/csv"
     "sort"
     "os/exec"
+    "archive/zip"
 	
 	
     
@@ -718,12 +719,11 @@ func clearCCCountersHandler(c *gin.Context) {
 
 // ------------------- 规则 -------------------
 type Judge struct {
-	Position string `json:"position"`
-	Content  string `json:"content"`
-	Rix      string `json:"rix"`
-	Action   string `json:"action"` // "is" 或 "not"，默认为 "is"
-
-	regex *regexp.Regexp
+    Position string `json:"position" binding:"required"`
+    Content  string `json:"content"`
+    Rix      string `json:"rix"`
+    Action   string `json:"action"`
+    regex    *regexp.Regexp `json:"-"` // 使用 - 忽略 JSON 序列化
 }
 
 type Rule struct {
@@ -3861,6 +3861,16 @@ func StartGinAPI() {
     authGroup := r.Group("/")
     authGroup.Use(authMiddleware())
     {
+
+        // 自定义规则管理路由
+        authGroup.POST("/api/custom-rules", addCustomRuleHandler)
+        authGroup.GET("/api/custom-rules", getCustomRulesHandler)
+        authGroup.PUT("/api/custom-rules/:id", updateCustomRuleHandler)
+        authGroup.DELETE("/api/custom-rules/:id", deleteCustomRuleHandler)
+        authGroup.POST("/api/custom-rules/:id/toggle", toggleCustomRuleHandler)
+        authGroup.GET("/api/custom-rules/export", exportCustomRulesHandler)
+        authGroup.POST("/api/custom-rules/import", importCustomRulesHandler)
+        authGroup.POST("/api/custom-rules/reload", reloadCustomRulesHandler)
         //---------ACL------------
         authGroup.POST("/api/acl/rules", addACLRuleHandler)
         authGroup.GET("/api/acl/rules", getACLRulesHandler)
@@ -5862,6 +5872,773 @@ func startMonitorHistoryWorker() {
     }
 }
 
+// ------------------- 自定义规则管理 -------------------
+
+// 自定义规则目录
+const customRuleDir = "./ownrule"
+
+// 自定义规则结构
+type CustomRule struct {
+    ID          string `json:"id"`
+    Name        string `json:"name"`
+    Description string `json:"description"`
+    Method      string `json:"method"`
+    Relation    string `json:"relation"`
+    Judges      []Judge `json:"judge"`
+    Enabled     bool   `json:"enabled"`
+}
+
+// 自定义规则管理器
+type CustomRuleManager struct {
+    rules map[string]CustomRule // id -> rule
+    mutex sync.RWMutex
+}
+
+var customRuleManager *CustomRuleManager
+
+// 初始化自定义规则管理器
+func initCustomRuleManager() {
+    customRuleManager = &CustomRuleManager{
+        rules: make(map[string]CustomRule),
+    }
+    
+    // 启动时加载自定义规则
+    loadCustomRules()
+}
+
+// 加载自定义规则
+// ------------------- 修复加载自定义规则 -------------------
+func loadCustomRules() {
+    customRuleManager.mutex.Lock()
+    defer customRuleManager.mutex.Unlock()
+
+    // 确保目录存在
+    if err := os.MkdirAll(customRuleDir, 0755); err != nil {
+        stdlog.Printf("创建自定义规则目录失败: %v", err)
+        return
+    }
+
+    // 读取目录下的所有JSON文件
+    files, err := ioutil.ReadDir(customRuleDir)
+    if err != nil {
+        stdlog.Printf("读取自定义规则目录失败: %v", err)
+        return
+    }
+
+    // 按文件名排序确保顺序
+    sort.Slice(files, func(i, j int) bool {
+        return files[i].Name() < files[j].Name()
+    })
+
+    for _, file := range files {
+        if filepath.Ext(file.Name()) != ".json" {
+            continue
+        }
+
+        filePath := filepath.Join(customRuleDir, file.Name())
+        data, err := ioutil.ReadFile(filePath)
+        if err != nil {
+            stdlog.Printf("读取自定义规则文件失败 %s: %v", file.Name(), err)
+            continue
+        }
+
+        var ruleJSON CustomRuleJSON
+        if err := json.Unmarshal(data, &ruleJSON); err != nil {
+            stdlog.Printf("解析自定义规则文件失败 %s: %v", file.Name(), err)
+            continue
+        }
+
+        // 转换为运行时结构
+        rule := CustomRule{
+            ID:          ruleJSON.ID,
+            Name:        ruleJSON.Name,
+            Description: ruleJSON.Description,
+            Method:      ruleJSON.Method,
+            Relation:    ruleJSON.Relation,
+            Enabled:     ruleJSON.Enabled,
+            Judges:      make([]Judge, len(ruleJSON.Judges)),
+        }
+
+        // 预编译正则表达式
+        for i, judgeJSON := range ruleJSON.Judges {
+            judge := Judge{
+                Position: judgeJSON.Position,
+                Content:  judgeJSON.Content,
+                Rix:      judgeJSON.Rix,
+                Action:   judgeJSON.Action,
+            }
+            
+            if judge.Rix != "" {
+                regex, err := regexp.Compile(judge.Rix)
+                if err != nil {
+                    stdlog.Printf("正则表达式编译失败 %s: %v", judge.Rix, err)
+                    continue
+                }
+                judge.regex = regex
+            }
+            
+            rule.Judges[i] = judge
+        }
+
+        // 验证规则
+        if err := validateCustomRule(rule); err != nil {
+            stdlog.Printf("自定义规则验证失败 %s: %v", file.Name(), err)
+            continue
+        }
+
+        customRuleManager.rules[rule.ID] = rule
+        stdlog.Printf("加载自定义规则: %s (ID: %s)", rule.Name, rule.ID)
+    }
+
+    stdlog.Printf("加载了 %d 个自定义规则", len(customRuleManager.rules))
+}
+
+// 验证自定义规则格式
+func validateCustomRule(rule CustomRule) error {
+    if rule.ID == "" {
+        return fmt.Errorf("规则ID不能为空")
+    }
+    if rule.Name == "" {
+        return fmt.Errorf("规则名称不能为空")
+    }
+    if rule.Method == "" {
+        return fmt.Errorf("规则方法不能为空")
+    }
+    if len(rule.Judges) == 0 {
+        return fmt.Errorf("规则判断条件不能为空")
+    }
+
+    // 验证方法
+    validMethods := map[string]bool{
+        "GET": true, "POST": true, "PUT": true, "DELETE": true, 
+        "HEAD": true, "OPTIONS": true, "PATCH": true, "any": true,
+    }
+    if !validMethods[rule.Method] {
+        return fmt.Errorf("无效的HTTP方法: %s", rule.Method)
+    }
+
+    // 验证关系
+    if rule.Relation != "" && rule.Relation != "and" && rule.Relation != "or" {
+        return fmt.Errorf("无效的关系类型: %s", rule.Relation)
+    }
+
+    // 验证判断条件
+    validPositions := map[string]bool{
+        "uri": true, "request_header": true, "request_body": true,
+        "parameter_value": true, "form_values": true,
+    }
+    for i, judge := range rule.Judges {
+        if !validPositions[judge.Position] {
+            return fmt.Errorf("判断条件 %d 位置无效: %s", i+1, judge.Position)
+        }
+        if judge.Content == "" && judge.Rix == "" {
+            return fmt.Errorf("判断条件 %d 内容和正则表达式不能同时为空", i+1)
+        }
+        if judge.Rix != "" {
+            if _, err := regexp.Compile(judge.Rix); err != nil {
+                return fmt.Errorf("判断条件 %d 正则表达式无效: %v", i+1, err)
+            }
+        }
+    }
+
+    return nil
+}
+
+// 生成下一个规则ID
+func generateNextRuleID() string {
+    customRuleManager.mutex.RLock()
+    defer customRuleManager.mutex.RUnlock()
+
+    maxID := 0
+    for id := range customRuleManager.rules {
+        if num, err := strconv.Atoi(id); err == nil {
+            if num > maxID {
+                maxID = num
+            }
+        }
+    }
+    return fmt.Sprintf("%d", maxID+1)
+}
+
+// ------------------- 序列化用的 Judge 结构体 -------------------
+type JudgeJSON struct {
+    Position string `json:"position" binding:"required"`
+    Content  string `json:"content"`
+    Rix      string `json:"rix"`
+    Action   string `json:"action"`
+}
+
+
+
+// ------------------- 自定义规则序列化结构 -------------------
+type CustomRuleJSON struct {
+    ID          string      `json:"id"`
+    Name        string      `json:"name"`
+    Description string      `json:"description"`
+    Method      string      `json:"method"`
+    Relation    string      `json:"relation"`
+    Judges      []JudgeJSON `json:"judges"`
+    Enabled     bool        `json:"enabled"`
+}
+
+// 保存规则到文件
+// ------------------- 修复保存规则到文件 -------------------
+func saveRuleToFile(rule CustomRule) error {
+    filePath := filepath.Join(customRuleDir, fmt.Sprintf("%s.json", rule.ID))
+    
+    // 转换为序列化结构
+    ruleJSON := CustomRuleJSON{
+        ID:          rule.ID,
+        Name:        rule.Name,
+        Description: rule.Description,
+        Method:      rule.Method,
+        Relation:    rule.Relation,
+        Enabled:     rule.Enabled,
+        Judges:      make([]JudgeJSON, len(rule.Judges)),
+    }
+    
+    for i, judge := range rule.Judges {
+        ruleJSON.Judges[i] = JudgeJSON{
+            Position: judge.Position,
+            Content:  judge.Content,
+            Rix:      judge.Rix,
+            Action:   judge.Action,
+        }
+    }
+    
+    data, err := json.MarshalIndent(ruleJSON, "", "  ")
+    if err != nil {
+        return fmt.Errorf("序列化规则失败: %v", err)
+    }
+
+    if err := ioutil.WriteFile(filePath, data, 0644); err != nil {
+        return fmt.Errorf("写入规则文件失败: %v", err)
+    }
+
+    return nil
+}
+// 删除规则文件
+func deleteRuleFile(ruleID string) error {
+    filePath := filepath.Join(customRuleDir, fmt.Sprintf("%s.json", ruleID))
+    if err := os.Remove(filePath); err != nil {
+        return fmt.Errorf("删除规则文件失败: %v", err)
+    }
+    return nil
+}
+
+// ------------------- 自定义规则API接口 -------------------
+
+// 确保 AddCustomRuleRequest 结构体定义正确
+type AddCustomRuleRequest struct {
+    Name        string  `json:"name" binding:"required"`
+    Description string  `json:"description"`
+    Method      string  `json:"method" binding:"required"`
+    Relation    string  `json:"relation" binding:"oneof=and or"`
+    Judges      []Judge `json:"judges" binding:"required,min=1,dive"`
+    Enabled     bool    `json:"enabled"`
+}
+// 添加自定义规则接口
+// ------------------- 修复添加自定义规则接口 -------------------
+func addCustomRuleHandler(c *gin.Context) {
+    var req AddCustomRuleRequest
+    if err := c.ShouldBindJSON(&req); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+
+    // 生成规则ID
+    ruleID := generateNextRuleID()
+
+    // 处理默认值并预编译正则
+    for i := range req.Judges {
+        if req.Judges[i].Action == "" {
+            req.Judges[i].Action = "is"
+        }
+        // 预编译正则表达式
+        if req.Judges[i].Rix != "" {
+            regex, err := regexp.Compile(req.Judges[i].Rix)
+            if err != nil {
+                c.JSON(http.StatusBadRequest, gin.H{
+                    "error": fmt.Sprintf("正则表达式编译失败: %v", err),
+                })
+                return
+            }
+            req.Judges[i].regex = regex
+        }
+    }
+
+    // 创建规则对象
+    rule := CustomRule{
+        ID:          ruleID,
+        Name:        req.Name,
+        Description: req.Description,
+        Method:      strings.ToUpper(req.Method),
+        Relation:    req.Relation,
+        Judges:      req.Judges,
+        Enabled:     req.Enabled,
+    }
+
+    // 设置默认关系
+    if rule.Relation == "" {
+        rule.Relation = "and"
+    }
+
+    // 验证规则
+    if err := validateCustomRule(rule); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+
+    // 保存到文件
+    if err := saveRuleToFile(rule); err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+        return
+    }
+
+    // 添加到内存
+    customRuleManager.mutex.Lock()
+    customRuleManager.rules[ruleID] = rule
+    customRuleManager.mutex.Unlock()
+
+    // 合并到主规则系统
+    mergeCustomRuleToMain(rule)
+
+    stdlog.Printf("自定义规则添加成功: %s (ID: %s)", rule.Name, rule.ID)
+
+    c.JSON(http.StatusOK, gin.H{
+        "message": "自定义规则添加成功",
+        "rule_id": ruleID,
+        "rule":    rule,
+    })
+}
+
+// 合并自定义规则到主规则系统
+func mergeCustomRuleToMain(customRule CustomRule) {
+    // 转换为主规则格式
+    mainRule := Rule{
+        ID:          customRule.ID,
+        Name:        customRule.Name,
+        Description: customRule.Description,
+        Method:      customRule.Method,
+        Relation:    customRule.Relation,
+        Judges:      customRule.Judges,
+        Enabled:     customRule.Enabled,
+    }
+
+    // 添加到主规则系统
+    if _, exists := RULES[mainRule.Method]; !exists {
+        RULES[mainRule.Method] = []Rule{}
+    }
+    
+    // 检查是否已存在
+    for i, existingRule := range RULES[mainRule.Method] {
+        if existingRule.ID == mainRule.ID {
+            RULES[mainRule.Method][i] = mainRule
+            return
+        }
+    }
+    
+    // 添加新规则
+    RULES[mainRule.Method] = append(RULES[mainRule.Method], mainRule)
+}
+
+// 获取自定义规则列表接口
+func getCustomRulesHandler(c *gin.Context) {
+    customRuleManager.mutex.RLock()
+    defer customRuleManager.mutex.RUnlock()
+
+    rules := make([]CustomRule, 0, len(customRuleManager.rules))
+    for _, rule := range customRuleManager.rules {
+        rules = append(rules, rule)
+    }
+
+    // 按ID排序
+    sort.Slice(rules, func(i, j int) bool {
+        id1, _ := strconv.Atoi(rules[i].ID)
+        id2, _ := strconv.Atoi(rules[j].ID)
+        return id1 < id2
+    })
+
+    c.JSON(http.StatusOK, gin.H{
+        "rules": rules,
+        "count": len(rules),
+    })
+}
+
+// 更新自定义规则请求
+type UpdateCustomRuleRequest struct {
+    Name        string  `json:"name"`
+    Description string  `json:"description"`
+    Method      string  `json:"method"`
+    Relation    string  `json:"relation" binding:"oneof=and or"`
+    Judges      []Judge `json:"judge"`
+    Enabled     *bool   `json:"enabled"`
+}
+
+// 更新自定义规则接口
+// ------------------- 修复更新自定义规则接口 -------------------
+// ------------------- 修复更新自定义规则接口 -------------------
+func updateCustomRuleHandler(c *gin.Context) {
+    ruleID := c.Param("id")
+    
+    // 使用更灵活的结构来解析请求
+    var req map[string]interface{}
+    if err := c.ShouldBindJSON(&req); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+
+    customRuleManager.mutex.Lock()
+    defer customRuleManager.mutex.Unlock()
+
+    // 检查规则是否存在
+    existingRule, ruleExists := customRuleManager.rules[ruleID]
+    if !ruleExists {
+        c.JSON(http.StatusNotFound, gin.H{"error": "规则不存在"})
+        return
+    }
+
+    // 更新字段 - 处理字段名称不一致的问题
+    if name, ok := req["name"].(string); ok && name != "" {
+        existingRule.Name = name
+    }
+    
+    if description, ok := req["description"].(string); ok {
+        existingRule.Description = description
+    }
+    
+    if method, ok := req["method"].(string); ok && method != "" {
+        existingRule.Method = strings.ToUpper(method)
+    }
+    
+    if relation, ok := req["relation"].(string); ok && relation != "" {
+        existingRule.Relation = relation
+    }
+    
+    // 处理 judges/judge 字段（前端可能使用任意一个）
+    var judgesData interface{}
+    var judgesExists bool
+    
+    if judgesData, judgesExists = req["judges"]; !judgesExists {
+        // 如果 judges 不存在，尝试使用 judge
+        if judgeData, judgeExists := req["judge"]; judgeExists {
+            judgesData = judgeData
+            judgesExists = true
+        }
+    }
+    
+    if judgesExists && judgesData != nil {
+        judgesBytes, err := json.Marshal(judgesData)
+        if err == nil {
+            var judges []Judge
+            if err := json.Unmarshal(judgesBytes, &judges); err == nil {
+                existingRule.Judges = judges
+                
+                // 预编译新的正则表达式
+                for i := range existingRule.Judges {
+                    if existingRule.Judges[i].Rix != "" {
+                        regex, err := regexp.Compile(existingRule.Judges[i].Rix)
+                        if err != nil {
+                            c.JSON(http.StatusBadRequest, gin.H{
+                                "error": fmt.Sprintf("正则表达式编译失败: %v", err),
+                            })
+                            return
+                        }
+                        existingRule.Judges[i].regex = regex
+                    }
+                }
+            }
+        }
+    }
+    
+    if enabled, ok := req["enabled"].(bool); ok {
+        existingRule.Enabled = enabled
+    }
+
+    // 验证规则
+    if err := validateCustomRule(existingRule); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+
+    // 保存到文件
+    if err := saveRuleToFile(existingRule); err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+        return
+    }
+
+    // 更新内存中的规则
+    customRuleManager.rules[ruleID] = existingRule
+
+    // 更新主规则系统
+    mergeCustomRuleToMain(existingRule)
+
+    stdlog.Printf("自定义规则更新成功: %s (ID: %s)", existingRule.Name, ruleID)
+
+    c.JSON(http.StatusOK, gin.H{
+        "message": "自定义规则更新成功",
+        "rule":    existingRule,
+    })
+}
+
+// 删除自定义规则接口
+func deleteCustomRuleHandler(c *gin.Context) {
+    ruleID := c.Param("id")
+
+    customRuleManager.mutex.Lock()
+    defer customRuleManager.mutex.Unlock()
+
+    // 检查规则是否存在
+    rule, exists := customRuleManager.rules[ruleID]
+    if !exists {
+        c.JSON(http.StatusNotFound, gin.H{"error": "规则不存在"})
+        return
+    }
+
+    // 删除文件
+    if err := deleteRuleFile(ruleID); err != nil {
+        if !os.IsNotExist(err) {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+            return
+        }
+    }
+
+    // 从内存中删除
+    delete(customRuleManager.rules, ruleID)
+
+    // 从主规则系统中删除
+    removeCustomRuleFromMain(ruleID)
+
+    stdlog.Printf("自定义规则删除成功: %s (ID: %s)", rule.Name, ruleID)
+
+    c.JSON(http.StatusOK, gin.H{
+        "message": "自定义规则删除成功",
+        "rule_id": ruleID,
+    })
+}
+
+// 从主规则系统中移除自定义规则
+func removeCustomRuleFromMain(ruleID string) {
+    for method, rules := range RULES {
+        for i, rule := range rules {
+            if rule.ID == ruleID {
+                RULES[method] = append(rules[:i], rules[i+1:]...)
+                break
+            }
+        }
+    }
+}
+// ------------------- 自定义规则状态切换接口 -------------------
+type ToggleCustomRuleRequest struct {
+    Enabled bool `json:"enabled"`
+}
+
+
+func toggleCustomRuleHandler(c *gin.Context) {
+    ruleID := c.Param("id")
+    
+    var req ToggleCustomRuleRequest
+    if err := c.ShouldBindJSON(&req); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+
+    customRuleManager.mutex.Lock()
+    defer customRuleManager.mutex.Unlock()
+
+    // 检查规则是否存在
+    rule, exists := customRuleManager.rules[ruleID]
+    if !exists {
+        c.JSON(http.StatusNotFound, gin.H{"error": "规则不存在"})
+        return
+    }
+
+    // 更新启用状态
+    rule.Enabled = req.Enabled
+    customRuleManager.rules[ruleID] = rule
+
+    // 保存到文件
+    if err := saveRuleToFile(rule); err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+        return
+    }
+
+    // 更新主规则系统
+    mergeCustomRuleToMain(rule)
+
+    status := "启用"
+    if !req.Enabled {
+        status = "禁用"
+    }
+
+    stdlog.Printf("自定义规则%s: %s (ID: %s)", status, rule.Name, ruleID)
+
+    c.JSON(http.StatusOK, gin.H{
+        "message": fmt.Sprintf("规则%s成功", status),
+        "enabled": req.Enabled,
+    })
+}
+
+// 导出自定义规则接口
+func exportCustomRulesHandler(c *gin.Context) {
+    customRuleManager.mutex.RLock()
+    defer customRuleManager.mutex.RUnlock()
+
+    // 创建ZIP文件
+    c.Header("Content-Type", "application/zip")
+    c.Header("Content-Disposition", "attachment; filename=custom_rules_backup.zip")
+    c.Header("Pragma", "no-cache")
+    c.Header("Expires", "0")
+
+    zipWriter := zip.NewWriter(c.Writer)
+    defer zipWriter.Close()
+
+    for _, rule := range customRuleManager.rules {
+        // 创建规则文件
+        ruleFile, err := zipWriter.Create(fmt.Sprintf("%s.json", rule.ID))
+        if err != nil {
+            stdlog.Printf("创建ZIP条目失败: %v", err)
+            continue
+        }
+
+        data, err := json.MarshalIndent(rule, "", "  ")
+        if err != nil {
+            stdlog.Printf("序列化规则失败: %v", err)
+            continue
+        }
+
+        if _, err := ruleFile.Write(data); err != nil {
+            stdlog.Printf("写入ZIP条目失败: %v", err)
+        }
+    }
+
+    stdlog.Printf("导出了 %d 个自定义规则", len(customRuleManager.rules))
+}
+
+// 导入自定义规则接口
+func importCustomRulesHandler(c *gin.Context) {
+    file, err := c.FormFile("file")
+    if err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "请选择要导入的文件"})
+        return
+    }
+
+    if filepath.Ext(file.Filename) != ".zip" {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "只支持ZIP格式的导入文件"})
+        return
+    }
+
+    // 打开上传的文件
+    src, err := file.Open()
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "打开上传文件失败"})
+        return
+    }
+    defer src.Close()
+
+    // 读取ZIP文件
+    fileData, err := ioutil.ReadAll(src)
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "读取上传文件失败"})
+        return
+    }
+
+    zipReader, err := zip.NewReader(bytes.NewReader(fileData), int64(len(fileData)))
+    if err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "无效的ZIP文件"})
+        return
+    }
+
+    customRuleManager.mutex.Lock()
+    defer customRuleManager.mutex.Unlock()
+
+    importedCount := 0
+    for _, zipFile := range zipReader.File {
+        if filepath.Ext(zipFile.Name) != ".json" {
+            continue
+        }
+
+        // 读取规则文件
+        rc, err := zipFile.Open()
+        if err != nil {
+            stdlog.Printf("打开ZIP条目失败 %s: %v", zipFile.Name, err)
+            continue
+        }
+
+        data, err := ioutil.ReadAll(rc)
+        rc.Close()
+
+        if err != nil {
+            stdlog.Printf("读取ZIP条目失败 %s: %v", zipFile.Name, err)
+            continue
+        }
+
+        var rule CustomRule
+        if err := json.Unmarshal(data, &rule); err != nil {
+            stdlog.Printf("解析规则失败 %s: %v", zipFile.Name, err)
+            continue
+        }
+
+        // 验证规则
+        if err := validateCustomRule(rule); err != nil {
+            stdlog.Printf("规则验证失败 %s: %v", zipFile.Name, err)
+            continue
+        }
+
+        // 预编译正则表达式
+        for i := range rule.Judges {
+            if rule.Judges[i].Rix != "" {
+                rule.Judges[i].regex, _ = regexp.Compile(rule.Judges[i].Rix)
+            }
+        }
+
+        // 保存到文件系统
+        if err := saveRuleToFile(rule); err != nil {
+            stdlog.Printf("保存规则失败 %s: %v", rule.ID, err)
+            continue
+        }
+
+        // 添加到内存
+        customRuleManager.rules[rule.ID] = rule
+        
+        // 合并到主规则系统
+        mergeCustomRuleToMain(rule)
+
+        importedCount++
+        stdlog.Printf("导入自定义规则: %s (ID: %s)", rule.Name, rule.ID)
+    }
+
+    c.JSON(http.StatusOK, gin.H{
+        "message":       "自定义规则导入成功",
+        "imported_count": importedCount,
+    })
+}
+
+// 重新加载自定义规则接口
+func reloadCustomRulesHandler(c *gin.Context) {
+    // 清空当前规则
+    customRuleManager.mutex.Lock()
+    customRuleManager.rules = make(map[string]CustomRule)
+    customRuleManager.mutex.Unlock()
+
+    // 重新加载
+    loadCustomRules()
+
+    // 重新合并到主规则系统
+    customRuleManager.mutex.RLock()
+    for _, rule := range customRuleManager.rules {
+        mergeCustomRuleToMain(rule)
+    }
+    customRuleManager.mutex.RUnlock()
+
+    c.JSON(http.StatusOK, gin.H{
+        "message": "自定义规则重新加载成功",
+        "count":   len(customRuleManager.rules),
+    })
+}
+
+
+
 // ------------------- 获取监控历史接口 -------------------
 func getMonitorHistoryHandler(c *gin.Context) {
     historyMutex.RLock()
@@ -5941,6 +6718,9 @@ func main() {
 	readWafHtml()
 	readBase64()
     readGinHtml()
+
+    // 初始化自定义规则管理器
+    initCustomRuleManager()
 
     // 初始化静态文件缓存
     initStaticCache()
