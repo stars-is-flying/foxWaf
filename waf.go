@@ -3918,13 +3918,19 @@ func reloadAllCertificatesHandler(c *gin.Context) {
     })
 }
 
-var login,loginError,notFound,panle []byte
+var login,loginError,notFound,panle,prism_tomorrow,prism_line_numbers_css,prism_core,prism_autoloader,prism_line_numbers_js,prism_copy_to_clipboard []byte
 
 func readGinHtml() {
     login, _ = ioutil.ReadFile("./static/login.html")
     loginError, _ = ioutil.ReadFile("./static/loginError.html")
     notFound, _ = ioutil.ReadFile("./static/404.html")
     panle, _ = ioutil.ReadFile("./static/panle.html")
+    prism_tomorrow, _ = ioutil.ReadFile("./static/out/prism-tomorrow.min.css")
+    prism_line_numbers_css , _ = ioutil.ReadFile("./static/out/prism-line-numbers.min.css")
+    prism_core, _ = ioutil.ReadFile("./static/out/prism-core.min.js")
+    prism_autoloader,_ = ioutil.ReadFile("./static/out/prism-autoloader.min.js")
+    prism_line_numbers_js,_ = ioutil.ReadFile("./static/out/prism-line-numbers.min.js")
+    prism_copy_to_clipboard,_ = ioutil.ReadFile("./static/out/prism-copy-to-clipboard.min.js")
 }
 
 
@@ -3941,6 +3947,38 @@ func StartGinAPI() {
         ctx.Header("Content-Type", "text/html; charset=utf-8")
         ctx.String(http.StatusOK, string(login))
     })
+
+    r.GET("/prism-tomorrow.min.css", func(ctx *gin.Context) {
+        ctx.Header("Content-Type", "text/css; charset=utf-8")
+        ctx.String(http.StatusOK, string(prism_tomorrow))
+    })
+
+    r.GET("/prism-line-numbers.min.css", func(ctx *gin.Context) {
+        ctx.Header("Content-Type", "text/css; charset=utf-8")
+        ctx.String(http.StatusOK, string(prism_line_numbers_css))
+    })
+
+    r.GET("/prism-autoloader.min.js", func(ctx *gin.Context) {
+        ctx.Header("Content-Type", "application/javascript; charset=utf-8")
+        ctx.String(http.StatusOK, string(prism_autoloader))
+    })
+
+    r.GET("/prism-core.min.js", func(ctx *gin.Context) {
+        ctx.Header("Content-Type", "application/javascript; charset=utf-8")
+        ctx.String(http.StatusOK, string(prism_core))
+    })
+
+    r.GET("/prism-line-numbers.min.js", func(ctx *gin.Context) {
+        ctx.Header("Content-Type", "application/javascript; charset=utf-8")
+        ctx.String(http.StatusOK, string(prism_autoloader))
+    })
+
+    r.GET("/prism-copy-to-clipboard.min.js", func(ctx *gin.Context) {
+        ctx.Header("Content-Type", "application/javascript; charset=utf-8")
+        ctx.String(http.StatusOK, string(prism_copy_to_clipboard))
+    })
+
+
 
     // 需要认证的路由组
     authGroup := r.Group("/")
