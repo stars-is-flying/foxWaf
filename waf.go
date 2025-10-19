@@ -36,6 +36,7 @@ import (
     "os/exec"
     "archive/zip"
     "runtime/debug"
+    "embed"
 	
 	
     
@@ -48,6 +49,19 @@ import (
 import (
     stdlog "log" // 使用别名
 )
+
+
+// 添加 embed 指令来嵌入静态文件
+//go:embed static/*
+var staticFiles embed.FS
+
+//go:embed static/waf/*
+var wafFiles embed.FS
+
+//go:embed static/out/*
+var prismFiles embed.FS
+
+
 
 // ------------------- 配置 -------------------
 type ServerConfig struct {
@@ -3920,17 +3934,50 @@ func reloadAllCertificatesHandler(c *gin.Context) {
 
 var login,loginError,notFound,panle,prism_tomorrow,prism_line_numbers_css,prism_core,prism_autoloader,prism_line_numbers_js,prism_copy_to_clipboard []byte
 
+// 修改 readGinHtml 函数
 func readGinHtml() {
-    login, _ = ioutil.ReadFile("./static/login.html")
-    loginError, _ = ioutil.ReadFile("./static/loginError.html")
-    notFound, _ = ioutil.ReadFile("./static/404.html")
-    panle, _ = ioutil.ReadFile("./static/panle.html")
-    prism_tomorrow, _ = ioutil.ReadFile("./static/out/prism-tomorrow.min.css")
-    prism_line_numbers_css , _ = ioutil.ReadFile("./static/out/prism-line-numbers.min.css")
-    prism_core, _ = ioutil.ReadFile("./static/out/prism-core.min.js")
-    prism_autoloader,_ = ioutil.ReadFile("./static/out/prism-autoloader.min.js")
-    prism_line_numbers_js,_ = ioutil.ReadFile("./static/out/prism-line-numbers.min.js")
-    prism_copy_to_clipboard,_ = ioutil.ReadFile("./static/out/prism-copy-to-clipboard.min.js")
+    var err error
+    login, err = staticFiles.ReadFile("static/login.html")
+    if err != nil {
+        stdlog.Printf("读取 login.html 失败: %v", err)
+    }
+    loginError, err = staticFiles.ReadFile("static/loginError.html")
+    if err != nil {
+        stdlog.Printf("读取 loginError.html 失败: %v", err)
+    }
+    notFound, err = staticFiles.ReadFile("static/404.html")
+    if err != nil {
+        stdlog.Printf("读取 404.html 失败: %v", err)
+    }
+    panle, err = staticFiles.ReadFile("static/panle.html")
+    if err != nil {
+        stdlog.Printf("读取 panle.html 失败: %v", err)
+    }
+    
+    prism_tomorrow, err = prismFiles.ReadFile("static/out/prism-tomorrow.min.css")
+    if err != nil {
+        stdlog.Printf("读取 prism-tomorrow.min.css 失败: %v", err)
+    }
+    prism_line_numbers_css, err = prismFiles.ReadFile("static/out/prism-line-numbers.min.css")
+    if err != nil {
+        stdlog.Printf("读取 prism-line-numbers.min.css 失败: %v", err)
+    }
+    prism_core, err = prismFiles.ReadFile("static/out/prism-core.min.js")
+    if err != nil {
+        stdlog.Printf("读取 prism-core.min.js 失败: %v", err)
+    }
+    prism_autoloader, err = prismFiles.ReadFile("static/out/prism-autoloader.min.js")
+    if err != nil {
+        stdlog.Printf("读取 prism-autoloader.min.js 失败: %v", err)
+    }
+    prism_line_numbers_js, err = prismFiles.ReadFile("static/out/prism-line-numbers.min.js")
+    if err != nil {
+        stdlog.Printf("读取 prism-line-numbers.min.js 失败: %v", err)
+    }
+    prism_copy_to_clipboard, err = prismFiles.ReadFile("static/out/prism-copy-to-clipboard.min.js")
+    if err != nil {
+        stdlog.Printf("读取 prism-copy-to-clipboard.min.js 失败: %v", err)
+    }
 }
 
 
@@ -3938,16 +3985,10 @@ func readGinHtml() {
 
 // 在需要认证的路由中使用中间件
 func StartGinAPI() {
-    gin.SetMode(gin.ReleaseMode)
+     gin.SetMode(gin.ReleaseMode)
     r := gin.Default()
 
-    // 公开路由（不需要认证）
-    r.POST("/login", loginHandler)
-    r.GET(cfg.Secure, func(ctx *gin.Context) {
-        ctx.Header("Content-Type", "text/html; charset=utf-8")
-        ctx.String(http.StatusOK, string(login))
-    })
-
+    // 从 embed.FS 提供静态文件
     r.GET("/prism-tomorrow.min.css", func(ctx *gin.Context) {
         ctx.Header("Content-Type", "text/css; charset=utf-8")
         ctx.String(http.StatusOK, string(prism_tomorrow))
@@ -3970,12 +4011,19 @@ func StartGinAPI() {
 
     r.GET("/prism-line-numbers.min.js", func(ctx *gin.Context) {
         ctx.Header("Content-Type", "application/javascript; charset=utf-8")
-        ctx.String(http.StatusOK, string(prism_autoloader))
+        ctx.String(http.StatusOK, string(prism_line_numbers_js))
     })
 
     r.GET("/prism-copy-to-clipboard.min.js", func(ctx *gin.Context) {
         ctx.Header("Content-Type", "application/javascript; charset=utf-8")
         ctx.String(http.StatusOK, string(prism_copy_to_clipboard))
+    })
+
+    // 公开路由（不需要认证）
+    r.POST("/login", loginHandler)
+    r.GET(cfg.Secure, func(ctx *gin.Context) {
+        ctx.Header("Content-Type", "text/html; charset=utf-8")
+        ctx.String(http.StatusOK, string(login))
     })
 
 
@@ -4097,13 +4145,47 @@ var ccBlockPage string
 
 
 func readWafHtml() {
-    interceptPage = loadWAFPage("intercept.html")
-    NotFoundPage = loadWAFPage("notfound.html")
-    proxyErrorPage = loadWAFPage("proxy_error.html")
-	aclBlock = loadWAFPage("aclBlock.html")
-	ccBlockPage = loadWAFPage("ccBlock.html")
+    var err error
+    interceptPageBytes, err := wafFiles.ReadFile("static/waf/intercept.html")
+    if err != nil {
+        stdlog.Printf("读取 intercept.html 失败: %v", err)
+        interceptPage = "<html><body><h1>拦截页面</h1></body></html>"
+    } else {
+        interceptPage = string(interceptPageBytes)
+    }
+    
+    notFoundBytes, err := wafFiles.ReadFile("static/waf/notfound.html")
+    if err != nil {
+        stdlog.Printf("读取 notfound.html 失败: %v", err)
+        NotFoundPage = "<html><body><h1>页面未找到</h1></body></html>"
+    } else {
+        NotFoundPage = string(notFoundBytes)
+    }
+    
+    proxyErrorBytes, err := wafFiles.ReadFile("static/waf/proxy_error.html")
+    if err != nil {
+        stdlog.Printf("读取 proxy_error.html 失败: %v", err)
+        proxyErrorPage = "<html><body><h1>代理错误</h1></body></html>"
+    } else {
+        proxyErrorPage = string(proxyErrorBytes)
+    }
+    
+    aclBlockBytes, err := wafFiles.ReadFile("static/waf/aclBlock.html")
+    if err != nil {
+        stdlog.Printf("读取 aclBlock.html 失败: %v", err)
+        aclBlock = "<html><body><h1>ACL拦截</h1></body></html>"
+    } else {
+        aclBlock = string(aclBlockBytes)
+    }
+    
+    ccBlockBytes, err := wafFiles.ReadFile("static/waf/ccBlock.html")
+    if err != nil {
+        stdlog.Printf("读取 ccBlock.html 失败: %v", err)
+        ccBlockPage = "<html><body><h1>CC攻击拦截</h1></body></html>"
+    } else {
+        ccBlockPage = string(ccBlockBytes)
+    }
 }
-
 
 func statsPrinter() {
 	ticker := time.NewTicker(time.Second)
@@ -6867,4 +6949,4 @@ func main() {
 	go StartGinAPI()
     go startHealthChecker()
 	ReverseProxy()
-}
+}   
