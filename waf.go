@@ -2553,7 +2553,7 @@ DIRECT_PROXY:
 
     // 调试：输出发送的请求 - 使用保存的请求体
     fmt.Printf("\n🚀 代理请求到后端站点: %s\n", targetURL+req.RequestURI)
-    debugPrintRequestWithBody(proxyReq, requestBody)
+    // debugPrintRequestWithBody(proxyReq, requestBody)
 
     // 添加调试：验证代理请求体内容
     if proxyReq.Body != nil {
