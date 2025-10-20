@@ -2429,6 +2429,11 @@ func handler(w http.ResponseWriter, req *http.Request) {
     var enableHTTPS bool
     var siteDomain string
     var siteHost string
+    var attacked bool
+    var log *AttackLog
+    var clientIP string
+    var ccBlocked bool
+    var ccRule *CCRule
 
     for _, site := range sites {
         if strings.EqualFold(site.Domain, host) && site.Status == 1 {
@@ -2456,9 +2461,15 @@ func handler(w http.ResponseWriter, req *http.Request) {
         return
     }
 
+    // 如果 ACL 规则是 allow，直接跳转到代理请求
+    if aclRule != nil && aclRule.Action == "allow" {
+        stdlog.Printf("ACL 允许: %s %s, 规则: %s", getClientIP(req), req.URL.Path, aclRule.Description)
+        goto DIRECT_PROXY
+    }
+
     // 检查CC规则
-    clientIP := getClientIP(req)
-    ccBlocked, ccRule := ccManager.checkCC(clientIP, host, req.URL.Path)
+    clientIP = getClientIP(req)
+    ccBlocked, ccRule = ccManager.checkCC(clientIP, host, req.URL.Path)
     if ccBlocked {
         atomic.AddUint64(&totalBlocked, 1)
         stdlog.Printf("CC 拦截: %s %s%s, 规则: %s", clientIP, host, req.URL.Path, ccRule.Name)
@@ -2472,7 +2483,7 @@ func handler(w http.ResponseWriter, req *http.Request) {
     if len(requestBody) > 0 {
         req.Body = io.NopCloser(bytes.NewBuffer(requestBody))
     }
-    attacked, log := isAttack(req)
+    attacked, log = isAttack(req)
     if attacked {
         atomic.AddUint64(&totalBlocked, 1)
         if cfg.IsWriteDbAuto {
@@ -2487,6 +2498,7 @@ func handler(w http.ResponseWriter, req *http.Request) {
         return
     }
 
+DIRECT_PROXY:
     // 3. 检查静态文件缓存
     if staticCacheConfig.Enable && req.Method == "GET" {
         cacheKey := generateCacheKey(req.URL.Path + "|" + siteDomain)
@@ -3235,7 +3247,6 @@ func (a *ACLManager) checkACL(req *http.Request, host string) (bool, *ACLRule) {
 
     return false, nil
 }
-
 func (a *ACLManager) getRulesByType(ruleType, host string) []ACLRule {
     var result []ACLRule
     for _, rule := range a.rules {
