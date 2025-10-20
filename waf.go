@@ -35,7 +35,6 @@ import (
     "sort"
     "os/exec"
     "archive/zip"
-    "runtime/debug"
     "embed"
 	
 	
@@ -48,6 +47,10 @@ import (
 
 import (
     stdlog "log" // 使用别名
+ )
+
+import (
+    "runtime/debug"
 )
 
 
@@ -6950,4 +6953,4 @@ func main() {
 	go StartGinAPI()
     go startHealthChecker()
 	ReverseProxy()
-}   
+}
