@@ -4541,23 +4541,17 @@ func isAttack(req *http.Request) (bool, *AttackLog) {
 
     rawURL := req.URL.String()
     head := sb.String()
-    paramValues := GetParamValues(req)
-    formValues := GetFormValues(req)
     
     if isActivateUrlDecode {
         rawURL = MultiDecode(rawURL)
         head = MultiDecode(head)
         body = MultiDecode(body)
-        paramValues = MultiDecode(paramValues)
-        formValues = MultiDecode(formValues)
     }
     
     if isActivateBase64 {
         rawURL = tryBase64Decode(rawURL)
         head = tryBase64Decode(head)
         body = tryBase64Decode(body)
-        paramValues = tryBase64Decode(paramValues)
-        formValues = tryBase64Decode(formValues)
     }
 
     // 修复：如果规则匹配率为0，直接返回不拦截
@@ -4594,7 +4588,7 @@ func isAttack(req *http.Request) (bool, *AttackLog) {
 
     for _, rule := range rules {
         // 获取匹配结果
-        matched, matchedValues := evaluateRule(rule, rawURL, head, body, paramValues, formValues, isBodyNull)
+        matched, matchedValues := evaluateRule(rule, rawURL, head, body, isBodyNull)
         
         if matched {
             clientIP := getClientIP(req)
@@ -4617,7 +4611,7 @@ func isAttack(req *http.Request) (bool, *AttackLog) {
 
 // 评估单条规则
 // 评估单条规则
-func evaluateRule(rule Rule, rawURL, head, body, paramValues, formValues string, isBodyNull bool) (bool, []string) {
+func evaluateRule(rule Rule, rawURL, head, body string, isBodyNull bool) (bool, []string) {
     if len(rule.Judges) == 0 {
         return false, nil
     }
@@ -4639,10 +4633,6 @@ func evaluateRule(rule Rule, rawURL, head, body, paramValues, formValues string,
                 continue
             }
             target = body
-        case "parameter_value":
-            target = paramValues
-        case "form_values":
-            target = formValues
         default:
             matchResults = append(matchResults, false)
             continue
