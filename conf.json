@@ -9,7 +9,8 @@
         "Port": 3306,
         "User": "waf",
         "Password": "waf",
-        "DBName": "waf.db"
+        "DBName": "waf.db",
+        "encryption_key": "MySecretKey123!@#"
     },
     "isWriteDbAuto": true,
     "secureentry": "fox"

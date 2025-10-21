@@ -38,7 +38,7 @@ import (
     "embed"
 	
     
-	_ "github.com/mattn/go-sqlite3"
+	_ "github.com/mutecomm/go-sqlcipher/v4"
 	"github.com/gin-gonic/gin"
 	"github.com/fatih/color"
     "github.com/gorilla/websocket"
@@ -307,11 +307,12 @@ type ServerConfig struct {
 }
 
 type DatabaseConfig struct {
-	Host     string `json:"host"`
-	Port     int    `json:"port"`
-	User     string `json:"user"`
-	Password string `json:"password"`
-	DBName   string `json:"dbname"`
+	Host           string `json:"host"`
+	Port           int    `json:"port"`
+	User           string `json:"user"`
+	Password       string `json:"password"`
+	DBName         string `json:"dbname"`
+	EncryptionKey  string `json:"encryption_key"`  // SQLite 数据库加密密钥
 }
 
 type Config struct {
@@ -5071,7 +5072,20 @@ func initDb() {
 	// SQLite3 数据库文件路径
 	dbPath := "./waf.db"
 	var err error
-	db, err = sql.Open("sqlite3", dbPath)
+	
+	// 构建连接字符串，支持加密
+	var connectionString string
+	if cfg.Database.EncryptionKey != "" {
+		// 使用加密连接
+		connectionString = fmt.Sprintf("%s?_pragma_key=%s&_pragma_cipher_page_size=4096", dbPath, cfg.Database.EncryptionKey)
+		fmt.Println("使用加密数据库连接")
+	} else {
+		// 使用非加密连接
+		connectionString = dbPath
+		fmt.Println("使用非加密数据库连接")
+	}
+	
+	db, err = sql.Open("sqlite3", connectionString)
 	if err != nil {
 		panic(fmt.Errorf("连接 SQLite3 失败: %v", err))
 	}
