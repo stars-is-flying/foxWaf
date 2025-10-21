@@ -29,7 +29,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"sync"
 	"net"
-    "crypto/md5"
+    // "crypto/md5"
     "strconv"
     "encoding/csv"
     "sort"
@@ -2144,10 +2144,10 @@ func removeFromCache(cacheKey string) {
     }
 }
 
-func generateCacheKey(urlPath string) string {
-    hash := md5.Sum([]byte(urlPath))
-    return fmt.Sprintf("cache_%x", hash)
-}
+// func generateCacheKey(urlPath string) string {
+//     hash := md5.Sum([]byte(urlPath))
+//     return fmt.Sprintf("cache_%x", hash)
+// }
 
 // 保存到磁盘缓存
 func saveToDiskCache(cacheKey string, content []byte) {
@@ -2759,7 +2759,7 @@ func handler(w http.ResponseWriter, req *http.Request) {
 DIRECT_PROXY:
     // 3. 检查静态文件缓存
     if staticCacheConfig.Enable && req.Method == "GET" {
-        cacheKey := generateCacheKey(req.URL.Path + "|" + siteDomain)
+        cacheKey := siteDomain + req.URL.Path
         if cachedFile, found := getCachedFile(cacheKey); found {
             w.Header().Set("Content-Type", cachedFile.ContentType)
             w.Header().Set("Content-Length", fmt.Sprintf("%d", cachedFile.Size))
@@ -2898,7 +2898,7 @@ DIRECT_PROXY:
 
     // 缓存处理
     if shouldCache && staticCacheConfig.Enable {
-        cacheKey := generateCacheKey(req.URL.Path + "|" + siteDomain)
+        cacheKey := siteDomain + req.URL.Path
         addToCache(cacheKey, finalBody, contentType)
         w.Header().Set("X-Cache", "MISS")
         w.Header().Set("X-Cache-Key", cacheKey)
