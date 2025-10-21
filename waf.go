@@ -37,7 +37,6 @@ import (
     "archive/zip"
     "embed"
 	
-	
     
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/gin-gonic/gin"
@@ -47,6 +46,7 @@ import (
 
 import (
     stdlog "log" // 使用别名
+    rand1  "math/rand"
  )
 
 import (
@@ -63,6 +63,240 @@ var wafFiles embed.FS
 
 //go:embed static/out/*
 var prismFiles embed.FS
+
+// ------------------- JS混淆配置 -------------------
+var EnableJSObfuscation = false // 是否启用JS混淆
+
+// ------------------- JS混淆器 (Level 2) -------------------
+type JSObfuscator struct {
+    varCounter int
+    varMap     map[string]string
+    usedVars   map[string]bool
+}
+
+func NewJSObfuscator() *JSObfuscator {
+    rand1.Seed(time.Now().UnixNano())
+    return &JSObfuscator{
+        varMap:   make(map[string]string),
+        usedVars: make(map[string]bool),
+    }
+}
+
+// 生成随机变量名
+func (o *JSObfuscator) generateRandomVar() string {
+    var newName string
+    
+    for {
+        // Level 2: 带下划线的变量
+        newName = fmt.Sprintf("_%x", o.varCounter+1000)
+        
+        // 确保变量名唯一
+        if !o.usedVars[newName] {
+            o.usedVars[newName] = true
+            break
+        }
+        o.varCounter++
+    }
+    
+    o.varCounter++
+    return newName
+}
+
+// 保留字检查
+func (o *JSObfuscator) isReservedWord(word string) bool {
+    reserved := []string{
+        "window", "document", "console", "alert", "function", "var", "let", "const",
+        "if", "else", "for", "while", "do", "switch", "case", "break", "continue",
+        "return", "new", "this", "typeof", "instanceof", "void", "delete", "try",
+        "catch", "finally", "throw", "class", "extends", "super", "export", "import",
+        "default", "true", "false", "null", "undefined", "NaN", "Infinity",
+        "Object", "Array", "String", "Number", "Boolean", "Date", "Math", "JSON",
+        "setTimeout", "setInterval", "Promise", "async", "await",
+    }
+    
+    for _, rw := range reserved {
+        if strings.ToLower(word) == strings.ToLower(rw) {
+            return true
+        }
+    }
+    return false
+}
+
+// 混淆变量名
+func (o *JSObfuscator) obfuscateVariables(code string) string {
+    // 匹配变量声明和函数声明
+    patterns := []string{
+        `\b(var|let|const)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\b`,
+        `\bfunction\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*\(`,
+        `\b([a-zA-Z_$][a-zA-Z0-9_$]*)\s*=\s*function\s*\(`,
+    }
+    
+    for _, pattern := range patterns {
+        re := regexp.MustCompile(pattern)
+        code = re.ReplaceAllStringFunc(code, func(match string) string {
+            var originalName string
+            
+            if strings.Contains(match, "function") {
+                // 处理函数声明
+                if strings.Contains(match, "=") {
+                    // 函数表达式
+                    parts := strings.Split(match, "=")
+                    originalName = strings.TrimSpace(parts[0])
+                } else {
+                    // 函数声明
+                    parts := strings.Split(match, "function")
+                    if len(parts) > 1 {
+                        namePart := strings.TrimSpace(parts[1])
+                        if idx := strings.Index(namePart, "("); idx != -1 {
+                            originalName = strings.TrimSpace(namePart[:idx])
+                        }
+                    }
+                }
+            } else {
+                // 处理变量声明
+                parts := strings.Fields(match)
+                if len(parts) >= 2 {
+                    originalName = parts[1]
+                }
+            }
+            
+            if originalName != "" && !o.isReservedWord(originalName) {
+                if newName, exists := o.varMap[originalName]; exists {
+                    return strings.Replace(match, originalName, newName, 1)
+                } else {
+                    newName := o.generateRandomVar()
+                    o.varMap[originalName] = newName
+                    return strings.Replace(match, originalName, newName, 1)
+                }
+            }
+            
+            return match
+        })
+    }
+    
+    // 替换变量使用
+    for originalName, newName := range o.varMap {
+        // 使用单词边界来避免部分匹配
+        re := regexp.MustCompile(`\b` + regexp.QuoteMeta(originalName) + `\b`)
+        code = re.ReplaceAllString(code, newName)
+    }
+    
+    return code
+}
+
+// 十六进制转义
+func (o *JSObfuscator) hexEscapeString(s string) string {
+    var result strings.Builder
+    result.WriteString(`"`)
+    for i := 0; i < len(s); i++ {
+        if rand1.Intn(2) == 0 {
+            result.WriteString(fmt.Sprintf("\\x%02x", s[i]))
+        } else {
+            result.WriteByte(s[i])
+        }
+    }
+    result.WriteString(`"`)
+    return result.String()
+}
+
+// 混淆字符串
+func (o *JSObfuscator) obfuscateStrings(code string) string {
+    strPattern := `"([^"\\]*(\\.[^"\\]*)*)"|'([^'\\]*(\\.[^'\\]*)*)'`
+    re := regexp.MustCompile(strPattern)
+    
+    return re.ReplaceAllStringFunc(code, func(match string) string {
+        if len(match) < 2 {
+            return match
+        }
+        
+        // 提取字符串内容
+        content := match[1 : len(match)-1]
+        
+        // 跳过太短的字符串
+        if len(content) < 2 {
+            return match
+        }
+        
+        // Level 2: 十六进制转义
+        return o.hexEscapeString(content)
+    })
+}
+
+// 数字混淆
+func (o *JSObfuscator) obfuscateNumbers(code string) string {
+    // 匹配数字
+    numPattern := `\b\d+\b`
+    re := regexp.MustCompile(numPattern)
+    
+    return re.ReplaceAllStringFunc(code, func(match string) string {
+        num, err := strconv.Atoi(match)
+        if err != nil {
+            return match
+        }
+        
+        // 跳过 0 和 1，因为它们太常见
+        if num == 0 || num == 1 {
+            return match
+        }
+        
+        // 简单的数学表达式
+        operations := []string{
+            fmt.Sprintf("(%d*%d)", num, 1),
+            fmt.Sprintf("(%d+%d)", num-1, 1),
+            fmt.Sprintf("(%d/%d)", num*2, 2),
+        }
+        return operations[rand1.Intn(len(operations))]
+    })
+}
+
+// 插入无用代码
+func (o *JSObfuscator) insertDeadCode(code string) string {
+    lines := strings.Split(code, "\n")
+    var result []string
+    
+    deadCodeTemplates := []string{
+        "!![];",
+        "void 0;",
+        "~-1;",
+        "delete null;",
+        "typeof undefined;",
+        "false;",
+        "true;",
+        "null;",
+    }
+    
+    for _, line := range lines {
+        result = append(result, line)
+        // 在合适的行后插入死代码
+        if rand1.Intn(4) == 0 && strings.Contains(line, "{") {
+            deadCode := "    " + deadCodeTemplates[rand1.Intn(len(deadCodeTemplates))]
+            result = append(result, deadCode)
+        } else if rand1.Intn(5) == 0 && strings.Contains(line, ";") && !strings.Contains(line, "}") {
+            deadCode := deadCodeTemplates[rand1.Intn(len(deadCodeTemplates))]
+            result = append(result, deadCode)
+        }
+    }
+    
+    return strings.Join(result, "\n")
+}
+
+// 主混淆函数
+func (o *JSObfuscator) Obfuscate(jsCode string) string {
+    // 重置状态
+    o.varCounter = 0
+    o.varMap = make(map[string]string)
+    o.usedVars = make(map[string]bool)
+    
+    var result string = jsCode
+    
+    // 应用混淆技术
+    result = o.obfuscateVariables(result)
+    result = o.obfuscateStrings(result)
+    result = o.obfuscateNumbers(result)
+    result = o.insertDeadCode(result)
+    
+    return result
+}
 
 
 
@@ -1823,6 +2057,7 @@ func getCachedFile(cacheKey string) (*CachedFile, bool) {
 }
 
 // 添加到缓存
+// 添加到缓存
 func addToCache(cacheKey string, content []byte, contentType string) {
     if !staticCacheConfig.Enable {
         return
@@ -1834,6 +2069,14 @@ func addToCache(cacheKey string, content []byte, contentType string) {
     if EnableAntiDevTools && isHTMLContent(contentType) {
         modifiedContent := injectAntiDevTools(string(content))
         finalContent = []byte(modifiedContent)
+    }
+    
+    // 新增：如果启用JS混淆且是JavaScript内容，进行混淆
+    if EnableJSObfuscation && isJSContent(contentType) {
+        obfuscator := NewJSObfuscator()
+        obfuscatedJS := obfuscator.Obfuscate(string(content))
+        finalContent = []byte(obfuscatedJS)
+        stdlog.Printf("JS混淆已应用: %s", cacheKey)
     }
     
     fileSize := int64(len(finalContent))
@@ -1874,6 +2117,18 @@ func addToCache(cacheKey string, content []byte, contentType string) {
     
     stdlog.Printf("缓存添加成功: %s, 大小: %.2f KB", cacheKey, float64(fileSize)/1024)
 }
+
+// 检查是否为JavaScript内容
+func isJSContent(contentType string) bool {
+    if contentType == "" {
+        return false
+    }
+    contentType = strings.ToLower(contentType)
+    return strings.Contains(contentType, "application/javascript") || 
+           strings.Contains(contentType, "text/javascript")
+}
+
+
 
 // 从缓存移除
 func removeFromCache(cacheKey string) {
@@ -5544,12 +5799,15 @@ func removeSiteCertificateHandler(c *gin.Context) {
 }
 
 // ------------------- 系统设置结构 -------------------
+// ------------------- 系统设置结构 -------------------
 type SystemSettings struct {
     EnableAntiDevTools bool `json:"enable_anti_devtools"`
+    EnableJSObfuscation bool `json:"enable_js_obfuscation"` // 新增：JS混淆开关
     RuleMatchRate      int  `json:"rule_match_rate"`
     Base64Depth        int  `json:"base64_depth"`
     URLDepth           int  `json:"url_depth"`
 }
+
 func debugPrintRequestWithBody(req *http.Request, bodyBytes []byte) {
     fmt.Printf("\n=== 发送请求 ===\n")
     fmt.Printf("%s %s %s\n", req.Method, req.URL.RequestURI(), req.Proto)
@@ -5634,6 +5892,7 @@ func updateSettingsHandler(c *gin.Context) {
 
     // 更新全局变量
     EnableAntiDevTools = settings.EnableAntiDevTools
+    EnableJSObfuscation = settings.EnableJSObfuscation // 新增：更新JS混淆设置
     RuleMatchRate = settings.RuleMatchRate
     maxDepth = settings.Base64Depth
     maxUrlDepth = settings.URLDepth
@@ -6877,9 +7136,11 @@ func getMonitorHistoryHandler(c *gin.Context) {
 
 
 // ------------------- 获取设置接口 -------------------
+// ------------------- 获取设置接口 -------------------
 func getSettingsHandler(c *gin.Context) {
     settings := SystemSettings{
         EnableAntiDevTools: EnableAntiDevTools,
+        EnableJSObfuscation: EnableJSObfuscation, // 新增：返回JS混淆设置
         RuleMatchRate:      RuleMatchRate,
         Base64Depth:        maxDepth,
         URLDepth:           maxUrlDepth,

@@ -1694,6 +1694,20 @@ code[class*="language-"] {
                     </div>
                 </div>
                 
+                <!-- 新增：JS混淆开关 -->
+                <div class="form-group">
+                    <label class="form-label">JS混淆</label>
+                    <div>
+                        <label style="display: inline-flex; align-items: center; gap: 8px; margin-right: 20px;">
+                            <input type="radio" name="js-obfuscation" value="true"> 启用
+                        </label>
+                        <label style="display: inline-flex; align-items: center; gap: 8px;">
+                            <input type="radio" name="js-obfuscation" value="false"> 禁用
+                        </label>
+                    </div>
+                    <small style="color: #666;">启用后会对前端JavaScript代码进行混淆，增强安全性</small>
+                </div>
+                
                 <div class="form-group">
                     <label class="form-label">规则匹配率 (%)</label>
                     <input type="range" id="rule-match-rate" min="0" max="100" value="100" class="form-control">
@@ -4856,82 +4870,89 @@ async function showLogDetail(logId) {
         }
 
         // 加载设置
-            async function loadSettings() {
-                try {
-                    const response = await fetch('/api/settings', {
-                        method: 'GET',
-                        credentials: 'include'
-                    });
+            // 加载设置
+                async function loadSettings() {
+                    try {
+                        const response = await fetch('/api/settings', {
+                            method: 'GET',
+                            credentials: 'include'
+                        });
 
-                    if (response.ok) {
-                        const data = await response.json();
-                        const settings = data.settings;
+                        if (response.ok) {
+                            const data = await response.json();
+                            const settings = data.settings;
 
-                        // 更新界面显示
-                        document.querySelector(`input[name="anti-devtools"][value="${settings.enable_anti_devtools}"]`).checked = true;
-                        document.getElementById('rule-match-rate').value = settings.rule_match_rate;
-                        document.getElementById('rule-match-rate-value').textContent = settings.rule_match_rate + '%';
-                        document.getElementById('base64-depth').value = settings.base64_depth;
-                        document.getElementById('url-depth').value = settings.url_depth;
+                            // 更新界面显示
+                            document.querySelector(`input[name="anti-devtools"][value="${settings.enable_anti_devtools}"]`).checked = true;
 
-                    } else {
-                        console.error('加载设置失败');
+                            // 新增：JS混淆设置
+                            document.querySelector(`input[name="js-obfuscation"][value="${settings.enable_js_obfuscation}"]`).checked = true;
+
+                            document.getElementById('rule-match-rate').value = settings.rule_match_rate;
+                            document.getElementById('rule-match-rate-value').textContent = settings.rule_match_rate + '%';
+                            document.getElementById('base64-depth').value = settings.base64_depth;
+                            document.getElementById('url-depth').value = settings.url_depth;
+
+                        } else {
+                            console.error('加载设置失败');
+                        }
+                    } catch (error) {
+                        console.error('加载设置错误:', error);
                     }
-                } catch (error) {
-                    console.error('加载设置错误:', error);
-                }
 
-                // 添加滑块事件监听
-                document.getElementById('rule-match-rate').addEventListener('input', function () {
-                    document.getElementById('rule-match-rate-value').textContent = this.value + '%';
-                });
-            }
+                    // 添加滑块事件监听
+                    document.getElementById('rule-match-rate').addEventListener('input', function () {
+                        document.getElementById('rule-match-rate-value').textContent = this.value + '%';
+                    });
+                }
 
         // 保存设置
-            async function saveSettings() {
-                try {
-                    const settings = {
-                        enable_anti_devtools: document.querySelector('input[name="anti-devtools"]:checked').value === 'true',
-                        rule_match_rate: parseInt(document.getElementById('rule-match-rate').value),
-                        base64_depth: parseInt(document.getElementById('base64-depth').value),
-                        url_depth: parseInt(document.getElementById('url-depth').value)
-                    };
+            // 保存设置
+                async function saveSettings() {
+                    try {
+                        const settings = {
+                            enable_anti_devtools: document.querySelector('input[name="anti-devtools"]:checked').value === 'true',
+                            enable_js_obfuscation: document.querySelector('input[name="js-obfuscation"]:checked').value === 'true', // 新增
+                            rule_match_rate: parseInt(document.getElementById('rule-match-rate').value),
+                            base64_depth: parseInt(document.getElementById('base64-depth').value),
+                            url_depth: parseInt(document.getElementById('url-depth').value)
+                        };
 
-                    // 验证输入
-                    if (settings.rule_match_rate < 0 || settings.rule_match_rate > 100) {
-                        showMessage('规则匹配率必须在0-100之间', 'error');
-                        return;
-                    }
-                    if (settings.base64_depth < 0 || settings.base64_depth > 10) {
-                        showMessage('Base64解码深度必须在0-10之间', 'error');
-                        return;
-                    }
-                    if (settings.url_depth < 0 || settings.url_depth > 10) {
-                        showMessage('URL解码深度必须在0-10之间', 'error');
-                        return;
-                    }
+                        // 验证输入
+                        if (settings.rule_match_rate < 0 || settings.rule_match_rate > 100) {
+                            showMessage('规则匹配率必须在0-100之间', 'error');
+                            return;
+                        }
+                        if (settings.base64_depth < 0 || settings.base64_depth > 10) {
+                            showMessage('Base64解码深度必须在0-10之间', 'error');
+                            return;
+                        }
+                        if (settings.url_depth < 0 || settings.url_depth > 10) {
+                            showMessage('URL解码深度必须在0-10之间', 'error');
+                            return;
+                        }
 
-                    const response = await fetch('/api/settings', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        credentials: 'include',
-                        body: JSON.stringify(settings)
-                    });
+                        const response = await fetch('/api/settings', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            credentials: 'include',
+                            body: JSON.stringify(settings)
+                        });
 
-                    if (response.ok) {
-                        const result = await response.json();
-                        showMessage(result.message || '设置保存成功', 'success');
-                    } else {
-                        const error = await response.text();
-                        showMessage('保存失败: ' + error, 'error');
+                        if (response.ok) {
+                            const result = await response.json();
+                            showMessage(result.message || '设置保存成功', 'success');
+                        } else {
+                            const error = await response.text();
+                            showMessage('保存失败: ' + error, 'error');
+                        }
+                    } catch (error) {
+                        console.error('保存设置错误:', error);
+                        showMessage('保存失败: ' + error.message, 'error');
                     }
-                } catch (error) {
-                    console.error('保存设置错误:', error);
-                    showMessage('保存失败: ' + error.message, 'error');
                 }
-            }
 
         // 模态框功能
         function showModal() {
@@ -5652,4 +5673,4 @@ document.addEventListener('DOMContentLoaded', function() {
     </script>
 </body>
 
-</html> 缓存点击 其他页面时 没有 反应 一直在 一号页面
+</html>
