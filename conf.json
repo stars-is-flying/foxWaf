@@ -4,11 +4,12 @@
         "Port": 8080
     },
     "Database": {
+        "_comment": "现在使用 SQLite3，以下配置字段保留但不使用",
         "Host": "127.0.0.1",
         "Port": 3306,
         "User": "waf",
         "Password": "waf",
-        "DBName": "waf"
+        "DBName": "waf.db"
     },
     "isWriteDbAuto": true,
     "secureentry": "fox"

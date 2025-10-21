@@ -38,7 +38,7 @@ import (
     "embed"
 	
     
-	_ "github.com/go-sql-driver/mysql"
+	_ "github.com/mattn/go-sqlite3"
 	"github.com/gin-gonic/gin"
 	"github.com/fatih/color"
     "github.com/gorilla/websocket"
@@ -359,7 +359,7 @@ func loadCCRulesFromDB() {
     
     rows, err := db.Query(query)
     if err != nil {
-        if strings.Contains(err.Error(), "doesn't exist") {
+        if strings.Contains(err.Error(), "no such table") {
             createCCTable()
             return
         }
@@ -396,19 +396,17 @@ func loadCCRulesFromDB() {
 func createCCTable() {
     createTable := `
         CREATE TABLE IF NOT EXISTS cc_rules (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            name VARCHAR(100) NOT NULL COMMENT '规则名称',
-            domain VARCHAR(255) NOT NULL COMMENT '应用域名',
-            path VARCHAR(500) DEFAULT '' COMMENT '路径模式',
-            rate_limit INT NOT NULL COMMENT '限制次数',
-            time_window INT NOT NULL COMMENT '时间窗口(秒)',
-            action VARCHAR(20) NOT NULL DEFAULT 'block' COMMENT '动作: block, challenge',
-            enabled TINYINT(1) NOT NULL DEFAULT 1 COMMENT '是否启用',
-            description TEXT COMMENT '规则描述',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            INDEX idx_domain (domain),
-            INDEX idx_enabled (enabled)
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            domain TEXT NOT NULL,
+            path TEXT DEFAULT '',
+            rate_limit INTEGER NOT NULL,
+            time_window INTEGER NOT NULL,
+            action TEXT NOT NULL DEFAULT 'block',
+            enabled INTEGER NOT NULL DEFAULT 1,
+            description TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     `
     
@@ -421,19 +419,15 @@ func createCCTable() {
     // 创建CC攻击日志表
     createLogTable := `
         CREATE TABLE IF NOT EXISTS cc_attack_logs (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            client_ip VARCHAR(45) NOT NULL COMMENT '客户端IP',
-            domain VARCHAR(255) NOT NULL COMMENT '域名',
-            path VARCHAR(500) DEFAULT '' COMMENT '路径',
-            rule_id INT NOT NULL COMMENT '触发的规则ID',
-            rule_name VARCHAR(100) NOT NULL COMMENT '规则名称',
-            count INT NOT NULL COMMENT '请求次数',
-            action VARCHAR(20) NOT NULL COMMENT '执行动作',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            INDEX idx_ip (client_ip),
-            INDEX idx_domain (domain),
-            INDEX idx_rule (rule_id),
-            INDEX idx_time (created_at)
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            client_ip TEXT NOT NULL,
+            domain TEXT NOT NULL,
+            path TEXT DEFAULT '',
+            rule_id INTEGER NOT NULL,
+            rule_name TEXT NOT NULL,
+            count INTEGER NOT NULL,
+            action TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     `
     
@@ -643,7 +637,7 @@ func (c *CCManager) getStats() CCStats {
     
     // 今日拦截次数
     today := time.Now().Format("2006-01-02")
-    err = db.QueryRow("SELECT COUNT(*) FROM cc_attack_logs WHERE DATE(created_at) = ?", today).Scan(&stats.TodayBlocked)
+    err = db.QueryRow("SELECT COUNT(*) FROM cc_attack_logs WHERE date(created_at) = ?", today).Scan(&stats.TodayBlocked)
     if err != nil {
         stdlog.Printf("查询CC今日拦截数失败: %v", err)
     }
@@ -661,7 +655,7 @@ func (c *CCManager) getStats() CCStats {
     rows, err := db.Query(`
         SELECT client_ip, COUNT(*) as count, MAX(created_at) as last_seen 
         FROM cc_attack_logs 
-        WHERE created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
+        WHERE created_at >= datetime('now', '-24 hours')
         GROUP BY client_ip 
         ORDER BY count DESC 
         LIMIT 10
@@ -681,7 +675,7 @@ func (c *CCManager) getStats() CCStats {
     rows, err = db.Query(`
         SELECT rule_id, rule_name, COUNT(*) as blocked 
         FROM cc_attack_logs 
-        WHERE created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
+        WHERE created_at >= datetime('now', '-24 hours')
         GROUP BY rule_id, rule_name 
         ORDER BY blocked DESC
     `)
@@ -3382,7 +3376,7 @@ func loadACLRulesFromDB() {
     rows, err := db.Query(query)
     if err != nil {
         // 如果表不存在，创建表
-        if strings.Contains(err.Error(), "doesn't exist") {
+        if strings.Contains(err.Error(), "no such table") {
             createACLTable()
             return
         }
@@ -3418,20 +3412,16 @@ func loadACLRulesFromDB() {
 func createACLTable() {
     createTable := `
         CREATE TABLE IF NOT EXISTS acl_rules (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            type VARCHAR(20) NOT NULL DEFAULT 'global' COMMENT '规则类型: global, host',
-            host VARCHAR(255) DEFAULT NULL COMMENT '针对的域名',
-            rule_type VARCHAR(50) NOT NULL COMMENT '规则类型: ip, country, user_agent, referer, path',
-            pattern TEXT NOT NULL COMMENT '匹配模式',
-            action VARCHAR(10) NOT NULL COMMENT '动作: allow, block',
-            description TEXT COMMENT '规则描述',
-            enabled TINYINT(1) NOT NULL DEFAULT 1 COMMENT '是否启用',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            INDEX idx_type (type),
-            INDEX idx_host (host),
-            INDEX idx_rule_type (rule_type),
-            INDEX idx_enabled (enabled)
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            type TEXT NOT NULL DEFAULT 'global',
+            host TEXT DEFAULT NULL,
+            rule_type TEXT NOT NULL,
+            pattern TEXT NOT NULL,
+            action TEXT NOT NULL,
+            description TEXT,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     `
     
@@ -5078,13 +5068,12 @@ func initDb() {
 		return
 	}
 
-	dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8mb4&parseTime=True&loc=Local",
-		cfg.Database.User, cfg.Database.Password, cfg.Database.Host, cfg.Database.Port, cfg.Database.DBName,
-	)
+	// SQLite3 数据库文件路径
+	dbPath := "./waf.db"
 	var err error
-	db, err = sql.Open("mysql", dsn)
+	db, err = sql.Open("sqlite3", dbPath)
 	if err != nil {
-		panic(fmt.Errorf("连接 MySQL 失败: %v", err))
+		panic(fmt.Errorf("连接 SQLite3 失败: %v", err))
 	}
 
 	// 优化连接池配置
@@ -5103,16 +5092,16 @@ func initDb() {
 
 	createTable := `
     CREATE TABLE attacks (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        method VARCHAR(10),
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        method TEXT,
         url TEXT,
         headers TEXT,
-        body LONGTEXT,
+        body TEXT,
         rule_name TEXT,
         rule_id TEXT,
         matched_value TEXT,
-        client_ip VARCHAR(45),  -- 新增客户端IP字段，支持IPv6
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        client_ip TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );`
 	if _, err := db.Exec(createTable); err != nil {
 		panic(fmt.Errorf("建表失败: %v", err))
@@ -5120,11 +5109,11 @@ func initDb() {
 
 	createCertTable := `
 	CREATE TABLE IF NOT EXISTS certificates (
-		id INT AUTO_INCREMENT PRIMARY KEY,
-		name VARCHAR(100) NOT NULL COMMENT '证书名称/备注',
-		cert_text TEXT NOT NULL COMMENT '证书内容(PEM)',
-		key_text  TEXT NOT NULL COMMENT '私钥内容(PEM)',
-		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '上传时间'
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		name TEXT NOT NULL,
+		cert_text TEXT NOT NULL,
+		key_text TEXT NOT NULL,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);`
 	if _, err := db.Exec(createCertTable); err != nil {
 		panic(fmt.Errorf("建表 certificates 失败: %v", err))
@@ -5132,15 +5121,15 @@ func initDb() {
 
 	createTable1 := `
 	CREATE TABLE IF NOT EXISTS sites (
-		id INT AUTO_INCREMENT PRIMARY KEY,
-		name VARCHAR(100) NOT NULL COMMENT '站点名称',
-		domain VARCHAR(255) NOT NULL UNIQUE COMMENT '对外访问的域名',
-		target_url VARCHAR(255) NOT NULL COMMENT '反向代理目标URL',
-		enable_https TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否启用HTTPS (0=否 1=是)',
-		cert_id INT DEFAULT NULL COMMENT '关联的证书ID',
-		status TINYINT(1) NOT NULL DEFAULT 1 COMMENT '状态 (1=启用 0=禁用)',
-		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间'
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		name TEXT NOT NULL,
+		domain TEXT NOT NULL UNIQUE,
+		target_url TEXT NOT NULL,
+		enable_https INTEGER NOT NULL DEFAULT 0,
+		cert_id INTEGER DEFAULT NULL,
+		status INTEGER NOT NULL DEFAULT 1,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);`
 
 	if _, err := db.Exec(createTable1); err != nil {
@@ -5205,7 +5194,7 @@ func initDb() {
 		go attackWorker()
 	}
 
-	fmt.Println("MySQL 已连接，Worker 已启动，数据库已重置")
+	fmt.Println("SQLite3 已连接，Worker 已启动，数据库已重置")
 }
 
 // 从数据库加载证书
