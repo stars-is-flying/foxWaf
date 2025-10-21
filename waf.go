@@ -2886,7 +2886,7 @@ DIRECT_PROXY:
     } else {
         finalBody = bodyBytes
         // 检查是否为可缓存的静态文件
-        if staticCacheConfig.Enable && req.Method == "GET" && resp.StatusCode == 200 && req.URL.String() == req.URL.Path {
+        if staticCacheConfig.Enable && req.Method == "GET" && resp.StatusCode == 200{
             if isCacheableStaticFile(req.URL.Path) {
                 shouldCache = true
             }
@@ -2994,9 +2994,23 @@ func getCacheFilesHandler(c *gin.Context) {
     })
 }
 
+var request struct {
+        File string `json:"file" binding:"required"`
+    }
+
+
 // ------------------- 获取缓存文件内容接口 -------------------
 func getCacheFileContentHandler(c *gin.Context) {
-    cacheKey := c.Param("key")
+
+    if err := c.ShouldBindJSON(&request); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{
+            "error": "无效的请求参数",
+            "details": err.Error(),
+        })
+        return
+    }
+    
+    cacheKey := request.File
     
     cacheMutex.RLock()
     cachedFile, exists := fileCache[cacheKey]
@@ -4322,7 +4336,8 @@ func StartGinAPI() {
         authGroup.POST("/api/cache/clear", clearCacheHandler)
         authGroup.GET("/api/cache/stats/detail", getCacheStatsDetailHandler) // 新增详细统计
         authGroup.GET("/api/cache/files", getCacheFilesHandler)
-        authGroup.GET("/api/cache/files/:key", getCacheFileContentHandler)
+        authGroup.POST("/api/cache/files", getCacheFileContentHandler)
+        authGroup.DELETE("/api/cache/files/delete", deleteCacheFileHandler)  // 新增：删除单个缓存文件
 
         // 添加站点
         authGroup.POST("/api/site/add", addSiteHandler)
@@ -7106,6 +7121,64 @@ func reloadCustomRulesHandler(c *gin.Context) {
         "count":   len(customRuleManager.rules),
     })
 }
+
+// ------------------- 删除单个缓存文件 -------------------
+func deleteSingleCacheFile(cacheKey string) bool {
+    if !staticCacheConfig.Enable {
+        return false
+    }
+    
+    cacheMutex.Lock()
+    defer cacheMutex.Unlock()
+    
+    if cachedFile, exists := fileCache[cacheKey]; exists {
+        // 从内存缓存中移除
+        currentCacheSize -= cachedFile.Size
+        delete(fileCache, cacheKey)
+        
+        // 从磁盘缓存中删除
+        go deleteDiskCache(cacheKey)
+        
+        stdlog.Printf("单个缓存文件已删除: %s, 释放大小: %.2f KB", 
+            cacheKey, float64(cachedFile.Size)/1024)
+        return true
+    }
+    
+    return false
+}
+
+// ------------------- 删除单个缓存文件请求 -------------------
+type DeleteCacheFileRequest struct {
+    File string `json:"file" binding:"required"`
+}
+
+// ------------------- 删除单个缓存文件接口 -------------------
+func deleteCacheFileHandler(c *gin.Context) {
+    var req DeleteCacheFileRequest
+    if err := c.ShouldBindJSON(&req); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "无效的请求参数"})
+        return
+    }
+    
+    cacheKey := req.File
+    if cacheKey == "" {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "缓存文件键不能为空"})
+        return
+    }
+    
+    deleted := deleteSingleCacheFile(cacheKey)
+    if !deleted {
+        c.JSON(http.StatusNotFound, gin.H{"error": "缓存文件不存在"})
+        return
+    }
+    
+    c.JSON(http.StatusOK, gin.H{
+        "message": "缓存文件删除成功",
+        "file":    cacheKey,
+    })
+}
+
+
 
 
 
