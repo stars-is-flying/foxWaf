@@ -2664,15 +2664,31 @@ func handler(w http.ResponseWriter, req *http.Request) {
         return
     }
 
-    // 第一步：立即读取并保存原始请求体
+    // 第一步：计算 Content-Length，决定是否跳过 WAF 检测
     var requestBody []byte
-    if req.Body != nil {
-        var err error
-        requestBody, err = io.ReadAll(req.Body)
-        if err != nil {
-            stdlog.Printf("读取请求体失败: %v", err)
+    const maxWAFBodySize int64 = 2 * 1024 * 1024 // 2MB
+    var skipWAF bool
+    // 尝试获取内容长度
+    contentLength := req.ContentLength
+    if contentLength <= 0 {
+        if clStr := req.Header.Get("Content-Length"); clStr != "" {
+            if clParsed, err := strconv.ParseInt(clStr, 10, 64); err == nil {
+                contentLength = clParsed
+            }
         }
-        // 不立即重置，后面会统一处理
+    }
+    if contentLength > maxWAFBodySize {
+        skipWAF = true
+        stdlog.Printf("请求体过大(%d bytes)，跳过 WAF 检测，直接转发", contentLength)
+    } else {
+        // 小体或未知长度：读取请求体供 WAF 检测与后续转发
+        if req.Body != nil {
+            var err error
+            requestBody, err = io.ReadAll(req.Body)
+            if err != nil {
+                stdlog.Printf("读取请求体失败: %v", err)
+            }
+        }
     }
 
     // 第二步：所有安全检查使用保存的请求体副本
@@ -2736,19 +2752,25 @@ func handler(w http.ResponseWriter, req *http.Request) {
     if len(requestBody) > 0 {
         req.Body = io.NopCloser(bytes.NewBuffer(requestBody))
     }
-    attacked, log = isAttack(req)
-    if attacked {
-        atomic.AddUint64(&totalBlocked, 1)
-        if cfg.IsWriteDbAuto {
-            attackChan <- *log
-            w.WriteHeader(http.StatusForbidden)
-            w.Write([]byte(interceptPage))
-        } else {
-            w.Header().Set("Content-Type", "application/json")
-            w.WriteHeader(http.StatusForbidden)
-            json.NewEncoder(w).Encode(log)
+    // 2. 再检查 WAF 规则 - 仅在未跳过时
+    if !skipWAF {
+        if len(requestBody) > 0 {
+            req.Body = io.NopCloser(bytes.NewBuffer(requestBody))
         }
-        return
+        attacked, log = isAttack(req)
+        if attacked {
+            atomic.AddUint64(&totalBlocked, 1)
+            if cfg.IsWriteDbAuto {
+                attackChan <- *log
+                w.WriteHeader(http.StatusForbidden)
+                w.Write([]byte(interceptPage))
+            } else {
+                w.Header().Set("Content-Type", "application/json")
+                w.WriteHeader(http.StatusForbidden)
+                json.NewEncoder(w).Encode(log)
+            }
+            return
+        }
     }
 
 DIRECT_PROXY:
@@ -2768,9 +2790,12 @@ DIRECT_PROXY:
         }
     }
 
-    // 第四步：构造代理请求 - 使用保存的原始请求体
+    // 第四步：构造代理请求 - 小体用内存，大体保持原始流式
     var bodyReader io.Reader
-    if len(requestBody) > 0 {
+    if skipWAF {
+        // 使用原始 req.Body 流式转发，避免内存化
+        bodyReader = req.Body
+    } else if len(requestBody) > 0 {
         bodyReader = bytes.NewBuffer(requestBody)
     } else {
         bodyReader = nil
