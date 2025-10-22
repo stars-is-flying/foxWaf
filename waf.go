@@ -39,6 +39,7 @@ import (
 	
     
 	_ "github.com/mutecomm/go-sqlcipher/v4"
+    "gopkg.in/yaml.v3"
 	"github.com/gin-gonic/gin"
 	"github.com/fatih/color"
     "github.com/gorilla/websocket"
@@ -300,26 +301,26 @@ func (o *JSObfuscator) Obfuscate(jsCode string) string {
 
 
 
-// ------------------- 配置 -------------------
+// 配置相关结构体
 type ServerConfig struct {
-	Addr string `json:"addr"`
-	Port int    `json:"port"`
+    Addr string `yaml:"addr"`
+    Port int    `yaml:"port"`
 }
 
 type DatabaseConfig struct {
-	Host           string `json:"host"`
-	Port           int    `json:"port"`
-	User           string `json:"user"`
-	Password       string `json:"password"`
-	DBName         string `json:"dbname"`
-	EncryptionKey  string `json:"encryption_key"`  // SQLite 数据库加密密钥
+    Host          string `yaml:"host"`
+    Port          int    `yaml:"port"`
+    User          string `yaml:"user"`
+    Password      string `yaml:"password"`
+    DBName        string `yaml:"dbname"`
+    EncryptionKey string `yaml:"encryption_key"`
 }
 
 type Config struct {
-	Server        ServerConfig   `json:"server"`
-	Database      DatabaseConfig `json:"database"`
-	IsWriteDbAuto bool           `json:"isWriteDbAuto"`
-	Secure        string         `json:"secureentry"`
+    Server        ServerConfig   `yaml:"server"`
+    Database      DatabaseConfig `yaml:"database"`
+    IsWriteDbAuto bool           `yaml:"isWriteDbAuto"`
+    Secure        string         `yaml:"secureentry"`
 }
 
 var cfg Config // 全局配置
@@ -992,22 +993,23 @@ func clearCCCountersHandler(c *gin.Context) {
 
 
 // ------------------- 规则 -------------------
+// 规则相关结构体
 type Judge struct {
-    Position string `json:"position" binding:"required"`
-    Content  string `json:"content"`
-    Rix      string `json:"rix"`
-    Action   string `json:"action"`
-    regex    *regexp.Regexp `json:"-"` // 使用 - 忽略 JSON 序列化
+    Position string `yaml:"position" binding:"required"`
+    Content  string `yaml:"content"`
+    Rix      string `yaml:"rix"`
+    Action   string `yaml:"action"`
+    regex    *regexp.Regexp `yaml:"-"`
 }
 
 type Rule struct {
-	Name        string  `json:"name"`
-	Description string  `json:"description"`
-	ID          string  `json:"id"`
-	Method      string  `json:"method"`
-    Relation    string  `json:"relation"`
-	Judges      []Judge `json:"judge"`
-	Enabled     bool    `json:"enabled"` // 新增：是否启用规则
+    Name        string  `yaml:"name"`
+    Description string  `yaml:"description"`
+    ID          string  `yaml:"id"`
+    Method      string  `yaml:"method"`
+    Relation    string  `yaml:"relation"`
+    Judges      []Judge `yaml:"judge"`
+    Enabled     bool    `yaml:"enabled"`
 }
 
 var RULES map[string][]Rule
@@ -5024,7 +5026,7 @@ func readRule() {
 			return err
 		}
 
-		if filepath.Ext(path) != ".json" {
+		if filepath.Ext(path) != ".yaml" {
 			return nil
 		}
 
@@ -5036,7 +5038,7 @@ func readRule() {
 
 		if strings.HasPrefix(string(data), "[") {
 			var rules []Rule
-			if err := json.Unmarshal(data, &rules); err != nil {
+			if err := yaml.Unmarshal(data, &rules); err != nil {
 				fmt.Printf("解析 JSON 数组失败: %s, 错误: %v\n", path, err)
 				return nil
 			}
@@ -5054,7 +5056,7 @@ func readRule() {
 			}
 		} else {
 			var r Rule
-			if err := json.Unmarshal(data, &r); err != nil {
+			if err := yaml.Unmarshal(data, &r); err != nil {
 				fmt.Printf("解析 JSON 失败: %s, 错误: %v\n", path, err)
 				return nil
 			}
@@ -6390,15 +6392,15 @@ func startMonitorHistoryWorker() {
 // 自定义规则目录
 const customRuleDir = "./ownrule"
 
-// 自定义规则结构
+// 自定义规则相关
 type CustomRule struct {
-    ID          string `json:"id"`
-    Name        string `json:"name"`
-    Description string `json:"description"`
-    Method      string `json:"method"`
-    Relation    string `json:"relation"`
-    Judges      []Judge `json:"judge"`
-    Enabled     bool   `json:"enabled"`
+    ID          string  `yaml:"id"`
+    Name        string  `yaml:"name"`
+    Description string  `yaml:"description"`
+    Method      string  `yaml:"method"`
+    Relation    string  `yaml:"relation"`
+    Judges      []Judge `yaml:"judge"`
+    Enabled     bool    `yaml:"enabled"`
 }
 
 // 自定义规则管理器
@@ -6444,7 +6446,7 @@ func loadCustomRules() {
     })
 
     for _, file := range files {
-        if filepath.Ext(file.Name()) != ".json" {
+        if filepath.Ext(file.Name()) != ".yaml" {
             continue
         }
 
@@ -6456,7 +6458,7 @@ func loadCustomRules() {
         }
 
         var ruleJSON CustomRuleJSON
-        if err := json.Unmarshal(data, &ruleJSON); err != nil {
+        if err := yaml.Unmarshal(data, &ruleJSON); err != nil {
             stdlog.Printf("解析自定义规则文件失败 %s: %v", file.Name(), err)
             continue
         }
@@ -6575,29 +6577,28 @@ func generateNextRuleID() string {
 
 // ------------------- 序列化用的 Judge 结构体 -------------------
 type JudgeJSON struct {
-    Position string `json:"position" binding:"required"`
-    Content  string `json:"content"`
-    Rix      string `json:"rix"`
-    Action   string `json:"action"`
+    Position string `yaml:"position" binding:"required"`
+    Content  string `yaml:"content"`
+    Rix      string `yaml:"rix"`
+    Action   string `yaml:"action"`
 }
-
 
 
 // ------------------- 自定义规则序列化结构 -------------------
 type CustomRuleJSON struct {
-    ID          string      `json:"id"`
-    Name        string      `json:"name"`
-    Description string      `json:"description"`
-    Method      string      `json:"method"`
-    Relation    string      `json:"relation"`
-    Judges      []JudgeJSON `json:"judges"`
-    Enabled     bool        `json:"enabled"`
+    ID          string      `yaml:"id"`
+    Name        string      `yaml:"name"`
+    Description string      `yaml:"description"`
+    Method      string      `yaml:"method"`
+    Relation    string      `yaml:"relation"`
+    Judges      []JudgeJSON `yaml:"judges"`
+    Enabled     bool        `yaml:"enabled"`
 }
 
 // 保存规则到文件
 // ------------------- 修复保存规则到文件 -------------------
 func saveRuleToFile(rule CustomRule) error {
-    filePath := filepath.Join(customRuleDir, fmt.Sprintf("%s.json", rule.ID))
+    filePath := filepath.Join(customRuleDir, fmt.Sprintf("%s.yaml", rule.ID))
     
     // 转换为序列化结构
     ruleJSON := CustomRuleJSON{
@@ -6619,7 +6620,7 @@ func saveRuleToFile(rule CustomRule) error {
         }
     }
     
-    data, err := json.MarshalIndent(ruleJSON, "", "  ")
+    data, err := yaml.Marshal(ruleJSON)
     if err != nil {
         return fmt.Errorf("序列化规则失败: %v", err)
     }
@@ -7253,14 +7254,14 @@ func getSettingsHandler(c *gin.Context) {
 }
 
 func ReadConfig() {
-	confFile, err := os.ReadFile("conf.json")
-	if err != nil {
-		panic(fmt.Errorf("读取 conf.json 失败: %v", err))
-	}
+    confFile, err := os.ReadFile("conf.yaml")
+    if err != nil {
+        panic(fmt.Errorf("读取 conf.yaml 失败: %v", err))
+    }
 
-	if err := json.Unmarshal(confFile, &cfg); err != nil {
-		panic(fmt.Errorf("解析 conf.json 失败: %v", err))
-	}
+    if err := yaml.Unmarshal(confFile, &cfg); err != nil {
+        panic(fmt.Errorf("解析 conf.yaml 失败: %v", err))
+    }
 }
 
 func setAdmin() {

@@ -1,0 +1,11 @@
+id: "1"
+name: test
+description: ""
+method: GET
+relation: and
+judges:
+    - position: uri
+      content: test
+      rix: test1
+      action: is
+enabled: true

@@ -8,6 +8,7 @@ require (
 	github.com/golang-jwt/jwt/v5 v5.2.1
 	github.com/gorilla/websocket v1.5.3
 	github.com/mutecomm/go-sqlcipher/v4 v4.4.2
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
