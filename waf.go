@@ -6502,6 +6502,10 @@ func loadCustomRules() {
         }
 
         customRuleManager.rules[rule.ID] = rule
+        
+        // 立即合并到主规则系统
+        mergeCustomRuleToMain(rule)
+        
         stdlog.Printf("加载自定义规则: %s (ID: %s)", rule.Name, rule.ID)
     }
 
