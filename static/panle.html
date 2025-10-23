@@ -1726,9 +1726,30 @@ code[class*="language-"] {
                     <small style="color: #666;">设置URL解码的最大深度，0表示禁用URL解码</small>
                 </div>
                 
-                <button type="button" class="btn" onclick="saveSettings()">
-                    <span>💾</span> 保存设置
-                </button>
+                <div class="form-group">
+                    <label class="form-label">规则管理</label>
+                    <div>
+                        <button type="button" class="btn btn-secondary" onclick="reloadCustomRules()" style="margin-right: 10px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border: none; color: white; padding: 10px 20px; border-radius: 8px; font-weight: 600; box-shadow: 0 4px 15px 0 rgba(116, 75, 162, 0.3); transition: all 0.3s ease; position: relative; overflow: hidden;">
+                            <span style="font-size: 16px; margin-right: 8px;">🔄</span> 重新加载规则
+                        </button>
+                        <button type="button" class="btn" onclick="saveSettings()" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); border: none; color: white; padding: 10px 20px; border-radius: 8px; font-weight: 600; box-shadow: 0 4px 15px 0 rgba(245, 87, 108, 0.3); transition: all 0.3s ease;">
+                            <span style="font-size: 16px; margin-right: 8px;">💾</span> 保存设置
+                        </button>
+                    </div>
+                    <small style="color: #666;">点击"重新加载规则"按钮可以重新加载所有规则文件</small>
+                </div>
+                
+                <style>
+                .btn.btn-secondary:hover {
+                    transform: translateY(-2px);
+                    box-shadow: 0 8px 25px 0 rgba(116, 75, 162, 0.5);
+                }
+                
+                .btn:not(.btn-secondary):hover {
+                    transform: translateY(-2px);
+                    box-shadow: 0 8px 25px 0 rgba(245, 87, 108, 0.5);
+                }
+                </style>
             </form>
         </div>
     `
@@ -1998,7 +2019,7 @@ function loadPage(pageId) {
 // 加载自定义规则
 async function loadCustomRules() {
     try {
-        const response = await fetch('/api/custom-rules', {
+        const response = await fetch('/api/rules/reload', {
             method: 'GET',
             credentials: 'include'
         });
@@ -2007,17 +2028,27 @@ async function loadCustomRules() {
             const data = await response.json();
             displayCustomRules(data.rules);
         } else {
-            document.getElementById('custom-rules-container').innerHTML = '<div class="alert alert-error">加载自定义规则失败</div>';
+            const container = document.getElementById('custom-rules-container');
+            if (container) {
+                container.innerHTML = '<div class="alert alert-error">加载自定义规则失败</div>';
+            }
         }
     } catch (error) {
         console.error('加载自定义规则错误:', error);
-        document.getElementById('custom-rules-container').innerHTML = '<div class="alert alert-error">加载自定义规则失败</div>';
+        const container = document.getElementById('custom-rules-container');
+        if (container) {
+            container.innerHTML = '<div class="alert alert-error">加载自定义规则失败</div>';
+        }
     }
 }
 
 // 显示自定义规则
 function displayCustomRules(rules) {
     const container = document.getElementById('custom-rules-container');
+    
+    if (!container) {
+        return;
+    }
 
     if (!rules || rules.length === 0) {
         container.innerHTML = `
@@ -5658,6 +5689,11 @@ async function showLogDetail(logId) {
         // 初始化
         // 在初始化部分修改定时刷新
 document.addEventListener('DOMContentLoaded', function() {
+    // 检查是否在登录页面，如果是则跳过初始化
+    if (window.location.pathname.includes('login') || document.querySelector('.login-box')) {
+        return;
+    }
+    
     // 初始化模态框关闭功能
     document.querySelector('.close-modal').addEventListener('click', closeModal);
     document.getElementById('modal').addEventListener('click', function(e) {

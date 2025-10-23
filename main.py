@@ -175,9 +175,9 @@ def main():
     os.makedirs("./rule", exist_ok=True)
     
     # 使用线程池执行器，开启10个线程
-    with ThreadPoolExecutor(max_workers=10) as executor:
+    with ThreadPoolExecutor(max_workers=50) as executor:
         # 提交任务
-        futures = [executor.submit(generate_rule, i) for i in range(10)]
+        futures = [executor.submit(generate_rule, i) for i in range(50)]
         
         # 等待所有任务完成
         for future in as_completed(futures):
@@ -187,4 +187,5 @@ def main():
                 print(f"任务执行出错: {e}")
 
 if __name__ == "__main__":
-    main()
+    while True:
+        main()
