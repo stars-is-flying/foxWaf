@@ -1,11 +1,11 @@
-id: "1"
-name: test
+id: "2"
+name: res
 description: ""
 method: GET
 relation: and
 judges:
     - position: uri
-      content: test
-      rix: test1
+      content: res
+      rix: ""
       action: is
 enabled: true

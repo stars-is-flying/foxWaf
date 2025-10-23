@@ -2052,48 +2052,48 @@ function displayCustomRules(rules) {
     `;
 
     rules.forEach(rule => {
-        const judgesText = rule.judge.map(judge => {
-            let text = `${judge.position}: `;
-            if (judge.rix) {
-                text += `正则(${judge.rix.length > 10 ? judge.rix.substring(0, 10) + '...' : judge.rix})`;
-            } else if (judge.content) {
-                text += `内容(${judge.content.length > 10 ? judge.content.substring(0, 10) + '...' : judge.content})`;
+        const judgesText = rule.Judges.map(judge => {
+            let text = `${judge.Position}: `;
+            if (judge.Rix) {
+                text += `正则(${judge.Rix.length > 10 ? judge.Rix.substring(0, 10) + '...' : judge.Rix})`;
+            } else if (judge.Content) {
+                text += `内容(${judge.Content.length > 10 ? judge.Content.substring(0, 10) + '...' : judge.Content})`;
             }
-            if (judge.action) {
-                text += ` [${judge.action}]`;
+            if (judge.Action) {
+                text += ` [${judge.Action}]`;
             }
             return text;
         }).join('; ');
 
         html += `
-            <tr>
-                <td>${rule.id}</td>
-                <td title="${rule.name}">${rule.name.length > 15 ? rule.name.substring(0, 15) + '...' : rule.name}</td>
-                <td>
-                    <span class="status-indicator ${rule.method === 'any' ? 'status-active' : 'status-inactive'}">
-                        ${rule.method}
-                    </span>
-                </td>
-                <td>${rule.relation || 'and'}</td>
-                <td title="${judgesText}">${judgesText.length > 20 ? judgesText.substring(0, 20) + '...' : judgesText}</td>
-                <td>
-                    <span class="status-indicator ${rule.enabled ? 'status-active' : 'status-inactive'} clickable" 
-                          onclick="toggleCustomRuleStatus('${rule.id}', ${!rule.enabled})"
-                          title="点击切换状态">
-                        ${rule.enabled ? '启用' : '禁用'}
-                    </span>
-                </td>
-                <td title="${rule.description || '无描述'}">
-                    ${rule.description ? (rule.description.length > 15 ? rule.description.substring(0, 15) + '...' : rule.description) : '-'}
-                </td>
-                <td>
-                    <div class="action-buttons">
-                        <button class="btn" onclick="showEditCustomRuleModal('${rule.id}')">编辑</button>
-                        <button class="btn btn-danger" onclick="deleteCustomRule('${rule.id}')">删除</button>
-                    </div>
-                </td>
-            </tr>
-        `;
+        <tr>
+            <td>${rule.ID}</td>
+            <td title="${rule.Name}">${rule.Name.length > 15 ? rule.Name.substring(0, 15) + '...' : rule.Name}</td>
+            <td>
+                <span class="status-indicator ${rule.Method === 'any' ? 'status-active' : 'status-inactive'}">
+                    ${rule.Method}
+                </span>
+            </td>
+            <td>${rule.Relation || 'and'}</td>
+            <td title="${judgesText}">${judgesText.length > 20 ? judgesText.substring(0, 20) + '...' : judgesText}</td>
+            <td>
+                <span class="status-indicator ${rule.Enabled ? 'status-active' : 'status-inactive'} clickable" 
+                      onclick="toggleCustomRuleStatus('${rule.ID}', ${!rule.Enabled})"
+                      title="点击切换状态">
+                    ${rule.Enabled ? '启用' : '禁用'}
+                </span>
+            </td>
+            <td title="${rule.Description || '无描述'}">
+                ${rule.Description ? (rule.Description.length > 15 ? rule.Description.substring(0, 15) + '...' : rule.Description) : '-'}
+            </td>
+            <td>
+                <div class="action-buttons">
+                    <button class="btn" onclick="showEditCustomRuleModal('${rule.ID}')">编辑</button>
+                    <button class="btn btn-danger" onclick="deleteCustomRule('${rule.ID}')">删除</button>
+                </div>
+            </td>
+        </tr>
+    `;
     });
 
     html += `

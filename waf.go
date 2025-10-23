@@ -6633,7 +6633,7 @@ func saveRuleToFile(rule CustomRule) error {
 }
 // 删除规则文件
 func deleteRuleFile(ruleID string) error {
-    filePath := filepath.Join(customRuleDir, fmt.Sprintf("%s.json", ruleID))
+    filePath := filepath.Join(customRuleDir, fmt.Sprintf("%s.yaml", ruleID))
     if err := os.Remove(filePath); err != nil {
         return fmt.Errorf("删除规则文件失败: %v", err)
     }
@@ -6680,9 +6680,21 @@ func addCustomRuleHandler(c *gin.Context) {
             req.Judges[i].regex = regex
         }
     }
+    var rule CustomRule
 
-    // 创建规则对象
-    rule := CustomRule{
+    if req.Method == "any" {
+        rule = CustomRule{
+        ID:          ruleID,
+        Name:        req.Name,
+        Description: req.Description,
+        Method:      req.Method,
+        Relation:    req.Relation,
+        Judges:      req.Judges,
+        Enabled:     req.Enabled,
+    }
+    }else {
+        // 创建规则对象
+    rule = CustomRule{
         ID:          ruleID,
         Name:        req.Name,
         Description: req.Description,
@@ -6690,6 +6702,7 @@ func addCustomRuleHandler(c *gin.Context) {
         Relation:    req.Relation,
         Judges:      req.Judges,
         Enabled:     req.Enabled,
+    }
     }
 
     // 设置默认关系
