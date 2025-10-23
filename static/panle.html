@@ -2335,60 +2335,60 @@ async function showEditCustomRuleModal(ruleId) {
 
         if (response.ok) {
             const data = await response.json();
-            const rule = data.rules.find(r => r.id === ruleId);
+            const rule = data.rules.find(r => r.ID === ruleId);
 
             if (rule) {
                 document.getElementById('modal-title').textContent = '编辑自定义规则';
                 document.getElementById('modal-body').innerHTML = `
                     <form id="edit-custom-rule-form">
-                        <input type="hidden" name="id" value="${rule.id}">
+                        <input type="hidden" name="id" value="${rule.ID}">
                         <div class="form-group">
                             <label class="form-label">规则名称</label>
-                            <input type="text" name="name" class="form-control" value="${rule.name}" required>
+                            <input type="text" name="name" class="form-control" value="${rule.Name}" required>
                         </div>
                         
                         <div class="form-group">
                             <label class="form-label">HTTP方法</label>
                             <select name="method" class="form-control" required>
-                                <option value="GET" ${rule.method === 'GET' ? 'selected' : ''}>GET</option>
-                                <option value="POST" ${rule.method === 'POST' ? 'selected' : ''}>POST</option>
-                                <option value="PUT" ${rule.method === 'PUT' ? 'selected' : ''}>PUT</option>
-                                <option value="DELETE" ${rule.method === 'DELETE' ? 'selected' : ''}>DELETE</option>
-                                <option value="any" ${rule.method === 'any' ? 'selected' : ''}>任意方法 (any)</option>
+                                <option value="GET" ${rule.Method === 'GET' ? 'selected' : ''}>GET</option>
+                                <option value="POST" ${rule.Method === 'POST' ? 'selected' : ''}>POST</option>
+                                <option value="PUT" ${rule.Method === 'PUT' ? 'selected' : ''}>PUT</option>
+                                <option value="DELETE" ${rule.Method === 'DELETE' ? 'selected' : ''}>DELETE</option>
+                                <option value="any" ${rule.Method === 'any' ? 'selected' : ''}>任意方法 (any)</option>
                             </select>
                         </div>
                         
                         <div class="form-group">
                             <label class="form-label">条件关系</label>
                             <select name="relation" class="form-control" required>
-                                <option value="and" ${rule.relation === 'and' ? 'selected' : ''}>AND (所有条件都要满足)</option>
-                                <option value="or" ${rule.relation === 'or' ? 'selected' : ''}>OR (任意条件满足)</option>
+                                <option value="and" ${rule.Relation === 'and' ? 'selected' : ''}>AND (所有条件都要满足)</option>
+                                <option value="or" ${rule.Relation === 'or' ? 'selected' : ''}>OR (任意条件满足)</option>
                             </select>
                         </div>
                         
                         <div class="form-group">
                             <label class="form-label">规则描述</label>
-                            <textarea name="description" class="form-control">${rule.description || ''}</textarea>
+                            <textarea name="description" class="form-control">${rule.Description || ''}</textarea>
                         </div>
                         
                         <div class="form-group">
                             <label class="form-label">判断条件</label>
                             <div id="edit-judges-container">
-                                ${rule.judge.map((judge, index) => `
+                                ${rule.Judges.map((judge, index) => `
                                     <div class="judge-item" style="border: 1px solid #ddd; padding: 15px; margin-bottom: 10px; border-radius: 8px;">
                                         <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 10px; margin-bottom: 10px;">
                                             <select name="position" class="form-control" required>
-                                                <option value="uri" ${judge.position === 'uri' ? 'selected' : ''}>URI</option>
-                                                <option value="request_header" ${judge.position === 'request_header' ? 'selected' : ''}>请求头</option>
-                                                <option value="request_body" ${judge.position === 'request_body' ? 'selected' : ''}>请求体</option>
-                                                <option value="parameter_value" ${judge.position === 'parameter_value' ? 'selected' : ''}>参数值</option>
-                                                <option value="form_values" ${judge.position === 'form_values' ? 'selected' : ''}>表单值</option>
+                                                <option value="uri" ${judge.Position === 'uri' ? 'selected' : ''}>URI</option>
+                                                <option value="request_header" ${judge.Position === 'request_header' ? 'selected' : ''}>请求头</option>
+                                                <option value="request_body" ${judge.Position === 'request_body' ? 'selected' : ''}>请求体</option>
+                                                <option value="parameter_value" ${judge.Position === 'parameter_value' ? 'selected' : ''}>参数值</option>
+                                                <option value="form_values" ${judge.Position === 'form_values' ? 'selected' : ''}>表单值</option>
                                             </select>
-                                            <input type="text" name="content" class="form-control" value="${judge.content || ''}" placeholder="匹配内容 (可选)">
-                                            <input type="text" name="rix" class="form-control" value="${judge.rix || ''}" placeholder="正则表达式 (可选)">
+                                            <input type="text" name="content" class="form-control" value="${judge.Content || ''}" placeholder="匹配内容 (可选)">
+                                            <input type="text" name="rix" class="form-control" value="${judge.Rix || ''}" placeholder="正则表达式 (可选)">
                                             <select name="action" class="form-control">
-                                                <option value="is" ${judge.action === 'is' ? 'selected' : ''}>匹配 (is)</option>
-                                                <option value="not" ${judge.action === 'not' ? 'selected' : ''}>不匹配 (not)</option>
+                                                <option value="is" ${judge.Action === 'is' ? 'selected' : ''}>匹配 (is)</option>
+                                                <option value="not" ${judge.Action === 'not' ? 'selected' : ''}>不匹配 (not)</option>
                                             </select>
                                         </div>
                                         <button type="button" class="btn btn-danger" onclick="removeJudge(this)" style="padding: 5px 10px; font-size: 12px;">删除条件</button>
@@ -2402,7 +2402,7 @@ async function showEditCustomRuleModal(ruleId) {
                         
                         <div class="form-group">
                             <label style="display: inline-flex; align-items: center; gap: 8px;">
-                                <input type="checkbox" name="enabled" ${rule.enabled ? 'checked' : ''}> 启用规则
+                                <input type="checkbox" name="enabled" ${rule.Enabled ? 'checked' : ''}> 启用规则
                             </label>
                         </div>
                         

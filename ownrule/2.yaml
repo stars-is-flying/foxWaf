@@ -6,6 +6,6 @@ relation: and
 judges:
     - position: uri
       content: res
-      rix: ""
+      rix: res1
       action: is
 enabled: true
