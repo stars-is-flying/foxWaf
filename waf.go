@@ -4406,7 +4406,7 @@ func StartGinAPI() {
 
         //规则相关接口
         authGroup.POST("/api/rules/status", updateRuleStatusHandler)
-        authGroup.POST("/api/rules/reload", reloadRulesHandler)
+        authGroup.GET("/api/rules/reload", reloadRulesHandler)
         authGroup.GET("/api/rule/blockRuleId", getBlockedRuleId)
 
         // 在 authGroup 中添加系统监控路由
@@ -5019,7 +5019,7 @@ func attackWorker() {
 // ------------------- 规则加载 -------------------
 func readRule() {
 	RULES = make(map[string][]Rule)
-	ruleDir := "./rule_updated"
+	ruleDir := "./rule"
 
 	filepath.WalkDir(ruleDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
@@ -5091,10 +5091,10 @@ func readRule() {
 
 // ------------------- 数据库 -------------------
 func initDb() {
-	if !cfg.IsWriteDbAuto {
-		fmt.Println("isWriteDbAuto=false，跳过数据库初始化")
-		return
-	}
+	// if !cfg.IsWriteDbAuto {
+	// 	fmt.Println("isWriteDbAuto=false，跳过数据库初始化")
+	// 	return
+	// }
 
 	// SQLite3 数据库文件路径
 	dbPath := "./waf.db"
@@ -5187,6 +5187,11 @@ func initDb() {
 	insertSite := `INSERT INTO sites (name, domain, target_url, enable_https, cert_id, status)
 	VALUES (?, ?, ?, ?, ?, ?)`
 	_, err = db.Exec(insertSite, "测试HTTPS站点", "kabubu.com", "http://127.0.0.1:8888", 1, certID, 1)
+	if err != nil {
+		panic(fmt.Errorf("插入站点失败: %v", err))
+	}
+
+    _, err = db.Exec(insertSite, "宝塔", "baota.com", "http://127.0.0.1:32262", 1, certID, 1)
 	if err != nil {
 		panic(fmt.Errorf("插入站点失败: %v", err))
 	}
