@@ -1,0 +1,11 @@
+id: 0641981028563537
+method: any
+description: Command_Injection
+relation: or
+judge:
+- position: request_body
+  content: '|'
+  rix: \|\s*(ls|cat|whoami)\b
+- position: uri
+  content: ;
+  rix: ;\s*(ls|cat|whoami)\b

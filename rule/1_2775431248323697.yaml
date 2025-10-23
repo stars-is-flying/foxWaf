@@ -1,0 +1,11 @@
+id: '2775431248323697'
+method: any
+description: XSS_Script_Tag
+relation: or
+judge:
+- position: uri
+  content: script
+  rix: (?i)<script\b[^>]*>
+- position: request_body
+  content: script
+  rix: (?i)<script\b[^>]*>

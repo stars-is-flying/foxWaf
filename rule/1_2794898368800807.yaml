@@ -1,0 +1,14 @@
+id: '2794898368800807'
+method: any
+description: Server_Side_Request_Forgery
+relation: or
+judge:
+- position: uri
+  content: 127.0.0.1
+  rix: 127\.0\.0\.1
+- position: uri
+  content: localhost
+  rix: localhost
+- position: uri
+  content: '192.168'
+  rix: 192\.168\.

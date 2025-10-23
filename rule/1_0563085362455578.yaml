@@ -1,0 +1,8 @@
+id: 0563085362455578
+method: any
+description: Log4Shell_JNDI_Injection
+relation: or
+judge:
+- position: request_header
+  content: jndi
+  rix: (?i)\$\{jndi:[^}]*\}

@@ -1,0 +1,17 @@
+id: '7983951790746394'
+method: any
+description: Cross_Site_Scripting_Attack
+relation: or
+judge:
+- position: uri
+  content: script
+  rix: <script\b
+- position: uri
+  content: javascript
+  rix: 'javascript:'
+- position: request_body
+  content: script
+  rix: <script\b
+- position: request_body
+  content: javascript
+  rix: 'javascript:'

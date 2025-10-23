@@ -1,0 +1,14 @@
+id: 0151998458048978
+method: any
+description: SQL_Injection_Attack
+relation: or
+judge:
+- position: uri
+  content: union
+  rix: \bunion\s+select\b
+- position: uri
+  content: or
+  rix: \bor\s+1\s*=\s*1\b
+- position: uri
+  content: --
+  rix: --\s

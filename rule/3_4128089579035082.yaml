@@ -1,0 +1,17 @@
+id: '4128089579035082'
+method: any
+description: OS_Command_Injection_and_Path_Traversal
+relation: or
+judge:
+- position: uri
+  content: ;
+  rix: ;\s*\b(?:cat|ls|whoami|id|pwd|echo)\b
+- position: request_body
+  content: ;
+  rix: ;\s*\b(?:cat|ls|whoami|id|pwd|echo)\b
+- position: uri
+  content: ../
+  rix: (?:\.\./){2,}
+- position: request_body
+  content: ../
+  rix: (?:\.\./){2,}

@@ -1,0 +1,14 @@
+id: '7330715548235984'
+method: any
+description: Cross_Site_Scripting_XSS
+relation: or
+judge:
+- position: uri
+  content: script
+  rix: <script\b[^>]*>.*?</script>
+- position: uri
+  content: javascript
+  rix: javascript:\s*
+- position: uri
+  content: onload
+  rix: onload\s*=\s*["'][^"']*["']

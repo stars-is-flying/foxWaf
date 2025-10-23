@@ -1,0 +1,11 @@
+id: '3242082517155476'
+method: POST
+description: Malicious_File_Upload
+relation: or
+judge:
+- position: request_header
+  content: multipart
+  rix: content-type:\s*multipart/form-data
+- position: request_body
+  content: filename
+  rix: content-disposition:.*?filename\s*=[^\r\n]*?\.(?:php|asp|jsp|exe|sh|bat|cmd)
