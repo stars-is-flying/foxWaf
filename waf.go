@@ -2835,7 +2835,7 @@ DIRECT_PROXY:
     }
 
     // 调试：输出发送的请求 - 使用保存的请求体
-    fmt.Printf("\n🚀 代理请求到后端站点: %s\n", targetURL+req.RequestURI)
+    // fmt.Printf("\n🚀 代理请求到后端站点: %s\n", targetURL+req.RequestURI)
     // debugPrintRequestWithBody(proxyReq, requestBody)
 
     // 添加调试：验证代理请求体内容
@@ -4290,7 +4290,8 @@ func readGinHtml() {
 // 在需要认证的路由中使用中间件
 func StartGinAPI() {
      gin.SetMode(gin.ReleaseMode)
-    r := gin.Default()
+    r := gin.New()
+    r.Use(gin.Recovery())
 
     // 从 embed.FS 提供静态文件
     r.GET("/prism-tomorrow.min.css", func(ctx *gin.Context) {
