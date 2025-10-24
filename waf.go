@@ -2625,6 +2625,9 @@ func init() {
         ResponseHeaderTimeout: 30 * time.Second,
         ExpectContinueTimeout: 1 * time.Second,
         DisableKeepAlives:   false, // 启用连接复用
+        TLSClientConfig: &tls.Config{
+            InsecureSkipVerify: true, // 添加这一行来跳过证书验证
+        },
     }
 }
 
