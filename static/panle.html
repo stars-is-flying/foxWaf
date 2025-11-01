@@ -22,6 +22,16 @@
     <script src="prism-autoloader.min.js"></script>
     <script src="prism-line-numbers.min.js"></script>
     <script src="prism-copy-to-clipboard.min.js"></script>
+    <script>
+        // 在页面加载前立即应用主题，避免闪烁
+        (function() {
+            const savedTheme = localStorage.getItem('theme');
+            if (savedTheme === 'dark') {
+                document.documentElement.classList.add('dark-theme');
+                document.body.classList.add('dark-theme');
+            }
+        })();
+    </script>
     <style>
         * {
             margin: 0;
@@ -35,6 +45,7 @@
             color: #444;
             min-height: 100vh;
             display: flex;
+            transition: background 0.3s ease, color 0.3s ease;
         }
 
         /* 侧边栏样式 */
@@ -130,6 +141,10 @@
             box-shadow: 0 6px 20px rgba(0, 0, 0, 0.1);
             backdrop-filter: blur(10px);
             border: 1px solid rgba(255, 255, 255, 0.4);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: relative;
         }
 
         .content-header h2 {
@@ -531,6 +546,223 @@
             background: rgba(255, 71, 87, 0.2);
             color: #ff4757;
             border: 1px solid rgba(255, 71, 87, 0.3);
+        }
+
+        /* 主题切换按钮 */
+        .theme-toggle-btn {
+            background: rgba(255, 255, 255, 0.5);
+            border: 2px solid rgba(82, 16, 237, 0.3);
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 24px;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            padding: 0;
+        }
+
+        .theme-toggle-btn:hover {
+            background: rgba(82, 16, 237, 0.1);
+            border-color: rgba(82, 16, 237, 0.5);
+            transform: scale(1.1);
+            box-shadow: 0 6px 16px rgba(82, 16, 237, 0.2);
+        }
+
+        .theme-toggle-btn:active {
+            transform: scale(0.95);
+        }
+
+        /* 暗黑主题样式 */
+        body.dark-theme {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 25%, #0f3460 50%, #0a2540 75%, #050816 100%);
+            color: #e0e0e0;
+        }
+
+        body.dark-theme .sidebar {
+            background: linear-gradient(145deg, #1e1e2e, #2a2a3e);
+            border-right: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        body.dark-theme .sidebar-header {
+            background: linear-gradient(145deg, #252538, #2f2f44);
+        }
+
+        body.dark-theme .nav-item {
+            color: #d0d0d0;
+        }
+
+        body.dark-theme .nav-item:hover {
+            background: rgba(82, 16, 237, 0.2);
+            color: #fff;
+        }
+
+        body.dark-theme .nav-item.active {
+            background: linear-gradient(145deg, #5210ed, #8b5cf6);
+            color: #fff;
+        }
+
+        body.dark-theme .main-content {
+            background: transparent;
+        }
+
+        body.dark-theme .content-header {
+            background: linear-gradient(145deg, #2a2a3e, #3a3a4e);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        body.dark-theme .content-header h2 {
+            color: #a78bfa;
+        }
+
+        body.dark-theme .content-header p {
+            color: #b0b0b0;
+        }
+
+        body.dark-theme .card {
+            background: rgba(30, 30, 46, 0.8);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: #e0e0e0;
+        }
+
+        body.dark-theme .card-header {
+            background: rgba(40, 40, 60, 0.8);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        body.dark-theme .card-title {
+            color: #a78bfa;
+        }
+
+        body.dark-theme .btn {
+            background: linear-gradient(145deg, #5210ed, #8b5cf6);
+            color: #fff;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        body.dark-theme .btn:hover {
+            background: linear-gradient(145deg, #6d28d9, #9f7aea);
+        }
+
+        body.dark-theme .btn-secondary {
+            background: rgba(60, 60, 80, 0.8);
+            color: #e0e0e0;
+        }
+
+        body.dark-theme .metric-card {
+            background: rgba(30, 30, 46, 0.8);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        body.dark-theme .metric-value {
+            color: #a78bfa;
+        }
+
+        body.dark-theme .metric-label {
+            color: #b0b0b0;
+        }
+
+        body.dark-theme .form-control,
+        body.dark-theme input,
+        body.dark-theme select,
+        body.dark-theme textarea {
+            background: rgba(40, 40, 60, 0.8);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: #e0e0e0;
+        }
+
+        body.dark-theme .form-control:focus,
+        body.dark-theme input:focus,
+        body.dark-theme select:focus,
+        body.dark-theme textarea:focus {
+            border-color: #8b5cf6;
+            background: rgba(50, 50, 70, 0.8);
+        }
+
+        body.dark-theme .modal {
+            background: rgba(0, 0, 0, 0.8);
+        }
+
+        body.dark-theme .modal-content {
+            background: rgba(30, 30, 46, 0.95);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        body.dark-theme .modal-header {
+            background: rgba(40, 40, 60, 0.8);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        body.dark-theme .modal-title {
+            color: #a78bfa;
+        }
+
+        body.dark-theme .code-container {
+            background: rgba(20, 20, 30, 0.9);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        body.dark-theme .alert-success {
+            background: rgba(46, 213, 115, 0.2);
+            color: #2ed573;
+            border: 1px solid rgba(46, 213, 115, 0.3);
+        }
+
+        body.dark-theme .alert-error {
+            background: rgba(255, 71, 87, 0.2);
+            color: #ff4757;
+            border: 1px solid rgba(255, 71, 87, 0.3);
+        }
+
+        body.dark-theme .theme-toggle-btn {
+            background: rgba(82, 16, 237, 0.3);
+            border-color: rgba(139, 92, 246, 0.5);
+        }
+
+        body.dark-theme .theme-toggle-btn:hover {
+            background: rgba(82, 16, 237, 0.5);
+            border-color: rgba(139, 92, 246, 0.7);
+        }
+
+        body.dark-theme table {
+            background: rgba(30, 30, 46, 0.8);
+            color: #e0e0e0;
+        }
+
+        body.dark-theme table th {
+            background: rgba(40, 40, 60, 0.8);
+            color: #a78bfa;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        body.dark-theme table td {
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        body.dark-theme table tr:hover {
+            background: rgba(82, 16, 237, 0.1);
+        }
+
+        body.dark-theme .table-container {
+            background: rgba(30, 30, 46, 0.8);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        body.dark-theme .loading {
+            color: #b0b0b0;
+        }
+
+        body.dark-theme h3,
+        body.dark-theme h4,
+        body.dark-theme h5 {
+            color: #a78bfa;
+        }
+
+        body.dark-theme p {
+            color: #b0b0b0;
         }
 
         /* 模态框 */
@@ -1399,8 +1631,13 @@ code[class*="language-"] {
     <!-- 主内容区 -->
     <div class="main-content">
         <div class="content-header">
-            <h2 id="page-title">数据概览</h2>
-            <p id="page-description">欢迎来到小狐狸WAF控制台</p>
+            <div>
+                <h2 id="page-title">数据概览</h2>
+                <p id="page-description">欢迎来到小狐狸WAF控制台</p>
+            </div>
+            <button id="theme-toggle" class="theme-toggle-btn" onclick="toggleTheme()" title="切换主题">
+                <span id="theme-icon">🌙</span>
+            </button>
         </div>
 
         <div class="content-body" id="content-container">
@@ -6149,9 +6386,49 @@ async function showLogDetail(logId) {
             }, 3000);
         }
 
+        // 主题切换功能
+        function toggleTheme() {
+            const body = document.body;
+            const themeIcon = document.getElementById('theme-icon');
+            
+            if (body.classList.contains('dark-theme')) {
+                // 切换到明亮主题
+                body.classList.remove('dark-theme');
+                themeIcon.textContent = '🌙';
+                localStorage.setItem('theme', 'light');
+            } else {
+                // 切换到暗黑主题
+                body.classList.add('dark-theme');
+                themeIcon.textContent = '☀️';
+                localStorage.setItem('theme', 'dark');
+            }
+        }
+
+        // 加载保存的主题
+        function loadTheme() {
+            const savedTheme = localStorage.getItem('theme');
+            const body = document.body;
+            const themeIcon = document.getElementById('theme-icon');
+            
+            if (savedTheme === 'dark') {
+                body.classList.add('dark-theme');
+                if (themeIcon) {
+                    themeIcon.textContent = '☀️';
+                }
+            } else {
+                body.classList.remove('dark-theme');
+                if (themeIcon) {
+                    themeIcon.textContent = '🌙';
+                }
+            }
+        }
+
         // 初始化
         // 在初始化部分修改定时刷新
 document.addEventListener('DOMContentLoaded', function() {
+    // 加载主题（在检查登录之前，因为主题应该在所有页面都生效）
+    loadTheme();
+    
     // 检查是否在登录页面，如果是则跳过初始化
     if (window.location.pathname.includes('login') || document.querySelector('.login-box')) {
         return;
