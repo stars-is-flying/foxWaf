@@ -5437,17 +5437,31 @@ func readRule() {
 				fmt.Printf("解析 JSON 数组失败: %s, 错误: %v\n", path, err)
 				return nil
 			}
-			for _, r := range rules {
-				// 设置默认启用状态
-				if r.Enabled == false {
-					r.Enabled = true // 默认启用所有规则
-				}
-				for i := range r.Judges {
-					if r.Judges[i].Rix != "" {
-						r.Judges[i].regex, _ = regexp.Compile(r.Judges[i].Rix)
+			for i := range rules {
+				r := &rules[i]
+				// 如果 Judges 为空，尝试从 judges 字段读取（兼容性处理）
+				if len(r.Judges) == 0 {
+					var tempArray []map[string]interface{}
+					if err := yaml.Unmarshal(data, &tempArray); err == nil && i < len(tempArray) {
+						if judgesData, ok := tempArray[i]["judges"]; ok {
+							// 将 judges 数据转换为 JSON 再解析
+							judgesBytes, _ := json.Marshal(judgesData)
+							if err := yaml.Unmarshal(judgesBytes, &r.Judges); err == nil {
+								fmt.Printf("从 judges 字段加载规则数组中的第 %d 条: %s\n", i+1, path)
+							}
+						}
 					}
 				}
-				RULES[r.Method] = append(RULES[r.Method], r)
+				// 设置默认启用状态
+				if !r.Enabled {
+					r.Enabled = true // 默认启用所有规则
+				}
+				for j := range r.Judges {
+					if r.Judges[j].Rix != "" {
+						r.Judges[j].regex, _ = regexp.Compile(r.Judges[j].Rix)
+					}
+				}
+				RULES[r.Method] = append(RULES[r.Method], *r)
 			}
 		} else {
 			var r Rule
@@ -5455,8 +5469,23 @@ func readRule() {
 				fmt.Printf("解析 JSON 失败: %s, 错误: %v\n", path, err)
 				return nil
 			}
+
+			// 如果 Judges 为空，尝试从 judges 字段读取（兼容性处理）
+			if len(r.Judges) == 0 {
+				var tempMap map[string]interface{}
+				if err := yaml.Unmarshal(data, &tempMap); err == nil {
+					if judgesData, ok := tempMap["judges"]; ok {
+						// 将 judges 数据转换为 JSON 再解析
+						judgesBytes, _ := json.Marshal(judgesData)
+						if err := yaml.Unmarshal(judgesBytes, &r.Judges); err == nil {
+							fmt.Printf("从 judges 字段加载规则: %s\n", path)
+						}
+					}
+				}
+			}
+
 			// 设置默认启用状态
-			if r.Enabled == false {
+			if !r.Enabled {
 				r.Enabled = true // 默认启用所有规则
 			}
 			for i := range r.Judges {

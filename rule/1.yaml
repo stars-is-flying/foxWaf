@@ -1,0 +1,15 @@
+id: "1"
+name: test
+description: ""
+method: GET
+relation: or
+judges:
+    - position: uri
+      content: test
+      rix: test1
+    - position: uri
+      content: test
+      rix: test2
+    - position: uri
+      content: test
+      rix: test3
