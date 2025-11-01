@@ -1993,6 +1993,10 @@ function loadPage(pageId) {
                 break;
             case 'sites':
                 loadSites();
+                // 确保健康状态已加载
+                if (!window.siteHealthData || Object.keys(window.siteHealthData).length === 0) {
+                    loadSiteHealthStatus();
+                }
                 break;
             case 'logs':
                 loadAttackLogs(1);
@@ -3446,26 +3450,92 @@ async function toggleSiteStatus(siteId, newStatus) {
             certStatus = '<span class="status-indicator">-</span>';
         }
         
-        // 负载均衡信息
+        // 负载均衡信息 - 显示上游服务器列表
         let targetInfo = '';
+        let upstreamDetails = '';
+        
         if (site.load_balance_algorithm) {
             const algoText = site.load_balance_algorithm === 'round_robin' ? '轮询' : '权重';
             const serverCount = site.upstream_servers ? site.upstream_servers.length : 0;
-            targetInfo = `<span title="负载均衡: ${algoText}, ${serverCount}个上游服务器">⚖️ ${algoText} (${serverCount})</span>`;
-            if (site.upstream_servers && site.upstream_servers.length > 0) {
-                // 根据算法类型决定是否显示权重
-                let serversText;
-                if (site.load_balance_algorithm === 'weighted') {
-                    // 权重算法显示权重
-                    serversText = site.upstream_servers.map(s => `${s.url}(${s.weight})`).join(', ');
+            
+            // 获取上游服务器健康状态
+            const upstreamHealth = window.siteHealthData && window.siteHealthData[site.id] && window.siteHealthData[site.id].upstream_server_health ? 
+                                   window.siteHealthData[site.id].upstream_server_health : [];
+            
+            // 检查是否已展开
+            const isExpanded = expandedUpstreamSites.has(site.id);
+            const arrowIcon = isExpanded ? '▲' : '▼';
+            
+            targetInfo = `<span class="clickable" onclick="toggleUpstreamDetails(${site.id})" style="cursor: pointer;">⚖️ ${algoText} (${serverCount}) ${arrowIcon}</span>`;
+            
+            // 构建可折叠的上游服务器详情
+            if (serverCount > 0) {
+                let upstreamList = '';
+                if (upstreamHealth.length > 0) {
+                    // 有健康状态数据，显示健康状态
+                    upstreamList = upstreamHealth.map(us => {
+                        const statusClass = us.is_alive ? 'status-active' : 'status-inactive';
+                        const statusText = us.is_alive ? '正常' : '异常';
+                        const latency = us.latency ? `${us.latency}ms` : 'N/A';
+                        const weightDisplay = site.load_balance_algorithm === 'weighted' ? `(${us.weight})` : '';
+                        return `<div style="padding: 5px 0; border-bottom: 1px solid #eee;">
+                                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                                        <div style="flex: 1;">
+                                            ${us.url} ${weightDisplay}
+                                        </div>
+                                        <span class="status-indicator ${statusClass}" title="延迟: ${latency}">
+                                            ${statusText} (${latency})
+                                        </span>
+                                    </div>
+                                </div>`;
+                    }).join('');
                 } else {
-                    // 轮询算法不显示权重
-                    serversText = site.upstream_servers.map(s => s.url).join(', ');
+                    // 没有健康状态数据，仅显示上游服务器URL
+                    upstreamList = site.upstream_servers.map(us => {
+                        const weightDisplay = site.load_balance_algorithm === 'weighted' ? `(${us.weight})` : '';
+                        return `<div style="padding: 5px 0; border-bottom: 1px solid #eee;">
+                                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                                        <div style="flex: 1;">
+                                            ${us.url} ${weightDisplay}
+                                        </div>
+                                        <span class="status-indicator">加载中...</span>
+                                    </div>
+                                </div>`;
+                    }).join('');
                 }
-                targetInfo = `<span title="负载均衡: ${algoText}\n${serversText}">⚖️ ${algoText} (${serverCount})</span>`;
+                
+                // 根据展开状态设置初始显示
+                const initialDisplay = isExpanded ? 'table-row' : 'none';
+                
+                upstreamDetails = `
+                    <tr id="upstream-details-${site.id}" style="display: ${initialDisplay};">
+                        <td colspan="8">
+                            <div style="padding: 15px; background: #f8f9fa; border-radius: 8px; margin: 10px 0;">
+                                <strong>上游服务器详情:</strong>
+                                <div style="margin-top: 10px;">
+                                    ${upstreamList}
+                                </div>
+                            </div>
+                        </td>
+                    </tr>
+                `;
             }
         } else {
-            targetInfo = `<span title="${site.target_url}">${site.target_url.length > 20 ? site.target_url.substring(0, 20) + '...' : site.target_url}</span>`;
+            // 普通站点显示健康状态
+            const health = window.siteHealthData && window.siteHealthData[site.id] ? window.siteHealthData[site.id] : null;
+            if (health) {
+                const statusClass = health.is_alive ? 'status-active' : 'status-inactive';
+                const statusText = health.is_alive ? '正常' : '异常';
+                const latency = health.latency ? `${health.latency}ms` : 'N/A';
+                targetInfo = `
+                    <span title="${site.target_url}">${site.target_url.length > 20 ? site.target_url.substring(0, 20) + '...' : site.target_url}</span>
+                    <span class="status-indicator ${statusClass}" title="延迟: ${latency}" style="margin-left: 8px;">
+                        ${statusText} (${latency})
+                    </span>
+                `;
+            } else {
+                targetInfo = `<span title="${site.target_url}">${site.target_url.length > 20 ? site.target_url.substring(0, 20) + '...' : site.target_url}</span>`;
+            }
         }
 
         html += `
@@ -3499,6 +3569,7 @@ async function toggleSiteStatus(siteId, newStatus) {
                     </div>
                 </td>
             </tr>
+            ${upstreamDetails}
         `;
     });
 
@@ -3512,6 +3583,11 @@ async function toggleSiteStatus(siteId, newStatus) {
     `;
 
     container.innerHTML = html;
+    
+    // 恢复展开的上游服务器详情
+    setTimeout(() => {
+        restoreExpandedUpstreamDetails();
+    }, 0);
 }
 
 // 刷新所有统计数据
@@ -3740,19 +3816,26 @@ function refreshAllStats() {
 // 加载站点健康状态
 async function loadSiteHealthStatus() {
     try {
-        const response = await fetch('/health', {
+        console.log('开始加载健康状态...');
+        const response = await fetch('/api/health', {
             method: 'GET',
             credentials: 'include'
         });
 
+        console.log('健康状态响应:', response.status, response.statusText);
+        
         if (response.ok) {
             const data = await response.json();
+            console.log('健康状态数据:', data);
             window.siteHealthData = data.health_status; // 保存到全局变量
             updateHealthStatusDisplay();
-            
-            // 定时刷新健康状态
-            setTimeout(loadSiteHealthStatus, 3000); // 每30秒刷新一次
+        } else {
+            const errorText = await response.text();
+            console.error('健康状态请求失败:', response.status, errorText);
         }
+        
+        // 无论成功失败都设置定时器继续尝试
+        setTimeout(loadSiteHealthStatus, 3000); // 每3秒刷新一次
     } catch (error) {
         console.error('加载健康状态错误:', error);
         // 出错时也设置定时器，确保继续尝试
@@ -4146,10 +4229,49 @@ function updateHealthStatusDisplay() {
     }
 }
 
+// 切换上游服务器详情显示
+function toggleUpstreamDetails(siteId) {
+    const detailsRow = document.getElementById(`upstream-details-${siteId}`);
+    const trigger = window.event ? window.event.target : (event ? event.target : null);
+    
+    if (detailsRow) {
+        if (detailsRow.style.display === 'none' || detailsRow.style.display === '') {
+            // 展开
+            detailsRow.style.display = 'table-row';
+            expandedUpstreamSites.add(siteId);
+            if (trigger) {
+                trigger.innerHTML = trigger.innerHTML.replace('▼', '▲');
+            }
+        } else {
+            // 关闭
+            detailsRow.style.display = 'none';
+            expandedUpstreamSites.delete(siteId);
+            if (trigger) {
+                trigger.innerHTML = trigger.innerHTML.replace('▲', '▼');
+            }
+        }
+    }
+}
+
+// 恢复展开的上游服务器详情
+function restoreExpandedUpstreamDetails() {
+    expandedUpstreamSites.forEach(siteId => {
+        const detailsRow = document.getElementById(`upstream-details-${siteId}`);
+        const triggerSpan = document.querySelector(`span[onclick="toggleUpstreamDetails(${siteId})"]`);
+        
+        if (detailsRow) {
+            detailsRow.style.display = 'table-row';
+        }
+        if (triggerSpan) {
+            triggerSpan.innerHTML = triggerSpan.innerHTML.replace('▼', '▲');
+        }
+    });
+}
+
 // 检查单个站点健康状态
 async function checkSingleSiteHealth(siteId) {
     try {
-        const response = await fetch(`/health/${siteId}`, {
+        const response = await fetch(`/api/health/${siteId}`, {
             method: 'GET',
             credentials: 'include'
         });
@@ -6037,7 +6159,9 @@ document.addEventListener('DOMContentLoaded', function() {
     }, 3000);
 
     // 初始加载健康状态
+    console.log('初始化：开始加载健康状态');
     loadSiteHealthStatus();
+    console.log('初始化：健康状态加载函数已调用');
 });
 
         // 全局变量存储上一次的数据
@@ -6051,6 +6175,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 let currentCCLogsPage = 1;
                 let currentCCLogsPageSize = 20;
                 let currentCCLogsTotal = 0;
+            
+            // 存储展开的上游服务器详情站点ID
+            let expandedUpstreamSites = new Set();
     </script>
 </body>
 

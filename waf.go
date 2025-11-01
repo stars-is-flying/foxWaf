@@ -1789,18 +1789,91 @@ var (
 // -------------------站点心跳------------------------
 // 站点健康状态结构
 type SiteHealth struct {
-	SiteID    int    `json:"site_id"`
-	Domain    string `json:"domain"`
-	IsAlive   bool   `json:"is_alive"`
-	Status    int    `json:"status"`
-	Latency   int64  `json:"latency"` // 毫秒
-	LastCheck string `json:"last_check"`
-	ErrorMsg  string `json:"error_msg,omitempty"`
+	SiteID               int                    `json:"site_id"`
+	Domain               string                 `json:"domain"`
+	IsAlive              bool                   `json:"is_alive"`
+	Status               int                    `json:"status"`
+	Latency              int64                  `json:"latency"` // 毫秒
+	LastCheck            string                 `json:"last_check"`
+	ErrorMsg             string                 `json:"error_msg,omitempty"`
+	UpstreamServerHealth []UpstreamServerHealth `json:"upstream_server_health,omitempty"` // 上游服务器健康状态
+}
+
+type UpstreamServerHealth struct {
+	URL      string `json:"url"`
+	Weight   int    `json:"weight,omitempty"`
+	IsAlive  bool   `json:"is_alive"`
+	Latency  int64  `json:"latency"` // 毫秒
+	ErrorMsg string `json:"error_msg,omitempty"`
 }
 
 // 全局健康状态映射
 var siteHealthMap = make(map[int]*SiteHealth)
 var healthMutex sync.RWMutex
+
+// 检查单个URL的健康状态
+func checkURLHealth(url, domain string) UpstreamServerHealth {
+	result := UpstreamServerHealth{
+		URL:     url,
+		IsAlive: false,
+	}
+
+	start := time.Now()
+
+	// 创建HTTP客户端，设置超时
+	client := &http.Client{
+		Timeout: 5 * time.Second,
+	}
+
+	// 先尝试HEAD请求
+	req, err := http.NewRequest("HEAD", url, nil)
+	if err != nil {
+		result.ErrorMsg = fmt.Sprintf("创建HEAD请求失败: %v", err)
+		result.Latency = time.Since(start).Milliseconds()
+		return result
+	}
+
+	// 添加请求头
+	req.Header.Set("User-Agent", "LittleFox-WAF-HealthCheck/1.0")
+	if domain != "" {
+		req.Header.Set("Host", domain)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		// HEAD失败，尝试GET请求
+		req, err = http.NewRequest("GET", url, nil)
+		if err != nil {
+			result.ErrorMsg = fmt.Sprintf("创建GET请求失败: %v", err)
+			result.Latency = time.Since(start).Milliseconds()
+			return result
+		}
+
+		req.Header.Set("User-Agent", "LittleFox-WAF-HealthCheck/1.0")
+		if domain != "" {
+			req.Header.Set("Host", domain)
+		}
+
+		resp, err = client.Do(req)
+		if err != nil {
+			result.ErrorMsg = fmt.Sprintf("GET请求失败: %v", err)
+			result.Latency = time.Since(start).Milliseconds()
+			return result
+		}
+		defer resp.Body.Close()
+	} else {
+		defer resp.Body.Close()
+	}
+
+	result.Latency = time.Since(start).Milliseconds()
+
+	// 判断HTTP状态码
+	if resp.StatusCode >= 0 {
+		result.IsAlive = true
+	}
+
+	return result
+}
 
 // 更健壮的健康检查函数，支持GET和HEAD方法
 func checkSiteHealthEnhanced(site Site) *SiteHealth {
@@ -1810,71 +1883,98 @@ func checkSiteHealthEnhanced(site Site) *SiteHealth {
 		LastCheck: time.Now().Format("2006-01-02 15:04:05"),
 	}
 
-	start := time.Now()
-
-	// 直接使用 target_url
-	testURL := site.TargetURL
-
-	// 创建HTTP客户端，设置超时
-	client := &http.Client{
-		Timeout: 5 * time.Second,
-	}
-
-	// println(testURL)
-	// 先尝试HEAD请求
-	req, err := http.NewRequest("HEAD", testURL, nil)
-	if err != nil {
+	// 如果有负载均衡，检查所有上游服务器
+	if site.LoadBalanceAlgorithm != "" && len(site.UpstreamServers) > 0 {
+		health.UpstreamServerHealth = make([]UpstreamServerHealth, 0, len(site.UpstreamServers))
+		for _, upstream := range site.UpstreamServers {
+			if upstream.Status == 1 { // 只检查启用的上游服务器
+				upstreamHealth := checkURLHealth(upstream.URL, site.Domain)
+				upstreamHealth.Weight = upstream.Weight
+				health.UpstreamServerHealth = append(health.UpstreamServerHealth, upstreamHealth)
+			}
+		}
+		// 如果至少有一个上游服务器是健康的，则站点是健康的
 		health.IsAlive = false
-		health.ErrorMsg = fmt.Sprintf("创建HEAD请求失败: %v", err)
-		health.Latency = time.Since(start).Milliseconds()
-		return health
-	}
+		health.Status = 0
+		health.Latency = 0
+		for _, usHealth := range health.UpstreamServerHealth {
+			if usHealth.IsAlive {
+				health.IsAlive = true
+				if health.Latency == 0 || health.Latency > usHealth.Latency {
+					health.Latency = usHealth.Latency
+				}
+				health.Status = 200
+			}
+		}
+		if !health.IsAlive {
+			health.ErrorMsg = "所有上游服务器都不可用"
+		}
+	} else {
+		// 没有负载均衡，检查target_url
+		start := time.Now()
+		testURL := site.TargetURL
 
-	// 添加请求头
-	req.Header.Set("User-Agent", "LittleFox-WAF-HealthCheck/1.0")
-	if site.Domain != "" {
-		req.Header.Set("Host", site.Domain)
-	}
+		// 创建HTTP客户端，设置超时
+		client := &http.Client{
+			Timeout: 5 * time.Second,
+		}
 
-	resp, err := client.Do(req)
-	if err != nil {
-		// HEAD失败，尝试GET请求
-		// stdlog.Printf("HEAD请求失败，尝试GET: %s - %v", site.Name, err)
-		req, err = http.NewRequest("GET", testURL, nil)
+		// println(testURL)
+		// 先尝试HEAD请求
+		req, err := http.NewRequest("HEAD", testURL, nil)
 		if err != nil {
 			health.IsAlive = false
-			health.ErrorMsg = fmt.Sprintf("创建GET请求失败: %v", err)
+			health.ErrorMsg = fmt.Sprintf("创建HEAD请求失败: %v", err)
 			health.Latency = time.Since(start).Milliseconds()
 			return health
 		}
 
+		// 添加请求头
 		req.Header.Set("User-Agent", "LittleFox-WAF-HealthCheck/1.0")
 		if site.Domain != "" {
 			req.Header.Set("Host", site.Domain)
 		}
 
-		resp, err = client.Do(req)
+		resp, err := client.Do(req)
 		if err != nil {
-			health.IsAlive = false
-			health.ErrorMsg = fmt.Sprintf("GET请求也失败: %v", err)
-			health.Latency = time.Since(start).Milliseconds()
-			return health
+			// HEAD失败，尝试GET请求
+			// stdlog.Printf("HEAD请求失败，尝试GET: %s - %v", site.Name, err)
+			req, err = http.NewRequest("GET", testURL, nil)
+			if err != nil {
+				health.IsAlive = false
+				health.ErrorMsg = fmt.Sprintf("创建GET请求失败: %v", err)
+				health.Latency = time.Since(start).Milliseconds()
+				return health
+			}
+
+			req.Header.Set("User-Agent", "LittleFox-WAF-HealthCheck/1.0")
+			if site.Domain != "" {
+				req.Header.Set("Host", site.Domain)
+			}
+
+			resp, err = client.Do(req)
+			if err != nil {
+				health.IsAlive = false
+				health.ErrorMsg = fmt.Sprintf("GET请求也失败: %v", err)
+				health.Latency = time.Since(start).Milliseconds()
+				return health
+			}
+			defer resp.Body.Close()
+		} else {
+			defer resp.Body.Close()
 		}
-		defer resp.Body.Close()
-	} else {
-		defer resp.Body.Close()
-	}
 
-	health.Latency = time.Since(start).Milliseconds()
+		health.Latency = time.Since(start).Milliseconds()
 
-	// 判断HTTP状态码
-	if resp.StatusCode >= 0 {
-		health.IsAlive = true
-		health.Status = resp.StatusCode
-	} else {
-		health.IsAlive = false
-		health.Status = resp.StatusCode
-		health.ErrorMsg = fmt.Sprintf("HTTP状态码: %d", resp.StatusCode)
+		// 判断HTTP状态码
+		if resp.StatusCode >= 0 {
+			health.IsAlive = true
+			health.Status = resp.StatusCode
+		} else {
+			health.IsAlive = false
+			health.Status = resp.StatusCode
+			health.ErrorMsg = fmt.Sprintf("HTTP状态码: %d", resp.StatusCode)
+		}
 	}
 
 	return health
@@ -4672,8 +4772,8 @@ func StartGinAPI() {
 		authGroup.GET("/api/stats", getStatsHandler)
 
 		//// -------------------心跳------------------------------
-		authGroup.GET("/health", getSiteHealthHandler)
-		authGroup.GET("/health/:id", checkSingleSiteHealthHandler)
+		authGroup.GET("/api/health", getSiteHealthHandler)
+		authGroup.GET("/api/health/:id", checkSingleSiteHealthHandler)
 
 		// 攻击日志管理
 		authGroup.GET("/api/attack/logs", getAttackLogsHandler)          // 获取攻击日志
