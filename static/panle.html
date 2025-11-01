@@ -5126,6 +5126,11 @@ async function showLogDetail(logId) {
         // 模态框功能
         function showModal() {
             document.getElementById('modal').style.display = 'flex';
+            // 确保关闭按钮可以工作
+            const closeBtn = document.querySelector('.close-modal');
+            if (closeBtn) {
+                closeBtn.onclick = closeModal;
+            }
         }
 
         // 加载CC规则
