@@ -2150,19 +2150,12 @@ func checkSingleSiteHealthHandler(c *gin.Context) {
 
 // ------------------- 缓存管理函数 -------------------
 func initStaticCache() {
-	// 创建缓存目录
+	// 磁盘缓存已移除，只使用内存缓存
 	if staticCacheConfig.Enable {
-		err := os.MkdirAll(staticCacheConfig.CacheDir, 0755)
-		if err != nil {
-			stdlog.Printf("创建缓存目录失败: %v", err)
-			staticCacheConfig.Enable = false
-			return
-		}
-
 		// 启动定期清理协程
 		go cacheCleanupWorker()
 
-		stdlog.Printf("静态文件缓存已启用，缓存目录: %s", staticCacheConfig.CacheDir)
+		stdlog.Printf("静态文件缓存已启用（仅内存缓存）")
 	} else {
 		stdlog.Println("静态文件缓存已禁用")
 	}
@@ -2280,9 +2273,6 @@ func addToCache(cacheKey string, content []byte, contentType string) {
 	currentCacheSize += fileSize
 	cacheMutex.Unlock()
 
-	// 异步保存到磁盘
-	go saveToDiskCache(cacheKey, finalContent)
-
 	stdlog.Printf("缓存添加成功: %s, 大小: %.2f KB", cacheKey, float64(fileSize)/1024)
 }
 
@@ -2304,9 +2294,6 @@ func removeFromCache(cacheKey string) {
 	if cachedFile, exists := fileCache[cacheKey]; exists {
 		currentCacheSize -= cachedFile.Size
 		delete(fileCache, cacheKey)
-
-		// 同时删除磁盘缓存
-		go deleteDiskCache(cacheKey)
 	}
 }
 
@@ -2314,21 +2301,6 @@ func removeFromCache(cacheKey string) {
 //     hash := md5.Sum([]byte(urlPath))
 //     return fmt.Sprintf("cache_%x", hash)
 // }
-
-// 保存到磁盘缓存
-func saveToDiskCache(cacheKey string, content []byte) {
-	cacheFile := filepath.Join(staticCacheConfig.CacheDir, cacheKey)
-	err := ioutil.WriteFile(cacheFile, content, 0644)
-	if err != nil {
-		stdlog.Printf("保存磁盘缓存失败 %s: %v", cacheKey, err)
-	}
-}
-
-// 删除磁盘缓存
-func deleteDiskCache(cacheKey string) {
-	cacheFile := filepath.Join(staticCacheConfig.CacheDir, cacheKey)
-	os.Remove(cacheFile)
-}
 
 // 缓存清理工作器
 func cacheCleanupWorker() {
@@ -2407,7 +2379,6 @@ func cleanupExpiredCache() {
 			cleanedSize += cachedFile.Size
 			cleanedCount++
 			delete(fileCache, key)
-			go deleteDiskCache(key)
 		}
 	}
 
@@ -2439,7 +2410,6 @@ func cleanupExpiredCache() {
 			delete(fileCache, item.key)
 			cleanedCount++
 			cleanedSize += item.file.Size
-			go deleteDiskCache(item.key)
 		}
 	}
 
@@ -2494,8 +2464,6 @@ func cleanupLRUCache() {
 		delete(fileCache, item.key)
 		cleanedCount++
 
-		// 删除磁盘缓存
-		go deleteDiskCache(item.key)
 	}
 
 	if cleanedCount > 0 {
@@ -3369,12 +3337,6 @@ func clearCacheHandler(c *gin.Context) {
 	fileCache = make(map[string]*CachedFile)
 	currentCacheSize = 0
 	cacheMutex.Unlock()
-
-	// 清空磁盘缓存
-	if staticCacheConfig.Enable {
-		os.RemoveAll(staticCacheConfig.CacheDir)
-		os.MkdirAll(staticCacheConfig.CacheDir, 0755)
-	}
 
 	atomic.StoreUint64(&cacheHits, 0)
 	atomic.StoreUint64(&cacheMisses, 0)
@@ -7739,9 +7701,6 @@ func deleteSingleCacheFile(cacheKey string) bool {
 		// 从内存缓存中移除
 		currentCacheSize -= cachedFile.Size
 		delete(fileCache, cacheKey)
-
-		// 从磁盘缓存中删除
-		go deleteDiskCache(cacheKey)
 
 		stdlog.Printf("单个缓存文件已删除: %s, 释放大小: %.2f KB",
 			cacheKey, float64(cachedFile.Size)/1024)
