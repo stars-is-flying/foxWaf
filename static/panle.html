@@ -3419,7 +3419,7 @@ async function toggleSiteStatus(siteId, newStatus) {
                         <th>ID</th>
                         <th>名称</th>
                         <th>域名</th>
-                        <th>目标URL</th>
+                        <th>目标URL/负载均衡</th>
                         <th>HTTPS</th>
                         <th>证书状态</th>
                         <th>站点状态</th>
@@ -3445,13 +3445,35 @@ async function toggleSiteStatus(siteId, newStatus) {
         } else {
             certStatus = '<span class="status-indicator">-</span>';
         }
+        
+        // 负载均衡信息
+        let targetInfo = '';
+        if (site.load_balance_algorithm) {
+            const algoText = site.load_balance_algorithm === 'round_robin' ? '轮询' : '权重';
+            const serverCount = site.upstream_servers ? site.upstream_servers.length : 0;
+            targetInfo = `<span title="负载均衡: ${algoText}, ${serverCount}个上游服务器">⚖️ ${algoText} (${serverCount})</span>`;
+            if (site.upstream_servers && site.upstream_servers.length > 0) {
+                // 根据算法类型决定是否显示权重
+                let serversText;
+                if (site.load_balance_algorithm === 'weighted') {
+                    // 权重算法显示权重
+                    serversText = site.upstream_servers.map(s => `${s.url}(${s.weight})`).join(', ');
+                } else {
+                    // 轮询算法不显示权重
+                    serversText = site.upstream_servers.map(s => s.url).join(', ');
+                }
+                targetInfo = `<span title="负载均衡: ${algoText}\n${serversText}">⚖️ ${algoText} (${serverCount})</span>`;
+            }
+        } else {
+            targetInfo = `<span title="${site.target_url}">${site.target_url.length > 20 ? site.target_url.substring(0, 20) + '...' : site.target_url}</span>`;
+        }
 
         html += `
             <tr class="${rowClass}">
                 <td>${site.id}</td>
                 <td title="${site.name}">${site.name.length > 15 ? site.name.substring(0, 15) + '...' : site.name}</td>
                 <td title="${site.domain}">${site.domain.length > 15 ? site.domain.substring(0, 15) + '...' : site.domain}</td>
-                <td title="${site.target_url}">${site.target_url.length > 20 ? site.target_url.substring(0, 20) + '...' : site.target_url}</td>
+                <td>${targetInfo}</td>
                 <td>
                     <span class="status-indicator ${site.enable_https ? 'status-active' : 'status-inactive'} clickable" 
                           onclick="toggleSiteHTTPS(${site.id}, ${!site.enable_https})"
@@ -4160,8 +4182,31 @@ async function checkSingleSiteHealth(siteId) {
             </div>
             
             <div class="form-group">
+                <label class="form-label">负载均衡算法</label>
+                <div>
+                    <label style="display: inline-flex; align-items: center; gap: 8px; margin-right: 20px;">
+                        <input type="radio" name="load_balance_algorithm" value="" checked> 不使用负载均衡
+                    </label>
+                    <label style="display: inline-flex; align-items: center; gap: 8px; margin-right: 20px;">
+                        <input type="radio" name="load_balance_algorithm" value="round_robin"> 轮询算法
+                    </label>
+                    <label style="display: inline-flex; align-items: center; gap: 8px;">
+                        <input type="radio" name="load_balance_algorithm" value="weighted"> 权重算法
+                    </label>
+                </div>
+            </div>
+            
+            <div class="form-group" id="target-url-group">
                 <label class="form-label">目标URL</label>
-                <input type="text" name="target_url" class="form-control" placeholder="例如: http://127.0.0.1:8080" required>
+                <input type="text" name="target_url" class="form-control" placeholder="例如: http://127.0.0.1:8080">
+                <small style="color: #666;">未启用负载均衡时必填</small>
+            </div>
+            
+            <div class="form-group" id="upstream-servers-group" style="display: none;">
+                <label class="form-label">上游服务器列表</label>
+                <div id="upstream-servers-list"></div>
+                <button type="button" class="btn" style="margin-top: 10px;" onclick="addUpstreamServer()">+ 添加上游服务器</button>
+                <small style="color: #666; display: block; margin-top: 5px;">启用负载均衡时，必须至少配置一个上游服务器</small>
             </div>
             
             <div class="form-group">
@@ -4210,12 +4255,65 @@ async function checkSingleSiteHealth(siteId) {
         </form>
     `;
 
+            // 显示/隐藏负载均衡相关选项
+            document.querySelectorAll('input[name="load_balance_algorithm"]').forEach(radio => {
+                radio.addEventListener('change', function () {
+                    const useLB = this.value !== '';
+                    document.getElementById('target-url-group').style.display = useLB ? 'none' : 'block';
+                    document.getElementById('upstream-servers-group').style.display = useLB ? 'block' : 'none';
+                    const targetUrlInput = document.querySelector('input[name="target_url"]');
+                    if (useLB) {
+                        targetUrlInput.removeAttribute('required');
+                        // 更新现有服务器的权重显示
+                        updateUpstreamServerWeights();
+                        if (document.getElementById('upstream-servers-list').children.length === 0) {
+                            addUpstreamServer();
+                        }
+                    } else {
+                        targetUrlInput.setAttribute('required', 'required');
+                    }
+                });
+            });
+
             // 显示/隐藏HTTPS选项
             document.querySelectorAll('input[name="enable_https"]').forEach(radio => {
                 radio.addEventListener('change', function () {
                     document.getElementById('https-options').style.display = this.value === 'true' ? 'block' : 'none';
                 });
             });
+            
+            // 更新已有服务器的权重显示
+            function updateUpstreamServerWeights() {
+                const list = document.getElementById('upstream-servers-list');
+                const selectedAlgo = document.querySelector('input[name="load_balance_algorithm"]:checked').value;
+                const isWeighted = selectedAlgo === 'weighted';
+                
+                list.querySelectorAll('.upstream-server-item').forEach(item => {
+                    const weightInput = item.querySelector('input[type="number"]');
+                    if (weightInput) {
+                        weightInput.style.display = isWeighted ? 'block' : 'none';
+                        weightInput.required = isWeighted;
+                    }
+                });
+            }
+            
+            // 添加上游服务器函数
+            window.addUpstreamServer = function() {
+                const list = document.getElementById('upstream-servers-list');
+                const index = list.children.length;
+                const selectedAlgo = document.querySelector('input[name="load_balance_algorithm"]:checked').value;
+                const isWeighted = selectedAlgo === 'weighted';
+                
+                const div = document.createElement('div');
+                div.className = 'upstream-server-item';
+                div.style.cssText = 'display: flex; gap: 10px; margin-bottom: 10px; align-items: center;';
+                div.innerHTML = `
+                    <input type="text" name="upstream_url_${index}" class="form-control" placeholder="例如: http://127.0.0.1:8080" style="flex: ${isWeighted ? '2' : '1'};" required>
+                    <input type="number" name="upstream_weight_${index}" class="form-control" placeholder="权重" value="1" min="1" style="flex: 1; display: ${isWeighted ? 'block' : 'none'};" ${isWeighted ? 'required' : ''}>
+                    <button type="button" class="btn btn-danger" onclick="this.parentElement.remove()">删除</button>
+                `;
+                list.appendChild(div);
+            };
 
             // 证书标签页切换
             document.querySelectorAll('#cert-tabs .tab').forEach(tab => {
@@ -4242,11 +4340,32 @@ async function checkSingleSiteHealth(siteId) {
 
             showModal();
         }
-        // 修改添加站点函数，支持证书
+        // 修改添加站点函数，支持证书和负载均衡
             async function addSiteWithCertificate(formData) {
                 try {
                     const data = Object.fromEntries(formData);
                     data.enable_https = data.enable_https === 'true';
+                    
+                    // 处理上游服务器
+                    if (data.load_balance_algorithm && data.load_balance_algorithm !== '') {
+                        data.upstream_servers = [];
+                        let index = 0;
+                        while (true) {
+                            const urlKey = `upstream_url_${index}`;
+                            const weightKey = `upstream_weight_${index}`;
+                            if (data[urlKey]) {
+                                data.upstream_servers.push({
+                                    url: data[urlKey],
+                                    weight: parseInt(data[weightKey]) || 1
+                                });
+                                delete data[urlKey];
+                                delete data[weightKey];
+                                index++;
+                            } else {
+                                break;
+                            }
+                        }
+                    }
 
                     const response = await fetch('/api/site/add-with-cert', {
                         method: 'POST',
