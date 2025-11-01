@@ -13,3 +13,15 @@ judges:
     - position: uri
       content: test
       rix: test3
+    - position: uri
+      content: test
+      rix: test4
+    - position: uri
+      content: test
+      rix: test5
+    - position: uri
+      content: test
+      rix: test6
+    - position: uri
+      content: test
+      rix: test7
