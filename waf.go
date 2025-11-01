@@ -4150,6 +4150,154 @@ func getSitesHandler(c *gin.Context) {
 	})
 }
 
+// ------------------- 更新站点请求 -------------------
+type UpdateSiteRequest struct {
+	ID                   int                 `json:"id" binding:"required"`
+	Name                 string              `json:"name" binding:"required"`
+	Domain               string              `json:"domain" binding:"required"`
+	TargetURL            string              `json:"target_url"`
+	LoadBalanceAlgorithm string              `json:"load_balance_algorithm"`
+	UpstreamServers      []UpstreamServerAdd `json:"upstream_servers"`
+}
+
+// ------------------- 更新站点接口 -------------------
+func updateSiteHandler(c *gin.Context) {
+	var req map[string]interface{}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 手动提取和转换字段
+	updateReq := UpdateSiteRequest{
+		ID:                   int(getFloat64(req, "id")),
+		Name:                 getString(req, "name"),
+		Domain:               getString(req, "domain"),
+		TargetURL:            getString(req, "target_url"),
+		LoadBalanceAlgorithm: getString(req, "load_balance_algorithm"),
+	}
+
+	// 处理上游服务器
+	if upstreamServersData, exists := req["upstream_servers"]; exists {
+		if upstreamList, ok := upstreamServersData.([]interface{}); ok {
+			for _, us := range upstreamList {
+				if usMap, ok := us.(map[string]interface{}); ok {
+					updateReq.UpstreamServers = append(updateReq.UpstreamServers, UpstreamServerAdd{
+						URL:    getString(usMap, "url"),
+						Weight: getInt(usMap, "weight"),
+					})
+				}
+			}
+		}
+	}
+
+	// 验证必需字段
+	if updateReq.ID == 0 || updateReq.Name == "" || updateReq.Domain == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "id, name, domain 为必填字段"})
+		return
+	}
+
+	// 如果未启用负载均衡，target_url是必需的
+	if updateReq.LoadBalanceAlgorithm == "" && updateReq.TargetURL == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "未启用负载均衡时，target_url 为必填字段"})
+		return
+	}
+
+	// 如果启用了负载均衡，必须有上游服务器
+	if updateReq.LoadBalanceAlgorithm != "" && len(updateReq.UpstreamServers) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "启用负载均衡时，必须至少配置一个上游服务器"})
+		return
+	}
+
+	// 获取原有站点信息，用于检查域名变更
+	var oldDomain string
+	err := db.QueryRow("SELECT domain FROM sites WHERE id = ?", updateReq.ID).Scan(&oldDomain)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "站点不存在"})
+		return
+	}
+
+	// 确定target_url
+	targetURL := updateReq.TargetURL
+	if targetURL == "" && len(updateReq.UpstreamServers) > 0 {
+		targetURL = updateReq.UpstreamServers[0].URL
+	}
+
+	// 更新站点基本信息
+	_, err = db.Exec("UPDATE sites SET name = ?, domain = ?, target_url = ?, load_balance_algorithm = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+		updateReq.Name, updateReq.Domain, targetURL, updateReq.LoadBalanceAlgorithm, updateReq.ID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("更新站点失败: %v", err)})
+		return
+	}
+
+	// 如果域名变更，更新证书映射
+	if oldDomain != updateReq.Domain {
+		aclManager.mutex.RLock()
+		var oldCert tls.Certificate
+		var hasOldCert bool
+		if cert, exists := certificateMap[oldDomain]; exists {
+			oldCert = cert
+			hasOldCert = true
+		}
+		aclManager.mutex.RUnlock()
+
+		if hasOldCert {
+			aclManager.mutex.Lock()
+			delete(certificateMap, oldDomain)
+			certificateMap[updateReq.Domain] = oldCert
+			aclManager.mutex.Unlock()
+			stdlog.Printf("站点域名变更，更新证书映射: %s -> %s", oldDomain, updateReq.Domain)
+		}
+	}
+
+	// 删除原有的上游服务器
+	_, err = db.Exec("DELETE FROM upstream_servers WHERE site_id = ?", updateReq.ID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("删除上游服务器失败: %v", err)})
+		return
+	}
+
+	// 插入新的上游服务器
+	var upstreamServers []UpstreamServer
+	if updateReq.LoadBalanceAlgorithm != "" && len(updateReq.UpstreamServers) > 0 {
+		insertUpstream := `INSERT INTO upstream_servers (site_id, url, weight, status) VALUES (?, ?, ?, ?)`
+		for _, us := range updateReq.UpstreamServers {
+			if us.URL != "" {
+				if us.Weight <= 0 {
+					us.Weight = 1 // 默认权重为1
+				}
+				_, err := db.Exec(insertUpstream, updateReq.ID, us.URL, us.Weight, 1)
+				if err == nil {
+					upstreamServers = append(upstreamServers, UpstreamServer{
+						SiteID: updateReq.ID,
+						URL:    us.URL,
+						Weight: us.Weight,
+						Status: 1,
+					})
+				}
+			}
+		}
+	}
+
+	// 热更新内存 sites 列表
+	aclManager.mutex.Lock()
+	for i := range sites {
+		if sites[i].ID == updateReq.ID {
+			sites[i].Name = updateReq.Name
+			sites[i].Domain = updateReq.Domain
+			sites[i].TargetURL = targetURL
+			sites[i].LoadBalanceAlgorithm = updateReq.LoadBalanceAlgorithm
+			sites[i].UpstreamServers = upstreamServers
+			sites[i].UpdatedAt = time.Now().Format("2006-01-02 15:04:05")
+			break
+		}
+	}
+	aclManager.mutex.Unlock()
+
+	c.JSON(http.StatusOK, gin.H{"message": "站点更新成功"})
+}
+
 // ------------------- 删除站点接口 -------------------
 func deleteSiteHandler(c *gin.Context) {
 	var req DeleteSiteRequest
@@ -4510,6 +4658,7 @@ func StartGinAPI() {
 		// 添加站点
 		authGroup.POST("/api/site/add", addSiteHandler)
 		authGroup.GET("/api/sites", getSitesHandler)
+		authGroup.PUT("/api/site/update", updateSiteHandler) // 新增：更新站点信息
 		authGroup.POST("/api/site/delete", deleteSiteHandler)
 		authGroup.POST("/api/site/status", updateSiteStatusHandler) // 新增：更新站点状态
 		authGroup.POST("/api/site/https", updateSiteHTTPSHandler)   // 新增：更新HTTPS状态
@@ -5905,6 +6054,22 @@ func getInt(m map[string]interface{}, key string) int {
 		}
 	}
 	return 1 // 默认返回1
+}
+
+func getFloat64(m map[string]interface{}, key string) float64 {
+	if val, exists := m[key]; exists {
+		switch v := val.(type) {
+		case float64:
+			return v
+		case int:
+			return float64(v)
+		case string:
+			if floatVal, err := strconv.ParseFloat(v, 64); err == nil {
+				return floatVal
+			}
+		}
+	}
+	return 0
 }
 
 // ------------------- 证书信息结构 -------------------

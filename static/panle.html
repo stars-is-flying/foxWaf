@@ -3491,6 +3491,7 @@ async function toggleSiteStatus(siteId, newStatus) {
                 </td>
                 <td>
                     <div class="action-buttons">
+                        <button class="btn" onclick="showEditSiteModal(${site.id})" title="编辑">✏️</button>
                         ${site.enable_https ? `
                             <button class="btn" onclick="manageSiteCertificate(${site.id}, '${site.domain}')" title="管理证书">📜</button>
                         ` : ''}
@@ -4416,6 +4417,207 @@ async function checkSingleSiteHealth(siteId) {
             } catch (error) {
                 console.error('添加站点错误:', error);
                 showMessage('添加失败', 'error');
+            }
+        }
+
+        // 编辑站点模态框
+        async function showEditSiteModal(siteId) {
+            try {
+                const response = await fetch('/api/sites', {
+                    method: 'GET',
+                    credentials: 'include'
+                });
+
+                if (!response.ok) {
+                    showMessage('加载站点信息失败', 'error');
+                    return;
+                }
+
+                const data = await response.json();
+                const site = data.sites.find(s => s.id === siteId);
+                
+                if (!site) {
+                    showMessage('站点不存在', 'error');
+                    return;
+                }
+
+                document.getElementById('modal-title').textContent = '编辑站点';
+                document.getElementById('modal-body').innerHTML = `
+        <form id="edit-site-form">
+            <input type="hidden" name="id" value="${site.id}">
+            <div class="form-group">
+                <label class="form-label">站点名称</label>
+                <input type="text" name="name" class="form-control" placeholder="例如: 我的网站" value="${escapeHtml(site.name)}" required>
+            </div>
+            
+            <div class="form-group">
+                <label class="form-label">域名</label>
+                <input type="text" name="domain" class="form-control" placeholder="例如: example.com" value="${escapeHtml(site.domain)}" required>
+            </div>
+            
+            <div class="form-group">
+                <label class="form-label">负载均衡算法</label>
+                <div>
+                    <label style="display: inline-flex; align-items: center; gap: 8px; margin-right: 20px;">
+                        <input type="radio" name="load_balance_algorithm" value="" ${!site.load_balance_algorithm ? 'checked' : ''}> 不使用负载均衡
+                    </label>
+                    <label style="display: inline-flex; align-items: center; gap: 8px; margin-right: 20px;">
+                        <input type="radio" name="load_balance_algorithm" value="round_robin" ${site.load_balance_algorithm === 'round_robin' ? 'checked' : ''}> 轮询算法
+                    </label>
+                    <label style="display: inline-flex; align-items: center; gap: 8px;">
+                        <input type="radio" name="load_balance_algorithm" value="weighted" ${site.load_balance_algorithm === 'weighted' ? 'checked' : ''}> 权重算法
+                    </label>
+                </div>
+            </div>
+            
+            <div class="form-group" id="target-url-group">
+                <label class="form-label">目标URL</label>
+                <input type="text" name="target_url" class="form-control" placeholder="例如: http://127.0.0.1:8080" value="${escapeHtml(site.target_url)}">
+                <small style="color: #666;">未启用负载均衡时必填</small>
+            </div>
+            
+            <div class="form-group" id="upstream-servers-group" style="display: ${site.load_balance_algorithm ? 'block' : 'none'};">
+                <label class="form-label">上游服务器列表</label>
+                <div id="upstream-servers-list"></div>
+                <button type="button" class="btn" style="margin-top: 10px;" onclick="addUpstreamServerEdit()">+ 添加上游服务器</button>
+                <small style="color: #666; display: block; margin-top: 5px;">启用负载均衡时，必须至少配置一个上游服务器</small>
+            </div>
+            
+            <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                <button type="button" class="btn btn-secondary" onclick="closeModal()">取消</button>
+                <button type="submit" class="btn">更新站点</button>
+            </div>
+        </form>
+    `;
+
+                // 加载现有上游服务器
+                if (site.load_balance_algorithm && site.upstream_servers && site.upstream_servers.length > 0) {
+                    const list = document.getElementById('upstream-servers-list');
+                    site.upstream_servers.forEach((us, index) => {
+                        const div = document.createElement('div');
+                        div.className = 'upstream-server-item';
+                        div.style.cssText = 'display: flex; gap: 10px; margin-bottom: 10px; align-items: center;';
+                        const isWeighted = site.load_balance_algorithm === 'weighted';
+                        div.innerHTML = `
+                            <input type="text" name="upstream_url_${index}" class="form-control" placeholder="例如: http://127.0.0.1:8080" style="flex: ${isWeighted ? '2' : '1'};" value="${escapeHtml(us.url)}" required>
+                            <input type="number" name="upstream_weight_${index}" class="form-control" placeholder="权重" value="${us.weight}" min="1" style="flex: 1; display: ${isWeighted ? 'block' : 'none'};" ${isWeighted ? 'required' : ''}>
+                            <button type="button" class="btn btn-danger" onclick="this.parentElement.remove()">删除</button>
+                        `;
+                        list.appendChild(div);
+                    });
+                }
+
+                // 显示/隐藏负载均衡相关选项
+                document.querySelectorAll('input[name="load_balance_algorithm"]').forEach(radio => {
+                    radio.addEventListener('change', function () {
+                        const useLB = this.value !== '';
+                        document.getElementById('target-url-group').style.display = useLB ? 'none' : 'block';
+                        document.getElementById('upstream-servers-group').style.display = useLB ? 'block' : 'none';
+                        const targetUrlInput = document.querySelector('input[name="target_url"]');
+                        if (useLB) {
+                            targetUrlInput.removeAttribute('required');
+                            updateUpstreamServerWeightsEdit();
+                            if (document.getElementById('upstream-servers-list').children.length === 0) {
+                                addUpstreamServerEdit();
+                            }
+                        } else {
+                            targetUrlInput.setAttribute('required', 'required');
+                        }
+                    });
+                });
+
+                // 更新已有服务器的权重显示
+                function updateUpstreamServerWeightsEdit() {
+                    const list = document.getElementById('upstream-servers-list');
+                    const selectedAlgo = document.querySelector('input[name="load_balance_algorithm"]:checked').value;
+                    const isWeighted = selectedAlgo === 'weighted';
+                    
+                    list.querySelectorAll('.upstream-server-item').forEach(item => {
+                        const weightInput = item.querySelector('input[type="number"]');
+                        if (weightInput) {
+                            weightInput.style.display = isWeighted ? 'block' : 'none';
+                            weightInput.required = isWeighted;
+                        }
+                    });
+                }
+                
+                // 添加上游服务器函数
+                window.addUpstreamServerEdit = function() {
+                    const list = document.getElementById('upstream-servers-list');
+                    const index = list.children.length;
+                    const selectedAlgo = document.querySelector('input[name="load_balance_algorithm"]:checked').value;
+                    const isWeighted = selectedAlgo === 'weighted';
+                    
+                    const div = document.createElement('div');
+                    div.className = 'upstream-server-item';
+                    div.style.cssText = 'display: flex; gap: 10px; margin-bottom: 10px; align-items: center;';
+                    div.innerHTML = `
+                        <input type="text" name="upstream_url_${index}" class="form-control" placeholder="例如: http://127.0.0.1:8080" style="flex: ${isWeighted ? '2' : '1'};" required>
+                        <input type="number" name="upstream_weight_${index}" class="form-control" placeholder="权重" value="1" min="1" style="flex: 1; display: ${isWeighted ? 'block' : 'none'};" ${isWeighted ? 'required' : ''}>
+                        <button type="button" class="btn btn-danger" onclick="this.parentElement.remove()">删除</button>
+                    `;
+                    list.appendChild(div);
+                };
+
+                // 表单提交
+                document.getElementById('edit-site-form').addEventListener('submit', function (e) {
+                    e.preventDefault();
+                    updateSite(new FormData(this));
+                });
+
+                showModal();
+            } catch (error) {
+                console.error('加载站点错误:', error);
+                showMessage('加载站点信息失败', 'error');
+            }
+        }
+
+        // 更新站点函数
+        async function updateSite(formData) {
+            try {
+                const data = Object.fromEntries(formData);
+                
+                // 处理上游服务器
+                if (data.load_balance_algorithm && data.load_balance_algorithm !== '') {
+                    data.upstream_servers = [];
+                    let index = 0;
+                    while (true) {
+                        const urlKey = `upstream_url_${index}`;
+                        const weightKey = `upstream_weight_${index}`;
+                        if (data[urlKey]) {
+                            data.upstream_servers.push({
+                                url: data[urlKey],
+                                weight: parseInt(data[weightKey]) || 1
+                            });
+                            delete data[urlKey];
+                            delete data[weightKey];
+                            index++;
+                        } else {
+                            break;
+                        }
+                    }
+                }
+
+                const response = await fetch('/api/site/update', {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    credentials: 'include',
+                    body: JSON.stringify(data)
+                });
+
+                if (response.ok) {
+                    closeModal();
+                    showMessage('站点更新成功', 'success');
+                    loadSites();
+                } else {
+                    const error = await response.text();
+                    showMessage('更新失败: ' + error, 'error');
+                }
+            } catch (error) {
+                console.error('更新站点错误:', error);
+                showMessage('更新失败', 'error');
             }
         }
 
