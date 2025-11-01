@@ -501,9 +501,24 @@
 
         /* 消息提示 */
         .alert {
-            padding: 15px;
+            padding: 15px 20px;
             border-radius: 10px;
             margin-bottom: 20px;
+            font-size: 16px;
+            font-weight: 500;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            animation: slideDown 0.3s ease-out;
+        }
+
+        @keyframes slideDown {
+            from {
+                opacity: 0;
+                transform: translateY(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
 
         .alert-success {
@@ -5251,7 +5266,7 @@ function escapeHtml(unsafe) {
         // 方法1: 使用现代 Clipboard API
         if (navigator.clipboard && window.isSecureContext) {
             navigator.clipboard.writeText(text).then(() => {
-                showMessage(successMessage, 'success');
+                showMessage('复制成功', 'success');
             }).catch(err => {
                 // 如果 Clipboard API 失败，回退到传统方法
                 fallbackCopyToClipboard(text, successMessage);
@@ -5280,7 +5295,7 @@ function escapeHtml(unsafe) {
         try {
             const successful = document.execCommand('copy');
             if (successful) {
-                showMessage(successMessage, 'success');
+                showMessage('复制成功', 'success');
             } else {
                 showMessage('复制失败，请手动选择文本复制', 'error');
             }
