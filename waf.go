@@ -3974,12 +3974,37 @@ func addACLRuleHandler(c *gin.Context) {
 }
 
 func getACLRulesHandler(c *gin.Context) {
-	aclManager.mutex.RLock()
-	defer aclManager.mutex.RUnlock()
-
+	// 从数据库加载所有规则（包括禁用的），用于管理界面显示
+	query := `
+        SELECT id, type, host, rule_type, pattern, action, description, enabled 
+        FROM acl_rules 
+        ORDER BY type DESC, id ASC
+    `
+	
+	rows, err := db.Query(query)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("查询规则失败: %v", err)})
+		return
+	}
+	defer rows.Close()
+	
+	rules := make([]ACLRule, 0)
+	for rows.Next() {
+		var rule ACLRule
+		err := rows.Scan(
+			&rule.ID, &rule.Type, &rule.Host, &rule.RuleType,
+			&rule.Pattern, &rule.Action, &rule.Description, &rule.Enabled,
+		)
+		if err != nil {
+			stdlog.Printf("读取 ACL 规则失败: %v", err)
+			continue
+		}
+		rules = append(rules, rule)
+	}
+	
 	c.JSON(http.StatusOK, gin.H{
-		"rules": aclManager.rules,
-		"count": len(aclManager.rules),
+		"rules": rules,
+		"count": len(rules),
 	})
 }
 
@@ -4014,6 +4039,112 @@ func deleteACLRuleHandler(c *gin.Context) {
 	aclManager.mutex.Unlock()
 
 	c.JSON(http.StatusOK, gin.H{"message": "规则删除成功"})
+}
+
+func toggleACLRuleHandler(c *gin.Context) {
+	id := c.Param("id")
+	
+	var req struct {
+		Enabled bool `json:"enabled"`
+	}
+	
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	
+	// 先从数据库查询规则信息
+	var rule ACLRule
+	query := `SELECT id, type, host, rule_type, pattern, action, description, enabled FROM acl_rules WHERE id = ?`
+	err := db.QueryRow(query, id).Scan(
+		&rule.ID, &rule.Type, &rule.Host, &rule.RuleType,
+		&rule.Pattern, &rule.Action, &rule.Description, &rule.Enabled,
+	)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "规则不存在"})
+		return
+	}
+	
+	// 更新数据库
+	_, err = db.Exec("UPDATE acl_rules SET enabled = ? WHERE id = ?", req.Enabled, id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("更新规则状态失败: %v", err)})
+		return
+	}
+	
+	// 更新规则状态
+	rule.Enabled = req.Enabled
+	
+	// 热更新内存规则
+	aclManager.mutex.Lock()
+	
+	if req.Enabled {
+		// 启用规则：添加到内存中
+		found := false
+		for i, r := range aclManager.rules {
+			if fmt.Sprintf("%d", r.ID) == id {
+				// 如果已存在，更新它
+				aclManager.rules[i] = rule
+				found = true
+				break
+			}
+		}
+		if !found {
+			// 如果不存在，添加它
+			aclManager.rules = append(aclManager.rules, rule)
+		}
+		
+		// 如果是IP规则，更新IP规则缓存
+		if rule.RuleType == "ip" {
+			found := false
+			for _, r := range aclManager.ipRules[rule.Pattern] {
+				if fmt.Sprintf("%d", r.ID) == id {
+					found = true
+					break
+				}
+			}
+			if !found {
+				aclManager.ipRules[rule.Pattern] = append(aclManager.ipRules[rule.Pattern], rule)
+			}
+		}
+	} else {
+		// 禁用规则：从内存中移除
+		for i, r := range aclManager.rules {
+			if fmt.Sprintf("%d", r.ID) == id {
+				aclManager.rules = append(aclManager.rules[:i], aclManager.rules[i+1:]...)
+				break
+			}
+		}
+		
+		// 从IP规则缓存中移除
+		if rule.RuleType == "ip" {
+			newRules := make([]ACLRule, 0)
+			for _, r := range aclManager.ipRules[rule.Pattern] {
+				if fmt.Sprintf("%d", r.ID) != id {
+					newRules = append(newRules, r)
+				}
+			}
+			if len(newRules) > 0 {
+				aclManager.ipRules[rule.Pattern] = newRules
+			} else {
+				delete(aclManager.ipRules, rule.Pattern)
+			}
+		}
+	}
+	
+	aclManager.mutex.Unlock()
+	
+	status := "启用"
+	if !req.Enabled {
+		status = "禁用"
+	}
+	
+	stdlog.Printf("ACL规则%s: ID %s", status, id)
+	
+	c.JSON(http.StatusOK, gin.H{
+		"message": fmt.Sprintf("规则%s成功", status),
+		"enabled": req.Enabled,
+	})
 }
 
 // ------------------- 修改主处理函数 -------------------
@@ -4766,6 +4897,7 @@ func StartGinAPI() {
 		authGroup.POST("/api/acl/rules", addACLRuleHandler)
 		authGroup.GET("/api/acl/rules", getACLRulesHandler)
 		authGroup.DELETE("/api/acl/rules/:id", deleteACLRuleHandler)
+		authGroup.POST("/api/acl/rules/:id/toggle", toggleACLRuleHandler)
 
 		//-------------------缓存加速----------------------
 		authGroup.GET("/api/cache/stats", getCacheStatsHandler)

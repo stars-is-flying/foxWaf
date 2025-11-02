@@ -3379,12 +3379,16 @@ async function loadStats() {
                 </td>
                 <td title="${rule.description || '-'}">${rule.description ? (rule.description.length > 15 ? rule.description.substring(0, 15) + '...' : rule.description) : '-'}</td>
                 <td>
-                    <span class="status-indicator ${rule.enabled ? 'status-active' : 'status-inactive'}">
-                        ${rule.enabled ? '启用' : '禁用'}
-                    </span>
+                    <button class="btn ${rule.enabled ? 'btn-success' : 'btn-secondary'}" 
+                            onclick="toggleACLRuleStatus(${rule.id}, ${!rule.enabled})"
+                            title="点击切换状态">
+                        ${rule.enabled ? '开启' : '关闭'}
+                    </button>
                 </td>
                 <td>
-                    <button class="btn btn-danger" onclick="deleteACLRule(${rule.id})">删除</button>
+                    <div class="action-buttons">
+                        <button class="btn btn-danger" onclick="deleteACLRule(${rule.id})">删除</button>
+                    </div>
                 </td>
             </tr>
         `;
@@ -3506,6 +3510,32 @@ async function loadStats() {
             } catch (error) {
                 console.error('添加ACL规则错误:', error);
                 showMessage('添加失败', 'error');
+            }
+        }
+
+        // 切换ACL规则状态
+        async function toggleACLRuleStatus(id, enabled) {
+            try {
+                const response = await fetch(`/api/acl/rules/${id}/toggle`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    credentials: 'include',
+                    body: JSON.stringify({ enabled: enabled })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    showMessage(data.message || 'ACL规则状态切换成功', 'success');
+                    loadACLRules();
+                } else {
+                    const error = await response.text();
+                    showMessage('切换失败: ' + error, 'error');
+                }
+            } catch (error) {
+                console.error('切换ACL规则状态错误:', error);
+                showMessage('切换失败', 'error');
             }
         }
 
