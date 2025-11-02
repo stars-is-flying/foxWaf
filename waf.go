@@ -3222,8 +3222,8 @@ func getCacheFilesHandler(c *gin.Context) {
 	defer cacheMutex.RUnlock()
 
 	// 获取查询参数
-	siteFilter := c.Query("site")           // 站点筛选
-	page := c.DefaultQuery("page", "1")      // 页码，默认1
+	siteFilter := c.Query("site")                 // 站点筛选
+	page := c.DefaultQuery("page", "1")           // 页码，默认1
 	pageSize := c.DefaultQuery("page_size", "10") // 每页大小，默认10
 
 	pageNum, _ := strconv.Atoi(page)
@@ -3237,7 +3237,7 @@ func getCacheFilesHandler(c *gin.Context) {
 
 	var files []CacheFileInfo
 	siteMap := make(map[string]bool)
-	
+
 	for key, cachedFile := range fileCache {
 		// 从key中提取站点信息（格式为 "domain/path"）
 		site := "unknown"
@@ -5252,9 +5252,9 @@ func isAttack(req *http.Request) (bool, *AttackLog) {
 	}
 
 	// 拆分URL：路径部分和参数部分
-	uri := req.URL.Path // URI路径部分
+	uri := req.URL.Path        // URI路径部分
 	rawURL := req.URL.String() // 完整URL（用于向后兼容）
-	
+
 	// 提取URL参数：键和值
 	var parameterKeys []string   // 参数键名列表
 	var parameterValues []string // 参数值列表
@@ -5263,7 +5263,7 @@ func isAttack(req *http.Request) (bool, *AttackLog) {
 		parameterKeys = append(parameterKeys, key)
 		parameterValues = append(parameterValues, values...)
 	}
-	
+
 	head := sb.String()
 
 	// 对URI、参数键、参数值进行解码
@@ -5362,13 +5362,13 @@ func evaluateRule(rule Rule, uri, rawURL string, parameterKeys, parameterValues 
 	for _, judge := range rule.Judges {
 		var target string
 		var matchedStr string
-		
+
 		switch judge.Position {
 		case "uri":
 			// URI路径部分（不包含参数）
 			target = uri
 			matchedStr = match(target, judge)
-			
+
 		case "parameter_key":
 			// URL参数的键名
 			// 遍历每个参数键名进行匹配
@@ -5379,7 +5379,7 @@ func evaluateRule(rule Rule, uri, rawURL string, parameterKeys, parameterValues 
 					break
 				}
 			}
-			
+
 		case "parameter_value":
 			// URL参数的值
 			// 遍历每个参数值进行匹配
@@ -5390,11 +5390,11 @@ func evaluateRule(rule Rule, uri, rawURL string, parameterKeys, parameterValues 
 					break
 				}
 			}
-			
+
 		case "request_header":
 			target = head
 			matchedStr = match(target, judge)
-			
+
 		case "request_body":
 			if isBodyNull {
 				matchResults = append(matchResults, false)
@@ -5402,7 +5402,7 @@ func evaluateRule(rule Rule, uri, rawURL string, parameterKeys, parameterValues 
 			}
 			target = body
 			matchedStr = match(target, judge)
-			
+
 		default:
 			// 向后兼容：如果position不是已知类型，使用完整URL（保持原有行为）
 			target = rawURL
