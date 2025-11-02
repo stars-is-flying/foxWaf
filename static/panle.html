@@ -1844,6 +1844,11 @@ code[class*="language-"] {
         <div class="card">
             <div class="card-header">
                 <h3 class="card-title">📁 缓存文件列表</h3>
+                <div style="display: flex; gap: 10px; align-items: center;">
+                    <select id="cache-site-filter" class="form-control" style="width: 200px;" onchange="window.loadCacheFiles(1)">
+                        <option value="all">全部站点</option>
+                    </select>
+                </div>
             </div>
             <div id="cache-files-container">
                 <div class="loading">加载中...</div>
@@ -2241,7 +2246,7 @@ function loadPage(pageId) {
             case 'cache':
                 loadCacheStats();
                 loadCacheConfig();
-                loadCacheFiles(1);
+                window.loadCacheFiles(1);
                 break;
             case 'sites':
                 loadSites();
@@ -3454,7 +3459,7 @@ async function loadStats() {
                 </div>
             </div>
             
-            <div class="metric-card clickable" onclick="loadCacheFiles()" style="cursor: pointer;">
+            <div class="metric-card clickable" onclick="window.loadCacheFiles(1)" style="cursor: pointer;">
                 <div class="metric-icon">📁</div>
                 <div class="metric-content">
                     <div class="metric-value">${stats.cached_files}</div>
@@ -3594,7 +3599,7 @@ async function loadStats() {
         function refreshCacheStats() {
             loadCacheStats();
             loadCacheConfig();
-            loadCacheFiles(1); // 同时刷新文件列表
+            window.loadCacheFiles(1); // 同时刷新文件列表
         }
 
         // 切换站点状态
@@ -4113,20 +4118,29 @@ function getSiteHealthStatus(siteId) {
     `;
 }
 
-    // 加载缓存文件列表
-    // 加载缓存文件列表
-    // 加载缓存文件列表
-    async function loadCacheFiles(page = 1) {
+    // 加载缓存文件列表 - 全局函数
+    window.loadCacheFiles = async function(page = 1) {
+        console.log('loadCacheFiles 被调用，页码:', page);
         try {
             // 显示加载状态
             const container = document.getElementById('cache-files-container');
+            if (!container) {
+                console.error('缓存文件容器不存在');
+                return;
+            }
             container.innerHTML = '<div class="loading">加载中...</div>';
+
+            // 获取站点筛选器
+            const siteFilter = document.getElementById('cache-site-filter');
+            const selectedSite = siteFilter ? siteFilter.value : 'all';
 
             const params = new URLSearchParams({
                 page: page,
-                page_size: 10 // 每页显示10条
+                page_size: 10, // 每页显示10条
+                site: selectedSite // 添加站点筛选
             });
 
+            console.log('请求URL:', `/api/cache/files?${params}`);
             const response = await fetch(`/api/cache/files?${params}`, {
                 method: 'GET',
                 credentials: 'include'
@@ -4134,14 +4148,44 @@ function getSiteHealthStatus(siteId) {
 
             if (response.ok) {
                 const data = await response.json();
+                console.log('收到数据:', data);
+                
+                // 更新站点筛选器的选项
+                if (data.sites && siteFilter) {
+                    updateSiteFilter(data.sites, selectedSite);
+                }
+                
                 displayCacheFiles(data);
             } else {
+                console.error('请求失败，状态码:', response.status);
                 container.innerHTML = '<div class="alert alert-error">加载缓存文件列表失败</div>';
             }
         } catch (error) {
             console.error('加载缓存文件列表错误:', error);
-            document.getElementById('cache-files-container').innerHTML = '<div class="alert alert-error">加载缓存文件列表失败</div>';
+            const container = document.getElementById('cache-files-container');
+            if (container) {
+                container.innerHTML = '<div class="alert alert-error">加载缓存文件列表失败</div>';
+            }
         }
+    };
+    
+    // 更新站点筛选器选项
+    function updateSiteFilter(sites, selectedValue) {
+        const siteFilter = document.getElementById('cache-site-filter');
+        if (!siteFilter) return;
+        
+        const currentValue = siteFilter.value;
+        siteFilter.innerHTML = '<option value="all">全部站点</option>';
+        
+        sites.forEach(site => {
+            const option = document.createElement('option');
+            option.value = site;
+            option.textContent = site;
+            if (site === selectedValue || (selectedValue === 'all' && site === currentValue)) {
+                option.selected = true;
+            }
+            siteFilter.appendChild(option);
+        });
     }
 
     // 显示缓存文件列表
@@ -4208,21 +4252,25 @@ function displayCacheFiles(data) {
 
     if (!data.files || data.files.length === 0) {
         container.innerHTML = '<div class="alert">暂无缓存文件</div>';
-        document.getElementById('cache-files-pagination').innerHTML = '';
+        const pagination = document.getElementById('cache-files-pagination');
+        if (pagination) {
+            pagination.innerHTML = '';
+        }
         return;
     }
 
     const files = data.files;
     const currentPage = data.page || 1;
     const pageSize = data.page_size || 10;
-    const total = data.total || files.length;
+    const total = data.total || 0;
 
     let html = `
         <div class="table-scroll-container">
             <table>
                 <thead>
                     <tr>
-                        <th>缓存键</th>
+                        <th>路径</th>
+                        <th>站点</th>
                         <th>类型</th>
                         <th>大小</th>
                         <th>最后修改</th>
@@ -4234,21 +4282,29 @@ function displayCacheFiles(data) {
     `;
 
     files.forEach(file => {
-        // 简化显示缓存键
-        const displayKey = file.key.length > 25 ? file.key.substring(0, 25) + '...' : file.key;
+        // 简化显示缓存键（移除站点前缀，因为已经在筛选器和站点列显示了）
+        let displayKey = file.key;
+        if (file.site && displayKey.startsWith(file.site)) {
+            displayKey = displayKey.substring(file.site.length);
+        }
+        displayKey = displayKey.length > 30 ? displayKey.substring(0, 30) + '...' : displayKey;
         const displayType = file.content_type ? (file.content_type.length > 15 ? file.content_type.substring(0, 15) + '...' : file.content_type) : '未知';
 
+        // 转义单引号，防止XSS和JavaScript错误
+        const safeKey = file.key.replace(/'/g, "\\'").replace(/"/g, "&quot;");
+        
         html += `
             <tr>
                 <td title="${file.key}">${displayKey}</td>
+                <td>${file.site || 'unknown'}</td>
                 <td title="${file.content_type || '未知'}">${displayType}</td>
                 <td>${file.size || 0}</td>
                 <td>${file.last_modified || '未知'}</td>
                 <td>${file.expire_at || '永不过期'}</td>
                 <td>
                     <div class="action-buttons">
-                        <button class="btn" onclick="viewCacheFileContent('${file.key}')">查看内容</button>
-                        <button class="btn btn-danger" onclick="deleteCacheFile('${file.key}')">删除</button>
+                        <button class="btn" onclick="viewCacheFileContent('${safeKey}')">查看内容</button>
+                        <button class="btn btn-danger" onclick="deleteCacheFile('${safeKey}')">删除</button>
                     </div>
                 </td>
             </tr>
@@ -4270,42 +4326,77 @@ function displayCacheFiles(data) {
     displayCacheFilesPagination(total, pageSize, currentPage);
 }
 
-// 显示缓存文件分页
-    // 显示缓存文件分页
-    function displayCacheFilesPagination(total, pageSize, currentPage) {
-        const totalPages = Math.ceil(total / pageSize);
-        const pagination = document.getElementById('cache-files-pagination');
-
-        if (totalPages <= 1) {
-            pagination.innerHTML = '';
-            return;
-        }
-
-        let html = '';
-
-        // 上一页
-        if (currentPage > 1) {
-            html += `<button class="page-btn" onclick="loadCacheFiles(${currentPage - 1})">上一页</button>`;
-        }
-
-        // 页码
-        for (let i = 1; i <= totalPages; i++) {
-            if (i === currentPage) {
-                html += `<button class="page-btn active">${i}</button>`;
-            } else if (i === 1 || i === totalPages || (i >= currentPage - 2 && i <= currentPage + 2)) {
-                html += `<button class="page-btn" onclick="loadCacheFiles(${i})">${i}</button>`;
-            } else if (i === currentPage - 3 || i === currentPage + 3) {
-                html += `<span class="page-btn">...</span>`;
-            }
-        }
-
-        // 下一页
-        if (currentPage < totalPages) {
-            html += `<button class="page-btn" onclick="loadCacheFiles(${currentPage + 1})">下一页</button>`;
-        }
-
-        pagination.innerHTML = html;
+// 显示缓存文件分页 - 全局函数
+function displayCacheFilesPagination(total, pageSize, currentPage) {
+    const totalPages = Math.ceil(total / pageSize);
+    const pagination = document.getElementById('cache-files-pagination');
+    
+    if (!pagination) {
+        console.error('缓存文件分页容器不存在');
+        return;
     }
+
+    if (totalPages <= 1) {
+        pagination.innerHTML = '';
+        return;
+    }
+
+    // 先清空旧的事件监听器（如果有的话）
+    pagination.innerHTML = '';
+    
+    // 创建上一页按钮
+    if (currentPage > 1) {
+        const prevBtn = document.createElement('button');
+        prevBtn.className = 'page-btn';
+        prevBtn.textContent = '上一页';
+        prevBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            window.loadCacheFiles(currentPage - 1);
+        });
+        pagination.appendChild(prevBtn);
+    }
+
+    // 创建页码按钮
+    for (let i = 1; i <= totalPages; i++) {
+        if (i === currentPage) {
+            const activeBtn = document.createElement('button');
+            activeBtn.className = 'page-btn active';
+            activeBtn.textContent = i.toString();
+            pagination.appendChild(activeBtn);
+        } else if (i === 1 || i === totalPages || (i >= currentPage - 2 && i <= currentPage + 2)) {
+            const pageBtn = document.createElement('button');
+            pageBtn.className = 'page-btn';
+            pageBtn.textContent = i.toString();
+            // 使用立即执行函数（IIFE）来捕获正确的 i 值
+            (function(pageNum) {
+                pageBtn.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    console.log('点击页码:', pageNum);
+                    window.loadCacheFiles(pageNum);
+                });
+            })(i);
+            pagination.appendChild(pageBtn);
+        } else if (i === currentPage - 3 || i === currentPage + 3) {
+            const ellipsis = document.createElement('span');
+            ellipsis.className = 'page-btn';
+            ellipsis.textContent = '...';
+            pagination.appendChild(ellipsis);
+        }
+    }
+
+    // 创建下一页按钮
+    if (currentPage < totalPages) {
+        const nextBtn = document.createElement('button');
+        nextBtn.className = 'page-btn';
+        nextBtn.textContent = '下一页';
+        nextBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            window.loadCacheFiles(currentPage + 1);
+        });
+        pagination.appendChild(nextBtn);
+    }
+}
 // 格式化文件大小
 function formatFileSize(bytes) {
     if (bytes === 0) return '0 B';
@@ -4334,7 +4425,7 @@ async function deleteCacheFile(cacheKey) {
 
         if (response.ok) {
             showMessage('缓存文件删除成功', 'success');
-            loadCacheFiles(); // 重新加载文件列表
+            window.loadCacheFiles(1); // 重新加载文件列表
         } else {
             const error = await response.text();
             showMessage('删除失败: ' + error, 'error');

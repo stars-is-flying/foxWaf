@@ -3206,6 +3206,7 @@ type CacheFileInfo struct {
 	ContentType  string `json:"content_type"`
 	LastModified string `json:"last_modified"`
 	ExpireAt     string `json:"expire_at"`
+	Site         string `json:"site"` // 添加站点字段
 }
 
 type CacheFileContent struct {
@@ -3220,28 +3221,86 @@ func getCacheFilesHandler(c *gin.Context) {
 	cacheMutex.RLock()
 	defer cacheMutex.RUnlock()
 
+	// 获取查询参数
+	siteFilter := c.Query("site")           // 站点筛选
+	page := c.DefaultQuery("page", "1")      // 页码，默认1
+	pageSize := c.DefaultQuery("page_size", "10") // 每页大小，默认10
+
+	pageNum, _ := strconv.Atoi(page)
+	pageSizeNum, _ := strconv.Atoi(pageSize)
+	if pageNum < 1 {
+		pageNum = 1
+	}
+	if pageSizeNum < 1 || pageSizeNum > 100 {
+		pageSizeNum = 10
+	}
+
 	var files []CacheFileInfo
+	siteMap := make(map[string]bool)
+	
 	for key, cachedFile := range fileCache {
+		// 从key中提取站点信息（格式为 "domain/path"）
+		site := "unknown"
+		if strings.Contains(key, "/") {
+			parts := strings.SplitN(key, "/", 2)
+			if len(parts) > 0 {
+				site = parts[0]
+			}
+		}
+		siteMap[site] = true
+
+		// 如果指定了站点筛选
+		if siteFilter != "" && siteFilter != "all" {
+			if site != siteFilter {
+				continue
+			}
+		}
+
 		fileInfo := CacheFileInfo{
 			Key:          key,
 			Size:         fmt.Sprintf("%.2f KB", float64(cachedFile.Size)/1024),
 			ContentType:  cachedFile.ContentType,
 			LastModified: cachedFile.LastModified.Format("2006-01-02 15:04:05"),
 			ExpireAt:     cachedFile.ExpireAt.Format("2006-01-02 15:04:05"),
+			Site:         site,
 		}
 		files = append(files, fileInfo)
 	}
 
 	// 按最后修改时间排序
 	sort.Slice(files, func(i, j int) bool {
-		cacheMutex.RLock()
-		defer cacheMutex.RUnlock()
 		return fileCache[files[i].Key].LastModified.After(fileCache[files[j].Key].LastModified)
 	})
 
+	// 分页处理
+	total := len(files)
+	start := (pageNum - 1) * pageSizeNum
+	end := start + pageSizeNum
+	if start > total {
+		start = total
+	}
+	if end > total {
+		end = total
+	}
+
+	var pagedFiles []CacheFileInfo
+	if start < end {
+		pagedFiles = files[start:end]
+	}
+
+	// 获取所有唯一的站点列表
+	sites := make([]string, 0, len(siteMap))
+	for site := range siteMap {
+		sites = append(sites, site)
+	}
+	sort.Strings(sites)
+
 	c.JSON(http.StatusOK, gin.H{
-		"files": files,
-		"count": len(files),
+		"files":     pagedFiles,
+		"total":     total,
+		"page":      pageNum,
+		"page_size": pageSizeNum,
+		"sites":     sites, // 返回可用站点列表
 	})
 }
 
