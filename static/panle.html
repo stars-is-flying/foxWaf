@@ -2300,7 +2300,7 @@ code[class*="language-"] {
                             <span style="font-size: 16px; margin-right: 8px;">💾</span> 保存设置
                         </button>
                     </div>
-                    <small style="color: #666;">点击"重新加载规则"按钮可以重新加载所有规则文件</small>
+                    <small style="color: #666;">点击"重新加载规则"按钮可以刷新规则列表</small>
                 </div>
                 
                 <style>
@@ -3260,24 +3260,27 @@ async function importCustomRules(formData) {
     }
 }
 
-// 重新加载自定义规则
+// 重新加载自定义规则（获取规则列表）
 async function reloadCustomRules() {
     try {
-        const response = await fetch('/api/custom-rules/reload', {
-            method: 'POST',
+        const response = await fetch('/api/custom-rules', {
+            method: 'GET',
             credentials: 'include'
         });
 
         if (response.ok) {
-            const result = await response.json();
-            showMessage(`规则重新加载成功，共加载 ${result.count} 条规则`, 'success');
-            loadCustomRules();
+            const data = await response.json();
+            showMessage(`规则列表刷新成功，共 ${data.count || data.rules?.length || 0} 条规则`, 'success');
+            // 如果当前在规则管理页面，刷新显示
+            if (currentPage === 'custom_rules') {
+                displayCustomRules(data.rules);
+            }
         } else {
-            showMessage('重新加载失败', 'error');
+            showMessage('刷新规则列表失败', 'error');
         }
     } catch (error) {
-        console.error('重新加载规则错误:', error);
-        showMessage('重新加载失败', 'error');
+        console.error('刷新规则列表错误:', error);
+        showMessage('刷新规则列表失败', 'error');
     }
 }
 
