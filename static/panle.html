@@ -2587,7 +2587,7 @@ function loadPage(pageId) {
 // 加载自定义规则
 async function loadCustomRules() {
     try {
-        const response = await fetch('/api/rules/reload', {
+        const response = await fetch('/api/custom-rules', {
             method: 'GET',
             credentials: 'include'
         });
