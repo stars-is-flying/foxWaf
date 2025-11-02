@@ -655,6 +655,95 @@
             border: 1px solid rgba(255, 71, 87, 0.3);
         }
 
+        /* Toast通知容器 - 左下角 */
+        #toast-container {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            z-index: 10000;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            pointer-events: none;
+        }
+
+        /* Toast通知项 */
+        .toast {
+            min-width: 300px;
+            max-width: 400px;
+            padding: 16px 20px;
+            border-radius: 12px;
+            font-size: 15px;
+            font-weight: 500;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            pointer-events: auto;
+            animation: slideInLeft 0.3s ease-out, fadeOut 0.3s ease-out 2.7s forwards;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+
+        .toast:hover {
+            transform: translateX(5px);
+        }
+
+        .toast-success {
+            background: linear-gradient(135deg, #2ed573 0%, #26d07c 100%);
+            color: white;
+            border-left: 4px solid #1fb85a;
+        }
+
+        .toast-error {
+            background: linear-gradient(135deg, #ff4757 0%, #ff3742 100%);
+            color: white;
+            border-left: 4px solid #ee2d3d;
+        }
+
+        .toast-icon {
+            font-size: 20px;
+            flex-shrink: 0;
+        }
+
+        .toast-message {
+            flex: 1;
+            word-break: break-word;
+        }
+
+        @keyframes slideInLeft {
+            from {
+                opacity: 0;
+                transform: translateX(-100%);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        @keyframes fadeOut {
+            from {
+                opacity: 1;
+                transform: translateX(0);
+            }
+            to {
+                opacity: 0;
+                transform: translateX(-20px);
+            }
+        }
+
+        /* 暗黑主题下的toast样式 */
+        body.dark-theme .toast-success {
+            background: linear-gradient(135deg, #2ed573 0%, #26d07c 100%);
+            color: white;
+        }
+
+        body.dark-theme .toast-error {
+            background: linear-gradient(135deg, #ff4757 0%, #ff3742 100%);
+            color: white;
+        }
+
         /* 主题切换按钮 */
         .theme-toggle-btn {
             background: rgba(255, 255, 255, 0.5);
@@ -6601,16 +6690,41 @@ async function showLogDetail(logId) {
             document.getElementById('modal').style.display = 'none';
         }
 
-        // 消息提示
+        // 消息提示 - 左下角Toast通知
         function showMessage(message, type) {
-            const alert = document.createElement('div');
-            alert.className = `alert alert-${type}`;
-            alert.textContent = message;
+            let toastContainer = document.getElementById('toast-container');
+            if (!toastContainer) {
+                // 如果容器不存在，创建一个
+                toastContainer = document.createElement('div');
+                toastContainer.id = 'toast-container';
+                document.body.appendChild(toastContainer);
+            }
             
-            document.getElementById('content-container').insertBefore(alert, document.getElementById('content-container').firstChild);
+            const toast = document.createElement('div');
+            toast.className = `toast toast-${type}`;
             
+            // 根据类型设置图标
+            const icon = type === 'success' ? '✓' : '✕';
+            
+            toast.innerHTML = `
+                <span class="toast-icon">${icon}</span>
+                <span class="toast-message">${message}</span>
+            `;
+            
+            // 点击关闭
+            toast.addEventListener('click', () => {
+                toast.style.animation = 'fadeOut 0.3s ease-out forwards';
+                setTimeout(() => toast.remove(), 300);
+            });
+            
+            toastContainer.appendChild(toast);
+            
+            // 3秒后自动移除
             setTimeout(() => {
-                alert.remove();
+                if (toast.parentNode) {
+                    toast.style.animation = 'fadeOut 0.3s ease-out forwards';
+                    setTimeout(() => toast.remove(), 300);
+                }
             }, 3000);
         }
 
@@ -6699,6 +6813,9 @@ document.addEventListener('DOMContentLoaded', function() {
             // 存储展开的上游服务器详情站点ID
             let expandedUpstreamSites = new Set();
     </script>
+    
+    <!-- Toast通知容器 -->
+    <div id="toast-container"></div>
 </body>
 
 </html>
