@@ -5251,17 +5251,44 @@ func isAttack(req *http.Request) (bool, *AttackLog) {
 		body = ""
 	}
 
-	rawURL := req.URL.String()
+	// 拆分URL：路径部分和参数部分
+	uri := req.URL.Path // URI路径部分
+	rawURL := req.URL.String() // 完整URL（用于向后兼容）
+	
+	// 提取URL参数：键和值
+	var parameterKeys []string   // 参数键名列表
+	var parameterValues []string // 参数值列表
+	queryParams := req.URL.Query()
+	for key, values := range queryParams {
+		parameterKeys = append(parameterKeys, key)
+		parameterValues = append(parameterValues, values...)
+	}
+	
 	head := sb.String()
 
+	// 对URI、参数键、参数值进行解码
 	if isActivateUrlDecode {
+		uri = MultiDecode(uri)
 		rawURL = MultiDecode(rawURL)
+		for i := range parameterKeys {
+			parameterKeys[i] = MultiDecode(parameterKeys[i])
+		}
+		for i := range parameterValues {
+			parameterValues[i] = MultiDecode(parameterValues[i])
+		}
 		head = MultiDecode(head)
 		body = MultiDecode(body)
 	}
 
 	if isActivateBase64 {
+		uri = tryBase64Decode(uri)
 		rawURL = tryBase64Decode(rawURL)
+		for i := range parameterKeys {
+			parameterKeys[i] = tryBase64Decode(parameterKeys[i])
+		}
+		for i := range parameterValues {
+			parameterValues[i] = tryBase64Decode(parameterValues[i])
+		}
 		head = tryBase64Decode(head)
 		body = tryBase64Decode(body)
 	}
@@ -5299,8 +5326,8 @@ func isAttack(req *http.Request) (bool, *AttackLog) {
 	}
 
 	for _, rule := range rules {
-		// 获取匹配结果
-		matched, matchedValues := evaluateRule(rule, rawURL, head, body, isBodyNull)
+		// 获取匹配结果，传入拆分后的URL组件
+		matched, matchedValues := evaluateRule(rule, uri, rawURL, parameterKeys, parameterValues, head, body, isBodyNull)
 
 		if matched {
 			clientIP := getClientIP(req)
@@ -5322,8 +5349,8 @@ func isAttack(req *http.Request) (bool, *AttackLog) {
 }
 
 // 评估单条规则
-// 评估单条规则
-func evaluateRule(rule Rule, rawURL, head, body string, isBodyNull bool) (bool, []string) {
+// 评估单条规则：uri为路径部分，rawURL为完整URL（向后兼容），parameterKeys和parameterValues为参数键值对
+func evaluateRule(rule Rule, uri, rawURL string, parameterKeys, parameterValues []string, head, body string, isBodyNull bool) (bool, []string) {
 	if len(rule.Judges) == 0 {
 		return false, nil
 	}
@@ -5334,23 +5361,53 @@ func evaluateRule(rule Rule, rawURL, head, body string, isBodyNull bool) (bool, 
 	// 评估每个judge
 	for _, judge := range rule.Judges {
 		var target string
+		var matchedStr string
+		
 		switch judge.Position {
 		case "uri":
-			target = rawURL
+			// URI路径部分（不包含参数）
+			target = uri
+			matchedStr = match(target, judge)
+			
+		case "parameter_key":
+			// URL参数的键名
+			// 遍历每个参数键名进行匹配
+			for _, key := range parameterKeys {
+				result := match(key, judge)
+				if result != "" {
+					matchedStr = result
+					break
+				}
+			}
+			
+		case "parameter_value":
+			// URL参数的值
+			// 遍历每个参数值进行匹配
+			for _, value := range parameterValues {
+				result := match(value, judge)
+				if result != "" {
+					matchedStr = result
+					break
+				}
+			}
+			
 		case "request_header":
 			target = head
+			matchedStr = match(target, judge)
+			
 		case "request_body":
 			if isBodyNull {
 				matchResults = append(matchResults, false)
 				continue
 			}
 			target = body
+			matchedStr = match(target, judge)
+			
 		default:
-			matchResults = append(matchResults, false)
-			continue
+			// 向后兼容：如果position不是已知类型，使用完整URL（保持原有行为）
+			target = rawURL
+			matchedStr = match(target, judge)
 		}
-
-		matchedStr := match(target, judge)
 
 		// 根据 action 判断匹配结果
 		judgeAction := judge.Action
@@ -7122,7 +7179,7 @@ func validateCustomRule(rule CustomRule) error {
 	// 验证判断条件
 	validPositions := map[string]bool{
 		"uri": true, "request_header": true, "request_body": true,
-		"parameter_value": true, "form_values": true,
+		"parameter_key": true, "parameter_value": true, "form_values": true,
 	}
 	for i, judge := range rule.Judges {
 		if !validPositions[judge.Position] {

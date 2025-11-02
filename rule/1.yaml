@@ -25,3 +25,9 @@ judges:
     - position: uri
       content: test
       rix: test7
+    - position: parameter_value
+      content: test
+      rix: test8
+    - position: parameter_key
+      content: test
+      rix: test9
