@@ -1173,6 +1173,60 @@ type HourlyStat struct {
 	Count int    `json:"count"`
 }
 
+// ------------------- 流量统计相关结构体 -------------------
+type TrafficLog struct {
+	ID           int64     `json:"id"`
+	Domain       string    `json:"domain"`
+	Path         string    `json:"path"`
+	Method       string    `json:"method"`
+	StatusCode   int       `json:"status_code"`
+	ClientIP     string    `json:"client_ip"`
+	UserAgent    string    `json:"user_agent"`
+	Referer      string    `json:"referer"`
+	RequestSize  int64     `json:"request_size"`
+	ResponseSize int64     `json:"response_size"`
+	ResponseTime int64     `json:"response_time"` // 响应时间（毫秒）
+	CacheStatus  string    `json:"cache_status"`  // HIT, MISS, BYPASS
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+type TrafficStats struct {
+	TotalRequests   int64         `json:"total_requests"`
+	TodayRequests   int64         `json:"today_requests"`
+	TotalBytes      int64         `json:"total_bytes"`
+	TodayBytes      int64         `json:"today_bytes"`
+	AvgResponseTime float64       `json:"avg_response_time"`
+	CacheHitRate    float64       `json:"cache_hit_rate"`
+	StatusCodes     map[int]int64 `json:"status_codes"`
+	TopDomains      []DomainStat  `json:"top_domains"`
+	TopPaths        []PathStat    `json:"top_paths"`
+	TopIPs          []IPStat      `json:"top_ips"`
+	HourlyStats     []HourlyStat  `json:"hourly_stats"`
+	MethodStats     []MethodStat  `json:"method_stats"`
+	RecentTraffic   []TrafficLog  `json:"recent_traffic"`
+}
+
+type DomainStat struct {
+	Domain   string  `json:"domain"`
+	Requests int64   `json:"requests"`
+	Bytes    int64   `json:"bytes"`
+	AvgTime  float64 `json:"avg_time"`
+}
+
+type PathStat struct {
+	Path     string  `json:"path"`
+	Requests int64   `json:"requests"`
+	Bytes    int64   `json:"bytes"`
+	AvgTime  float64 `json:"avg_time"`
+}
+
+type IPStat struct {
+	IP       string `json:"ip"`
+	Requests int64  `json:"requests"`
+	Bytes    int64  `json:"bytes"`
+	LastSeen string `json:"last_seen"`
+}
+
 // ------------------- 删除攻击日志请求 -------------------
 type DeleteAttackLogsRequest struct {
 	IDs    []int  `json:"ids"`    // 指定ID删除
@@ -2769,6 +2823,31 @@ func init() {
 func handler(w http.ResponseWriter, req *http.Request) {
 	atomic.AddUint64(&totalRequests, 1)
 
+	// 记录请求开始时间
+	startTime := time.Now()
+
+	// 初始化流量记录变量
+	var trafficRecorded bool
+	var requestSize int64
+	var responseSize int64
+	var statusCode int
+	var cacheStatus string = "BYPASS"
+	var domain string
+	var path string
+
+	defer func() {
+		// 确保在函数退出前记录流量
+		if !trafficRecorded && domain != "" {
+			clientIP := getClientIP(req)
+			userAgent := req.Header.Get("User-Agent")
+			referer := req.Header.Get("Referer")
+			responseTime := time.Since(startTime).Milliseconds()
+
+			logTraffic(domain, path, req.Method, statusCode, clientIP, userAgent, referer,
+				requestSize, responseSize, responseTime, cacheStatus)
+		}
+	}()
+
 	// 检查是否为 WebSocket 升级请求
 	if strings.ToLower(req.Header.Get("Upgrade")) == "websocket" {
 		// 查找目标站点
@@ -2881,6 +2960,15 @@ func handler(w http.ResponseWriter, req *http.Request) {
 	}
 
 	if targetURL == "" {
+		domain = host
+		path = req.URL.Path
+		statusCode = http.StatusNotFound
+		requestSize = req.ContentLength
+		if requestSize <= 0 {
+			requestSize = int64(len(requestBody))
+		}
+		responseSize = int64(len(NotFoundPage))
+		cacheStatus = "BYPASS"
 		w.WriteHeader(http.StatusNotFound)
 		w.Write([]byte(NotFoundPage))
 		return
@@ -2891,6 +2979,15 @@ func handler(w http.ResponseWriter, req *http.Request) {
 	if blocked {
 		atomic.AddUint64(&totalBlocked, 1)
 		stdlog.Printf("ACL 拦截: %s %s, 规则: %s", getClientIP(req), req.URL.Path, aclRule.Description)
+		domain = siteDomain
+		path = req.URL.Path
+		statusCode = http.StatusForbidden
+		requestSize = req.ContentLength
+		if requestSize <= 0 {
+			requestSize = int64(len(requestBody))
+		}
+		responseSize = int64(len(aclBlock))
+		cacheStatus = "BYPASS"
 		w.WriteHeader(http.StatusForbidden)
 		w.Write([]byte(aclBlock))
 		return
@@ -2908,6 +3005,15 @@ func handler(w http.ResponseWriter, req *http.Request) {
 	if ccBlocked {
 		atomic.AddUint64(&totalBlocked, 1)
 		stdlog.Printf("CC 拦截: %s %s%s, 规则: %s", clientIP, host, req.URL.Path, ccRule.Name)
+		domain = siteDomain
+		path = req.URL.Path
+		statusCode = http.StatusTooManyRequests
+		requestSize = req.ContentLength
+		if requestSize <= 0 {
+			requestSize = int64(len(requestBody))
+		}
+		responseSize = int64(len(ccBlockPage))
+		cacheStatus = "BYPASS"
 		w.WriteHeader(http.StatusTooManyRequests)
 		w.Write([]byte(ccBlockPage))
 		return
@@ -2926,15 +3032,25 @@ func handler(w http.ResponseWriter, req *http.Request) {
 		attacked, log = isAttack(req)
 		if attacked {
 			atomic.AddUint64(&totalBlocked, 1)
+			domain = siteDomain
+			path = req.URL.Path
+			statusCode = http.StatusForbidden
+			requestSize = req.ContentLength
+			if requestSize <= 0 {
+				requestSize = int64(len(requestBody))
+			}
 			if cfg.IsWriteDbAuto {
 				attackChan <- *log
+				responseSize = int64(len(interceptPage))
 				w.WriteHeader(http.StatusForbidden)
 				w.Write([]byte(interceptPage))
 			} else {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusForbidden)
 				json.NewEncoder(w).Encode(log)
+				responseSize = 1024 // 估算JSON大小
 			}
+			cacheStatus = "BYPASS"
 			return
 		}
 	}
@@ -2944,6 +3060,15 @@ DIRECT_PROXY:
 	if staticCacheConfig.Enable && req.Method == "GET" {
 		cacheKey := siteDomain + req.URL.Path
 		if cachedFile, found := getCachedFile(cacheKey); found {
+			domain = siteDomain
+			path = req.URL.Path
+			statusCode = http.StatusOK
+			requestSize = req.ContentLength
+			if requestSize <= 0 {
+				requestSize = int64(len(requestBody))
+			}
+			responseSize = int64(cachedFile.Size)
+			cacheStatus = "HIT"
 			w.Header().Set("Content-Type", cachedFile.ContentType)
 			w.Header().Set("Content-Length", fmt.Sprintf("%d", cachedFile.Size))
 			w.Header().Set("Cache-Control", "public, max-age=3600")
@@ -2952,6 +3077,16 @@ DIRECT_PROXY:
 			w.WriteHeader(http.StatusOK)
 			w.Write(cachedFile.Content)
 			stdlog.Printf("缓存命中: %s%s", host, req.URL.Path)
+
+			// 记录流量统计
+			clientIP := getClientIP(req)
+			userAgent := req.Header.Get("User-Agent")
+			referer := req.Header.Get("Referer")
+			responseTime := time.Since(startTime).Milliseconds()
+
+			logTraffic(domain, path, req.Method, statusCode, clientIP, userAgent, referer,
+				requestSize, responseSize, responseTime, cacheStatus)
+			trafficRecorded = true
 			return
 		}
 	}
@@ -3164,6 +3299,29 @@ DIRECT_PROXY:
 	if err != nil {
 		stdlog.Printf("写入响应失败: %v", err)
 	}
+
+	// 记录流量统计
+	domain = siteDomain
+	path = req.URL.Path
+	statusCode = resp.StatusCode
+	requestSize = req.ContentLength
+	if requestSize <= 0 {
+		requestSize = int64(len(requestBody))
+	}
+	responseSize = int64(len(finalBody))
+	cacheStatus = w.Header().Get("X-Cache")
+	if cacheStatus == "" {
+		cacheStatus = "BYPASS"
+	}
+
+	clientIPAddr := getClientIP(req)
+	userAgent := req.Header.Get("User-Agent")
+	referer := req.Header.Get("Referer")
+	responseTime := time.Since(startTime).Milliseconds()
+
+	logTraffic(domain, path, req.Method, statusCode, clientIPAddr, userAgent, referer,
+		requestSize, responseSize, responseTime, cacheStatus)
+	trafficRecorded = true
 }
 
 // ------------------- 缓存管理 API -------------------
@@ -3725,6 +3883,88 @@ func createACLTable() {
 	insertDefaultRules()
 }
 
+// ------------------- 创建流量统计表 -------------------
+func createTrafficTable() {
+	createTable := `
+        CREATE TABLE IF NOT EXISTS traffic_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            domain TEXT NOT NULL,
+            path TEXT NOT NULL,
+            method TEXT NOT NULL,
+            status_code INTEGER NOT NULL,
+            client_ip TEXT NOT NULL,
+            user_agent TEXT DEFAULT '',
+            referer TEXT DEFAULT '',
+            request_size INTEGER DEFAULT 0,
+            response_size INTEGER DEFAULT 0,
+            response_time INTEGER DEFAULT 0,
+            cache_status TEXT DEFAULT 'BYPASS',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    `
+
+	_, err := db.Exec(createTable)
+	if err != nil {
+		stdlog.Printf("创建流量统计表失败: %v", err)
+		return
+	}
+
+	// 创建索引以提高查询性能
+	_, _ = db.Exec("CREATE INDEX IF NOT EXISTS idx_traffic_domain ON traffic_logs(domain)")
+	_, _ = db.Exec("CREATE INDEX IF NOT EXISTS idx_traffic_created_at ON traffic_logs(created_at)")
+	_, _ = db.Exec("CREATE INDEX IF NOT EXISTS idx_traffic_client_ip ON traffic_logs(client_ip)")
+	_, _ = db.Exec("CREATE INDEX IF NOT EXISTS idx_traffic_status_code ON traffic_logs(status_code)")
+
+	stdlog.Printf("流量统计表创建成功")
+}
+
+// ------------------- 流量记录通道 -------------------
+var trafficChan = make(chan TrafficLog, 10000)
+
+// ------------------- 记录流量 -------------------
+func logTraffic(domain, path, method string, statusCode int, clientIP, userAgent, referer string, requestSize, responseSize int64, responseTime int64, cacheStatus string) {
+	// 异步记录，避免阻塞主流程
+	trafficLog := TrafficLog{
+		Domain:       domain,
+		Path:         path,
+		Method:       method,
+		StatusCode:   statusCode,
+		ClientIP:     clientIP,
+		UserAgent:    userAgent,
+		Referer:      referer,
+		RequestSize:  requestSize,
+		ResponseSize: responseSize,
+		ResponseTime: responseTime,
+		CacheStatus:  cacheStatus,
+		CreatedAt:    time.Now(),
+	}
+
+	select {
+	case trafficChan <- trafficLog:
+		// 成功发送
+	default:
+		// 通道已满，跳过本次记录（避免阻塞）
+		stdlog.Printf("流量记录通道已满，跳过记录")
+	}
+}
+
+// ------------------- 流量记录工作器 -------------------
+func trafficLogWorker() {
+	for log := range trafficChan {
+		query := `
+            INSERT INTO traffic_logs (domain, path, method, status_code, client_ip, user_agent, referer, 
+                                     request_size, response_size, response_time, cache_status, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `
+		_, err := db.Exec(query,
+			log.Domain, log.Path, log.Method, log.StatusCode, log.ClientIP, log.UserAgent, log.Referer,
+			log.RequestSize, log.ResponseSize, log.ResponseTime, log.CacheStatus, log.CreatedAt)
+		if err != nil {
+			stdlog.Printf("记录流量日志失败: %v", err)
+		}
+	}
+}
+
 func insertDefaultRules() {
 	defaultRules := []ACLRule{
 		{
@@ -3980,14 +4220,14 @@ func getACLRulesHandler(c *gin.Context) {
         FROM acl_rules 
         ORDER BY type DESC, id ASC
     `
-	
+
 	rows, err := db.Query(query)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("查询规则失败: %v", err)})
 		return
 	}
 	defer rows.Close()
-	
+
 	rules := make([]ACLRule, 0)
 	for rows.Next() {
 		var rule ACLRule
@@ -4001,7 +4241,7 @@ func getACLRulesHandler(c *gin.Context) {
 		}
 		rules = append(rules, rule)
 	}
-	
+
 	c.JSON(http.StatusOK, gin.H{
 		"rules": rules,
 		"count": len(rules),
@@ -4043,16 +4283,16 @@ func deleteACLRuleHandler(c *gin.Context) {
 
 func toggleACLRuleHandler(c *gin.Context) {
 	id := c.Param("id")
-	
+
 	var req struct {
 		Enabled bool `json:"enabled"`
 	}
-	
+
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	
+
 	// 先从数据库查询规则信息
 	var rule ACLRule
 	query := `SELECT id, type, host, rule_type, pattern, action, description, enabled FROM acl_rules WHERE id = ?`
@@ -4064,20 +4304,20 @@ func toggleACLRuleHandler(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "规则不存在"})
 		return
 	}
-	
+
 	// 更新数据库
 	_, err = db.Exec("UPDATE acl_rules SET enabled = ? WHERE id = ?", req.Enabled, id)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("更新规则状态失败: %v", err)})
 		return
 	}
-	
+
 	// 更新规则状态
 	rule.Enabled = req.Enabled
-	
+
 	// 热更新内存规则
 	aclManager.mutex.Lock()
-	
+
 	if req.Enabled {
 		// 启用规则：添加到内存中
 		found := false
@@ -4093,7 +4333,7 @@ func toggleACLRuleHandler(c *gin.Context) {
 			// 如果不存在，添加它
 			aclManager.rules = append(aclManager.rules, rule)
 		}
-		
+
 		// 如果是IP规则，更新IP规则缓存
 		if rule.RuleType == "ip" {
 			found := false
@@ -4115,7 +4355,7 @@ func toggleACLRuleHandler(c *gin.Context) {
 				break
 			}
 		}
-		
+
 		// 从IP规则缓存中移除
 		if rule.RuleType == "ip" {
 			newRules := make([]ACLRule, 0)
@@ -4131,16 +4371,16 @@ func toggleACLRuleHandler(c *gin.Context) {
 			}
 		}
 	}
-	
+
 	aclManager.mutex.Unlock()
-	
+
 	status := "启用"
 	if !req.Enabled {
 		status = "禁用"
 	}
-	
+
 	stdlog.Printf("ACL规则%s: ID %s", status, id)
-	
+
 	c.JSON(http.StatusOK, gin.H{
 		"message": fmt.Sprintf("规则%s成功", status),
 		"enabled": req.Enabled,
@@ -4964,6 +5204,12 @@ func StartGinAPI() {
 		authGroup.GET("/api/monitor/system", getSystemMonitorHandler)
 		authGroup.GET("/api/monitor/connections", getConnectionsHandler)
 		authGroup.GET("/api/monitor/history", getMonitorHistoryHandler)
+
+		// 流量统计路由
+		authGroup.GET("/api/traffic/stats", getTrafficStatsHandler)
+		authGroup.GET("/api/traffic/logs", getTrafficLogsHandler)
+		authGroup.DELETE("/api/traffic/logs", deleteTrafficLogsHandler)
+		authGroup.GET("/api/traffic/export", exportTrafficLogsHandler)
 	}
 
 	// 统一返回404页面
@@ -5898,6 +6144,9 @@ func initDb() {
 	if err := initCertificatesFromDB(); err != nil {
 		panic(fmt.Errorf("初始化证书失败: %v", err))
 	}
+
+	// 创建流量统计表
+	createTrafficTable()
 
 	// 现在 sites 变量里就是数据库的内容
 	fmt.Printf("读取到 %d 条站点记录\n", len(sites))
@@ -7069,6 +7318,454 @@ func getConnectionsHandler(c *gin.Context) {
 	})
 }
 
+// ------------------- 流量统计 API -------------------
+// 获取流量统计信息
+func getTrafficStatsHandler(c *gin.Context) {
+	var stats TrafficStats
+	stats.StatusCodes = make(map[int]int64)
+	// 初始化切片，避免返回null
+	stats.TopDomains = make([]DomainStat, 0)
+	stats.TopPaths = make([]PathStat, 0)
+	stats.TopIPs = make([]IPStat, 0)
+	stats.HourlyStats = make([]HourlyStat, 0)
+	stats.MethodStats = make([]MethodStat, 0)
+	stats.RecentTraffic = make([]TrafficLog, 0)
+
+	// 总请求数
+	err := db.QueryRow("SELECT COUNT(*) FROM traffic_logs").Scan(&stats.TotalRequests)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("查询总请求数失败: %v", err)})
+		return
+	}
+
+	// 今日请求数
+	today := time.Now().Format("2006-01-02")
+	err = db.QueryRow("SELECT COUNT(*) FROM traffic_logs WHERE date(created_at) = ?", today).Scan(&stats.TodayRequests)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("查询今日请求数失败: %v", err)})
+		return
+	}
+
+	// 总流量（字节）
+	var totalBytes sql.NullInt64
+	err = db.QueryRow("SELECT SUM(request_size + response_size) FROM traffic_logs").Scan(&totalBytes)
+	if err == nil && totalBytes.Valid {
+		stats.TotalBytes = totalBytes.Int64
+	}
+
+	// 今日流量
+	var todayBytes sql.NullInt64
+	err = db.QueryRow("SELECT SUM(request_size + response_size) FROM traffic_logs WHERE date(created_at) = ?", today).Scan(&todayBytes)
+	if err == nil && todayBytes.Valid {
+		stats.TodayBytes = todayBytes.Int64
+	}
+
+	// 平均响应时间
+	var avgTime sql.NullFloat64
+	err = db.QueryRow("SELECT AVG(response_time) FROM traffic_logs").Scan(&avgTime)
+	if err == nil && avgTime.Valid {
+		stats.AvgResponseTime = avgTime.Float64
+	}
+
+	// 缓存命中率
+	var cacheHits, totalCacheRequests sql.NullInt64
+	db.QueryRow("SELECT COUNT(*) FROM traffic_logs WHERE cache_status = 'HIT'").Scan(&cacheHits)
+	db.QueryRow("SELECT COUNT(*) FROM traffic_logs WHERE cache_status IN ('HIT', 'MISS')").Scan(&totalCacheRequests)
+	if totalCacheRequests.Valid && totalCacheRequests.Int64 > 0 {
+		stats.CacheHitRate = float64(cacheHits.Int64) / float64(totalCacheRequests.Int64) * 100
+	}
+
+	// 状态码统计
+	rows, err := db.Query(`
+        SELECT status_code, COUNT(*) as count 
+        FROM traffic_logs 
+        GROUP BY status_code 
+        ORDER BY count DESC
+    `)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var code int
+			var count int64
+			if err := rows.Scan(&code, &count); err == nil {
+				stats.StatusCodes[code] = count
+			}
+		}
+	}
+
+	// 热门域名
+	rows, err = db.Query(`
+        SELECT domain, COUNT(*) as requests, SUM(request_size + response_size) as bytes, AVG(response_time) as avg_time
+        FROM traffic_logs 
+        GROUP BY domain 
+        ORDER BY requests DESC 
+        LIMIT 10
+    `)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var domain DomainStat
+			var bytes sql.NullInt64
+			var avgTime sql.NullFloat64
+			err := rows.Scan(&domain.Domain, &domain.Requests, &bytes, &avgTime)
+			if err == nil {
+				if bytes.Valid {
+					domain.Bytes = bytes.Int64
+				}
+				if avgTime.Valid {
+					domain.AvgTime = avgTime.Float64
+				}
+				stats.TopDomains = append(stats.TopDomains, domain)
+			}
+		}
+	}
+
+	// 热门路径
+	rows, err = db.Query(`
+        SELECT path, COUNT(*) as requests, SUM(request_size + response_size) as bytes, AVG(response_time) as avg_time
+        FROM traffic_logs 
+        GROUP BY path 
+        ORDER BY requests DESC 
+        LIMIT 10
+    `)
+	if err != nil {
+		stdlog.Printf("查询热门路径失败: %v", err)
+	} else {
+		defer rows.Close()
+		for rows.Next() {
+			var path PathStat
+			var bytes sql.NullInt64
+			var avgTime sql.NullFloat64
+			err := rows.Scan(&path.Path, &path.Requests, &bytes, &avgTime)
+			if err != nil {
+				stdlog.Printf("扫描路径数据失败: %v", err)
+				continue
+			}
+			if bytes.Valid {
+				path.Bytes = bytes.Int64
+			} else {
+				path.Bytes = 0
+			}
+			if avgTime.Valid {
+				path.AvgTime = avgTime.Float64
+			} else {
+				path.AvgTime = 0
+			}
+			stats.TopPaths = append(stats.TopPaths, path)
+		}
+	}
+
+	// 热门IP
+	rows, err = db.Query(`
+        SELECT client_ip, COUNT(*) as requests, COALESCE(SUM(request_size + response_size), 0) as bytes, MAX(created_at) as last_seen
+        FROM traffic_logs 
+        GROUP BY client_ip 
+        ORDER BY requests DESC 
+        LIMIT 10
+    `)
+	if err != nil {
+		stdlog.Printf("查询热门IP失败: %v", err)
+	} else {
+		defer rows.Close()
+		count := 0
+		for rows.Next() {
+			count++
+			var ip IPStat
+			var bytes int64
+			var lastSeenStr sql.NullString
+			err := rows.Scan(&ip.IP, &ip.Requests, &bytes, &lastSeenStr)
+			if err != nil {
+				stdlog.Printf("扫描IP数据失败: %v, 这是第%d行", err, count)
+				continue
+			}
+			ip.Bytes = bytes
+			if lastSeenStr.Valid {
+				// 尝试解析时间字符串
+				if t, err := time.Parse("2006-01-02 15:04:05.999999999-07:00", lastSeenStr.String); err == nil {
+					ip.LastSeen = t.Format("2006-01-02 15:04:05")
+				} else if t, err := time.Parse("2006-01-02 15:04:05", lastSeenStr.String); err == nil {
+					ip.LastSeen = t.Format("2006-01-02 15:04:05")
+				} else {
+					ip.LastSeen = lastSeenStr.String
+				}
+			} else {
+				ip.LastSeen = ""
+			}
+			stdlog.Printf("成功扫描IP: %s, 请求数: %d, 流量: %d", ip.IP, ip.Requests, ip.Bytes)
+			stats.TopIPs = append(stats.TopIPs, ip)
+		}
+		stdlog.Printf("查询到 %d 个热门IP（遍历了 %d 行）", len(stats.TopIPs), count)
+		if len(stats.TopIPs) == 0 && count == 0 {
+			stdlog.Printf("警告: 热门IP查询返回空结果，但数据库中有 %d 条流量记录", stats.TotalRequests)
+		}
+	}
+
+	// 24小时统计
+	rows, err = db.Query(`
+        SELECT strftime('%Y-%m-%d %H:00:00', created_at) as hour, COUNT(*) as count 
+        FROM traffic_logs 
+        WHERE created_at >= datetime('now', '-24 hours')
+        GROUP BY hour 
+        ORDER BY hour
+    `)
+	if err != nil {
+		stdlog.Printf("查询24小时统计失败: %v", err)
+	} else {
+		defer rows.Close()
+		for rows.Next() {
+			var hourly HourlyStat
+			if err := rows.Scan(&hourly.Hour, &hourly.Count); err != nil {
+				stdlog.Printf("扫描24小时数据失败: %v", err)
+				continue
+			}
+			stdlog.Printf("24小时统计: %s, 数量: %d", hourly.Hour, hourly.Count)
+			stats.HourlyStats = append(stats.HourlyStats, hourly)
+		}
+		stdlog.Printf("查询到 %d 个24小时统计点", len(stats.HourlyStats))
+	}
+
+	// HTTP方法统计
+	rows, err = db.Query(`
+        SELECT method, COUNT(*) as count 
+        FROM traffic_logs 
+        GROUP BY method 
+        ORDER BY count DESC
+    `)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var method MethodStat
+			if err := rows.Scan(&method.Method, &method.Count); err == nil {
+				stats.MethodStats = append(stats.MethodStats, method)
+			}
+		}
+	}
+
+	// 最近的流量记录
+	rows, err = db.Query(`
+        SELECT id, domain, path, method, status_code, client_ip, user_agent, referer, 
+               request_size, response_size, response_time, cache_status, created_at
+        FROM traffic_logs 
+        ORDER BY created_at DESC 
+        LIMIT 50
+    `)
+	if err != nil {
+		stdlog.Printf("查询最近流量记录失败: %v", err)
+	} else {
+		defer rows.Close()
+		for rows.Next() {
+			var log TrafficLog
+			err := rows.Scan(&log.ID, &log.Domain, &log.Path, &log.Method, &log.StatusCode,
+				&log.ClientIP, &log.UserAgent, &log.Referer, &log.RequestSize, &log.ResponseSize,
+				&log.ResponseTime, &log.CacheStatus, &log.CreatedAt)
+			if err != nil {
+				stdlog.Printf("扫描流量记录失败: %v", err)
+				continue
+			}
+			stats.RecentTraffic = append(stats.RecentTraffic, log)
+		}
+	}
+
+	c.JSON(http.StatusOK, stats)
+}
+
+// 获取流量日志列表
+func getTrafficLogsHandler(c *gin.Context) {
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "50"))
+	domain := c.Query("domain")
+	statusCode := c.Query("status_code")
+	clientIP := c.Query("client_ip")
+	startTime := c.Query("start_time")
+	endTime := c.Query("end_time")
+
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 500 {
+		pageSize = 50
+	}
+
+	offset := (page - 1) * pageSize
+
+	// 构建查询条件
+	where := "1=1"
+	args := []interface{}{}
+
+	if domain != "" {
+		where += " AND domain = ?"
+		args = append(args, domain)
+	}
+	if statusCode != "" {
+		where += " AND status_code = ?"
+		args = append(args, statusCode)
+	}
+	if clientIP != "" {
+		where += " AND client_ip = ?"
+		args = append(args, clientIP)
+	}
+	if startTime != "" {
+		where += " AND created_at >= ?"
+		args = append(args, startTime)
+	}
+	if endTime != "" {
+		where += " AND created_at <= ?"
+		args = append(args, endTime)
+	}
+
+	// 查询总数
+	var total int
+	countQuery := "SELECT COUNT(*) FROM traffic_logs WHERE " + where
+	err := db.QueryRow(countQuery, args...).Scan(&total)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("查询总数失败: %v", err)})
+		return
+	}
+
+	// 查询数据
+	query := `
+        SELECT id, domain, path, method, status_code, client_ip, user_agent, referer, 
+               request_size, response_size, response_time, cache_status, created_at
+        FROM traffic_logs 
+        WHERE ` + where + `
+        ORDER BY created_at DESC 
+        LIMIT ? OFFSET ?
+    `
+	args = append(args, pageSize, offset)
+
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("查询失败: %v", err)})
+		return
+	}
+	defer rows.Close()
+
+	var logs []TrafficLog
+	for rows.Next() {
+		var log TrafficLog
+		err := rows.Scan(&log.ID, &log.Domain, &log.Path, &log.Method, &log.StatusCode,
+			&log.ClientIP, &log.UserAgent, &log.Referer, &log.RequestSize, &log.ResponseSize,
+			&log.ResponseTime, &log.CacheStatus, &log.CreatedAt)
+		if err == nil {
+			logs = append(logs, log)
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"logs":      logs,
+		"total":     total,
+		"page":      page,
+		"page_size": pageSize,
+		"pages":     (total + pageSize - 1) / pageSize,
+	})
+}
+
+// 删除流量日志
+func deleteTrafficLogsHandler(c *gin.Context) {
+	var req struct {
+		IDs    []int64 `json:"ids"`
+		Before string  `json:"before"`
+		All    bool    `json:"all"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	var result sql.Result
+	var err error
+
+	if req.All {
+		result, err = db.Exec("DELETE FROM traffic_logs")
+	} else if len(req.IDs) > 0 {
+		query := "DELETE FROM traffic_logs WHERE id IN (" + strings.Repeat("?,", len(req.IDs)-1) + "?)"
+		args := make([]interface{}, len(req.IDs))
+		for i, id := range req.IDs {
+			args[i] = id
+		}
+		result, err = db.Exec(query, args...)
+	} else if req.Before != "" {
+		result, err = db.Exec("DELETE FROM traffic_logs WHERE created_at < ?", req.Before)
+	} else {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请提供删除条件"})
+		return
+	}
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("删除失败: %v", err)})
+		return
+	}
+
+	affected, _ := result.RowsAffected()
+	c.JSON(http.StatusOK, gin.H{"message": "删除成功", "affected": affected})
+}
+
+// 导出流量日志
+func exportTrafficLogsHandler(c *gin.Context) {
+	startTime := c.Query("start_time")
+	endTime := c.Query("end_time")
+
+	where := "1=1"
+	args := []interface{}{}
+
+	if startTime != "" {
+		where += " AND created_at >= ?"
+		args = append(args, startTime)
+	}
+	if endTime != "" {
+		where += " AND created_at <= ?"
+		args = append(args, endTime)
+	}
+
+	rows, err := db.Query(`
+        SELECT domain, path, method, status_code, client_ip, user_agent, referer, 
+               request_size, response_size, response_time, cache_status, created_at
+        FROM traffic_logs 
+        WHERE `+where+`
+        ORDER BY created_at DESC
+    `, args...)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("查询失败: %v", err)})
+		return
+	}
+	defer rows.Close()
+
+	c.Header("Content-Type", "text/csv; charset=utf-8")
+	c.Header("Content-Disposition", "attachment; filename=traffic_logs.csv")
+
+	writer := csv.NewWriter(c.Writer)
+	defer writer.Flush()
+
+	// 写入表头
+	writer.Write([]string{"域名", "路径", "方法", "状态码", "客户端IP", "User-Agent", "Referer",
+		"请求大小", "响应大小", "响应时间(ms)", "缓存状态", "创建时间"})
+
+	// 写入数据
+	for rows.Next() {
+		var log TrafficLog
+		err := rows.Scan(&log.Domain, &log.Path, &log.Method, &log.StatusCode,
+			&log.ClientIP, &log.UserAgent, &log.Referer, &log.RequestSize, &log.ResponseSize,
+			&log.ResponseTime, &log.CacheStatus, &log.CreatedAt)
+		if err == nil {
+			writer.Write([]string{
+				log.Domain,
+				log.Path,
+				log.Method,
+				strconv.Itoa(log.StatusCode),
+				log.ClientIP,
+				log.UserAgent,
+				log.Referer,
+				strconv.FormatInt(log.RequestSize, 10),
+				strconv.FormatInt(log.ResponseSize, 10),
+				strconv.FormatInt(log.ResponseTime, 10),
+				log.CacheStatus,
+				log.CreatedAt.Format("2006-01-02 15:04:05"),
+			})
+		}
+	}
+}
+
 // ------------------- 获取当前连接列表 -------------------
 func getCurrentConnectionsList() ([]ConnectionInfo, error) {
 	var connections []ConnectionInfo
@@ -7398,7 +8095,7 @@ func saveRuleToFile(rule CustomRule) error {
 		buf.WriteString(fmt.Sprintf("relation: %s\n", rule.Relation))
 	}
 	buf.WriteString("judge:\n")
-	
+
 	for _, judge := range rule.Judges {
 		buf.WriteString(fmt.Sprintf("    - position: %s\n", judge.Position))
 		if judge.Content != "" {
@@ -7415,7 +8112,7 @@ func saveRuleToFile(rule CustomRule) error {
 			buf.WriteString(fmt.Sprintf("      action: %s\n", judge.Action))
 		}
 	}
-	
+
 	buf.WriteString(fmt.Sprintf("enabled: %v\n", rule.Enabled))
 
 	if err := ioutil.WriteFile(filePath, buf.Bytes(), 0644); err != nil {
@@ -8107,6 +8804,9 @@ func main() {
 	initPortStats()
 
 	go startMonitorHistoryWorker()
+
+	// 启动流量记录工作器
+	go trafficLogWorker()
 
 	go statsPrinter()
 	go StartGinAPI()

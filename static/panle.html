@@ -2397,6 +2397,10 @@ code[class*="language-"] {
                 <span class="icon">📝</span>
                 <span class="text">攻击日志</span>
             </a>
+            <a href="javascript:void(0)" class="nav-item" data-page="traffic">
+                <span class="icon">📈</span>
+                <span class="text">流量统计</span>
+            </a>
             <a href="javascript:void(0)" class="nav-item" data-page="blocked_rules">
         <span class="icon">🚫</span>
         <span class="text">被禁用的规则</span>
@@ -2697,6 +2701,74 @@ code[class*="language-"] {
                         <div id="sites-container">
                             <div class="loading">加载中...</div>
                         </div>
+                    </div>
+                `
+            },
+            traffic: {
+                title: "流量统计",
+                description: "实时流量监控和统计分析",
+                content: `
+                    <div class="card">
+                        <div class="card-header">
+                            <h3 class="card-title">📊 流量概览</h3>
+                            <button class="btn" onclick="window.refreshTrafficStats && window.refreshTrafficStats()">
+                                <span>🔄</span> 刷新
+                            </button>
+                        </div>
+                        <div id="traffic-stats-container">
+                            <div class="loading">加载中...</div>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-header">
+                            <h3 class="card-title">📈 流量趋势</h3>
+                        </div>
+                        <div id="traffic-chart-container" style="padding: 20px;">
+                            <canvas id="traffic-chart" width="400" height="200"></canvas>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-header">
+                            <h3 class="card-title">🏆 流量排行榜</h3>
+                        </div>
+                        <div id="traffic-rankings-container">
+                            <div class="loading">加载中...</div>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-header">
+                            <h3 class="card-title">📝 流量日志</h3>
+                            <div>
+                                <button class="btn btn-secondary" onclick="exportTrafficLogs()">
+                                    <span>📤</span> 导出日志
+                                </button>
+                                <button class="btn btn-danger" onclick="showDeleteTrafficLogsModal()">
+                                    <span>🗑️</span> 删除日志
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                                <input type="text" id="traffic-domain-filter" class="form-control" placeholder="域名" style="width: 200px;">
+                                <input type="text" id="traffic-status-filter" class="form-control" placeholder="状态码" style="width: 120px;">
+                                <input type="text" id="traffic-ip-filter" class="form-control" placeholder="客户端IP" style="width: 150px;">
+                                <input type="datetime-local" id="traffic-start-time" class="form-control" style="width: 200px;">
+                                <input type="datetime-local" id="traffic-end-time" class="form-control" style="width: 200px;">
+                                <button class="btn" onclick="window.loadTrafficLogs && window.loadTrafficLogs(1)">
+                                    <span>🔍</span> 搜索
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div id="traffic-logs-container">
+                            <div class="loading">加载中...</div>
+                        </div>
+                        
+                        <div id="traffic-logs-pagination" class="pagination"></div>
                     </div>
                 `
             },
@@ -3174,6 +3246,26 @@ function loadPageData(pageId) {
                 if (!window.siteHealthData || Object.keys(window.siteHealthData).length === 0) {
                     loadSiteHealthStatus();
                 }
+                break;
+            case 'traffic':
+                // 清理旧的定时器
+                if (window.trafficStatsInterval) {
+                    clearInterval(window.trafficStatsInterval);
+                    window.trafficStatsInterval = null;
+                }
+                // 加载流量统计（如果函数存在）
+                if (typeof window.loadTrafficStats === 'function') {
+                    window.loadTrafficStats();
+                }
+                if (typeof window.loadTrafficLogs === 'function') {
+                    window.loadTrafficLogs(1);
+                }
+                // 设置定时刷新
+                window.trafficStatsInterval = setInterval(() => {
+                    if (currentPage === 'traffic' && typeof window.loadTrafficStats === 'function') {
+                        window.loadTrafficStats();
+                    }
+                }, 30000); // 每30秒刷新一次
                 break;
             case 'logs':
                 loadAttackLogs(1);
@@ -6783,15 +6875,27 @@ async function showLogDetail(logId) {
                     }
                 }
 
-        // 模态框功能
-        function showModal() {
-            document.getElementById('modal').style.display = 'flex';
+        // 模态框功能（全局作用域）
+        window.showModal = function() {
+            const modal = document.getElementById('modal');
+            if (modal) {
+                modal.style.display = 'flex';
+            }
             // 确保关闭按钮可以工作
             const closeBtn = document.querySelector('.close-modal');
             if (closeBtn) {
-                closeBtn.onclick = closeModal;
+                closeBtn.onclick = function() {
+                    window.closeModal && window.closeModal();
+                };
             }
-        }
+        };
+
+        window.closeModal = function() {
+            const modal = document.getElementById('modal');
+            if (modal) {
+                modal.style.display = 'none';
+            }
+        };
 
         // 加载CC规则
             async function loadCCRules() {
@@ -7453,9 +7557,607 @@ async function showLogDetail(logId) {
                 loadCCAttackLogs(1);
             }
 
-        function closeModal() {
-            document.getElementById('modal').style.display = 'none';
-        }
+            // ==================== 流量统计功能 ====================
+            let currentTrafficLogsPage = 1;
+            let currentTrafficLogsPageSize = 50;
+            let trafficChart = null;
+
+            // 加载流量统计（全局作用域）
+            window.loadTrafficStats = async function() {
+                try {
+                    const response = await fetch('/api/traffic/stats', {
+                        credentials: 'include'
+                    });
+
+                    if (!response.ok) {
+                        throw new Error('获取流量统计失败');
+                    }
+
+                    const stats = await response.json();
+                    console.log('流量统计数据:', stats); // 调试日志
+                    console.log('热门IP数据类型:', typeof stats.top_ips, '是数组:', Array.isArray(stats.top_ips)); // 调试日志
+                    console.log('热门IP数据内容:', JSON.stringify(stats.top_ips)); // 调试日志
+                    console.log('24小时统计数据:', stats.hourly_stats, '长度:', stats.hourly_stats ? stats.hourly_stats.length : 0); // 调试日志
+                    if (stats.top_ips && stats.top_ips.length > 0) {
+                        console.log('第一个IP示例:', stats.top_ips[0]);
+                    }
+                    if (stats.hourly_stats && stats.hourly_stats.length > 0) {
+                        console.log('第一个24小时统计示例:', stats.hourly_stats[0]);
+                    }
+                    displayTrafficStats(stats);
+                    drawTrafficChart(stats);
+                    displayTrafficRankings(stats);
+                } catch (error) {
+                    console.error('加载流量统计错误:', error);
+                    document.getElementById('traffic-stats-container').innerHTML = 
+                        '<div class="alert alert-error">加载失败: ' + error.message + '</div>';
+                }
+            }
+
+            // 显示流量统计
+            function displayTrafficStats(stats) {
+                const container = document.getElementById('traffic-stats-container');
+                const formatBytes = (bytes) => {
+                    if (bytes === 0) return '0 B';
+                    const k = 1024;
+                    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+                    const i = Math.floor(Math.log(bytes) / Math.log(k));
+                    return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+                };
+
+                html = `
+                    <div class="dashboard-grid">
+                        <div class="metric-row">
+                            <div class="metric-card">
+                                <div class="metric-icon">💾</div>
+                                <div class="metric-content">
+                                    <div class="metric-value">${formatBytes(stats.total_bytes)}</div>
+                                    <div class="metric-label">总流量</div>
+                                </div>
+                            </div>
+                            
+                            <div class="metric-card">
+                                <div class="metric-icon">⚡</div>
+                                <div class="metric-content">
+                                    <div class="metric-value">${formatBytes(stats.today_bytes)}</div>
+                                    <div class="metric-label">今日流量</div>
+                                </div>
+                            </div>
+                            
+                            <div class="metric-card">
+                                <div class="metric-icon">⏱️</div>
+                                <div class="metric-content">
+                                    <div class="metric-value">${Math.round(stats.avg_response_time)}ms</div>
+                                    <div class="metric-label">平均响应时间</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+
+                container.innerHTML = html;
+            }
+
+            // 绘制流量趋势图
+            function drawTrafficChart(stats) {
+                const canvas = document.getElementById('traffic-chart');
+                if (!canvas) {
+                    console.error('traffic-chart canvas 不存在');
+                    return;
+                }
+
+                const ctx = canvas.getContext('2d');
+                const hourlyStats = stats.hourly_stats || [];
+                
+                console.log('绘制流量趋势图，hourly_stats:', hourlyStats, '长度:', hourlyStats.length);
+
+                // 清空画布
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                if (hourlyStats.length === 0) {
+                    console.log('hourly_stats 为空，显示暂无数据');
+                    ctx.fillStyle = '#666';
+                    ctx.font = '14px Arial';
+                    ctx.fillText('暂无数据', canvas.width / 2 - 40, canvas.height / 2);
+                    return;
+                }
+
+                // 设置画布大小
+                canvas.width = canvas.parentElement.offsetWidth - 40;
+                canvas.height = 300;
+
+                const padding = 40;
+                const chartWidth = canvas.width - padding * 2;
+                const chartHeight = canvas.height - padding * 2;
+
+                const maxCount = Math.max(...hourlyStats.map(h => h.count), 1);
+                const stepX = chartWidth / (hourlyStats.length - 1 || 1);
+                const scaleY = chartHeight / maxCount;
+
+                // 绘制坐标轴
+                ctx.strokeStyle = '#ddd';
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(padding, padding);
+                ctx.lineTo(padding, canvas.height - padding);
+                ctx.lineTo(canvas.width - padding, canvas.height - padding);
+                ctx.stroke();
+
+                // 绘制网格线
+                ctx.strokeStyle = '#f0f0f0';
+                for (let i = 0; i <= 5; i++) {
+                    const y = padding + (chartHeight / 5) * i;
+                    ctx.beginPath();
+                    ctx.moveTo(padding, y);
+                    ctx.lineTo(canvas.width - padding, y);
+                    ctx.stroke();
+                }
+
+                // 绘制折线
+                ctx.strokeStyle = '#5210ed';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                hourlyStats.forEach((stat, index) => {
+                    const x = padding + stepX * index;
+                    const y = canvas.height - padding - stat.count * scaleY;
+                    if (index === 0) {
+                        ctx.moveTo(x, y);
+                    } else {
+                        ctx.lineTo(x, y);
+                    }
+                });
+                ctx.stroke();
+
+                // 绘制数据点
+                ctx.fillStyle = '#5210ed';
+                hourlyStats.forEach((stat, index) => {
+                    const x = padding + stepX * index;
+                    const y = canvas.height - padding - stat.count * scaleY;
+                    ctx.beginPath();
+                    ctx.arc(x, y, 4, 0, Math.PI * 2);
+                    ctx.fill();
+                });
+
+                // 绘制标签
+                ctx.fillStyle = '#666';
+                ctx.font = '12px Arial';
+                hourlyStats.forEach((stat, index) => {
+                    if (index % 3 === 0 || index === hourlyStats.length - 1) { // 每3个小时显示一个标签，最后一个也显示
+                        const x = padding + stepX * index;
+                        // 处理时间格式：可能是字符串 "2025-11-02 18:00:00" 或日期对象
+                        let timeStr = '';
+                        if (typeof stat.hour === 'string') {
+                            // 字符串格式，直接解析
+                            const hourMatch = stat.hour.match(/(\d{2}):(\d{2})/);
+                            if (hourMatch) {
+                                timeStr = hourMatch[1] + ':' + hourMatch[2];
+                            } else {
+                                timeStr = stat.hour.substring(11, 16); // 提取 HH:MM
+                            }
+                        } else if (stat.hour instanceof Date) {
+                            timeStr = stat.hour.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+                        } else {
+                            timeStr = String(stat.hour);
+                        }
+                        ctx.fillText(timeStr, x - 20, canvas.height - padding + 20);
+                    }
+                });
+                
+                // 绘制数值标签
+                ctx.fillStyle = '#5210ed';
+                ctx.font = '10px Arial';
+                hourlyStats.forEach((stat, index) => {
+                    if (index % 3 === 0 || index === hourlyStats.length - 1) {
+                        const x = padding + stepX * index;
+                        const y = canvas.height - padding - stat.count * scaleY;
+                        ctx.fillText(stat.count, x - 10, y - 10);
+                    }
+                });
+                
+                console.log('流量趋势图绘制完成，共', hourlyStats.length, '个数据点');
+            }
+
+            // 显示流量排行榜
+            function displayTrafficRankings(stats) {
+                const container = document.getElementById('traffic-rankings-container');
+                if (!container) {
+                    console.error('traffic-rankings-container 不存在');
+                    return;
+                }
+                
+                const formatBytes = (bytes) => {
+                    if (!bytes || bytes === 0) return '0 B';
+                    const k = 1024;
+                    const sizes = ['B', 'KB', 'MB', 'GB'];
+                    const i = Math.floor(Math.log(bytes) / Math.log(k));
+                    return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+                };
+
+                console.log('显示排行榜，完整stats对象:', stats);
+                console.log('显示排行榜，数据:', {
+                    top_domains: stats.top_domains,
+                    top_paths: stats.top_paths,
+                    top_ips: stats.top_ips,
+                    top_ips_length: stats.top_ips ? stats.top_ips.length : 0,
+                    top_ips_is_array: Array.isArray(stats.top_ips)
+                });
+                if (stats.top_ips && stats.top_ips.length > 0) {
+                    console.log('第一个IP示例:', stats.top_ips[0]);
+                    console.log('第一个IP的所有字段:', Object.keys(stats.top_ips[0]));
+                }
+
+                let html = `
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px;">
+                        <div>
+                            <h4 style="margin-bottom: 10px; color: #5210ed;">🌐 热门域名</h4>
+                            <table class="table">
+                                <thead>
+                                    <tr>
+                                        <th>域名</th>
+                                        <th>请求数</th>
+                                        <th>流量</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${(stats.top_domains && stats.top_domains.length > 0) ? stats.top_domains.slice(0, 5).map(d => `
+                                        <tr>
+                                            <td>${d.domain || '-'}</td>
+                                            <td>${(d.requests || 0).toLocaleString()}</td>
+                                            <td>${formatBytes(d.bytes || 0)}</td>
+                                        </tr>
+                                    `).join('') : '<tr><td colspan="3" style="text-align: center; color: #999;">暂无数据</td></tr>'}
+                                </tbody>
+                            </table>
+                        </div>
+                        
+                        <div>
+                            <h4 style="margin-bottom: 10px; color: #5210ed;">📍 热门路径</h4>
+                            <table class="table">
+                                <thead>
+                                    <tr>
+                                        <th>路径</th>
+                                        <th>请求数</th>
+                                        <th>流量</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${(stats.top_paths && stats.top_paths.length > 0) ? stats.top_paths.slice(0, 5).map(p => {
+                                        const path = p.path || '-';
+                                        return `
+                                        <tr>
+                                            <td>${path.length > 30 ? path.substring(0, 30) + '...' : path}</td>
+                                            <td>${(p.requests || 0).toLocaleString()}</td>
+                                            <td>${formatBytes(p.bytes || 0)}</td>
+                                        </tr>
+                                    `;
+                                    }).join('') : '<tr><td colspan="3" style="text-align: center; color: #999;">暂无数据</td></tr>'}
+                                </tbody>
+                            </table>
+                        </div>
+                        
+                        <div>
+                            <h4 style="margin-bottom: 10px; color: #5210ed;">👤 热门IP</h4>
+                            <table class="table">
+                                <thead>
+                                    <tr>
+                                        <th>IP地址</th>
+                                        <th>请求数</th>
+                                        <th>流量</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${(() => {
+                                        console.log('检查top_ips:', stats.top_ips, '类型:', typeof stats.top_ips, '是数组:', Array.isArray(stats.top_ips));
+                                        if (!stats.top_ips) {
+                                            console.log('stats.top_ips 不存在，返回暂无数据');
+                                            return '<tr><td colspan="3" style="text-align: center; color: #999; padding: 20px;">暂无数据</td></tr>';
+                                        }
+                                        if (!Array.isArray(stats.top_ips)) {
+                                            console.log('stats.top_ips 不是数组:', stats.top_ips, '类型:', typeof stats.top_ips);
+                                            return '<tr><td colspan="3" style="text-align: center; color: #999; padding: 20px;">数据格式错误</td></tr>';
+                                        }
+                                        if (stats.top_ips.length === 0) {
+                                            console.log('stats.top_ips 数组为空');
+                                            return '<tr><td colspan="3" style="text-align: center; color: #999; padding: 20px;">暂无数据</td></tr>';
+                                        }
+                                        console.log('开始渲染热门IP，共', stats.top_ips.length, '条，数据:', stats.top_ips);
+                                        const ipRows = stats.top_ips.slice(0, 5).map((ip, idx) => {
+                                            console.log(`处理IP ${idx + 1}:`, ip, '所有键:', Object.keys(ip));
+                                            // 直接使用JSON标签的小写字段名（与后端结构体JSON标签一致）
+                                            const ipAddress = ip.ip || '-';
+                                            const requests = Number(ip.requests || 0);
+                                            const bytes = Number(ip.bytes || 0);
+                                            console.log(`解析后 - IP ${idx + 1}: 地址=${ipAddress}, 请求数=${requests}, 流量=${bytes}`);
+                                            if (!ipAddress || ipAddress === '-') {
+                                                console.warn(`IP ${idx + 1} 的地址为空，原始数据:`, ip);
+                                            }
+                                            return `
+                                            <tr>
+                                                <td>${String(ipAddress)}</td>
+                                                <td>${requests.toLocaleString()}</td>
+                                                <td>${formatBytes(bytes)}</td>
+                                            </tr>
+                                        `;
+                                        }).join('');
+                                        console.log('生成的IP行HTML:', ipRows.substring(0, 100));
+                                        return ipRows || '<tr><td colspan="3" style="text-align: center; color: #999; padding: 20px;">无法解析数据</td></tr>';
+                                    })()}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                `;
+
+                container.innerHTML = html;
+            }
+
+            // 加载流量日志（全局作用域）
+            window.loadTrafficLogs = async function(page) {
+                currentTrafficLogsPage = page;
+                
+                const domain = document.getElementById('traffic-domain-filter')?.value || '';
+                const statusCode = document.getElementById('traffic-status-filter')?.value || '';
+                const clientIP = document.getElementById('traffic-ip-filter')?.value || '';
+                const startTime = document.getElementById('traffic-start-time')?.value || '';
+                const endTime = document.getElementById('traffic-end-time')?.value || '';
+
+                const params = new URLSearchParams({
+                    page: page,
+                    page_size: currentTrafficLogsPageSize
+                });
+
+                if (domain) params.append('domain', domain);
+                if (statusCode) params.append('status_code', statusCode);
+                if (clientIP) params.append('client_ip', clientIP);
+                if (startTime) params.append('start_time', startTime);
+                if (endTime) params.append('end_time', endTime);
+
+                try {
+                    const response = await fetch('/api/traffic/logs?' + params.toString(), {
+                        credentials: 'include'
+                    });
+
+                    if (!response.ok) {
+                        throw new Error('获取流量日志失败');
+                    }
+
+                    const data = await response.json();
+                    displayTrafficLogs(data.logs || []);
+                    renderTrafficLogsPagination(data.total, data.page, data.pages);
+                } catch (error) {
+                    console.error('加载流量日志错误:', error);
+                    document.getElementById('traffic-logs-container').innerHTML = 
+                        '<div class="alert alert-error">加载失败: ' + error.message + '</div>';
+                }
+            }
+
+            // 显示流量日志
+            function displayTrafficLogs(logs) {
+                const container = document.getElementById('traffic-logs-container');
+                
+                if (logs.length === 0) {
+                    container.innerHTML = '<div class="alert">暂无流量日志</div>';
+                    return;
+                }
+
+                const formatBytes = (bytes) => {
+                    if (bytes === 0) return '0 B';
+                    const k = 1024;
+                    const sizes = ['B', 'KB', 'MB', 'GB'];
+                    const i = Math.floor(Math.log(bytes) / Math.log(k));
+                    return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+                };
+
+                const getStatusCodeColor = (code) => {
+                    if (code >= 200 && code < 300) return 'color: #21a366;';
+                    if (code >= 300 && code < 400) return 'color: #ffc107;';
+                    if (code >= 400) return 'color: #dc3545;';
+                    return '';
+                };
+
+                html = `
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>时间</th>
+                                <th>域名</th>
+                                <th>路径</th>
+                                <th>方法</th>
+                                <th>状态码</th>
+                                <th>客户端IP</th>
+                                <th>请求大小</th>
+                                <th>响应大小</th>
+                                <th>响应时间</th>
+                                <th>缓存状态</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${logs.map(log => `
+                                <tr>
+                                    <td>${new Date(log.created_at).toLocaleString('zh-CN')}</td>
+                                    <td>${log.domain}</td>
+                                    <td>${log.path.length > 30 ? log.path.substring(0, 30) + '...' : log.path}</td>
+                                    <td>${log.method}</td>
+                                    <td style="${getStatusCodeColor(log.status_code)}">${log.status_code}</td>
+                                    <td>${log.client_ip}</td>
+                                    <td>${formatBytes(log.request_size)}</td>
+                                    <td>${formatBytes(log.response_size)}</td>
+                                    <td>${log.response_time}ms</td>
+                                    <td>
+                                        <span class="status-indicator ${log.cache_status === 'HIT' ? 'status-active' : log.cache_status === 'MISS' ? '' : ''}">
+                                            ${log.cache_status}
+                                        </span>
+                                    </td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                `;
+
+                container.innerHTML = html;
+            }
+
+            // 渲染流量日志分页
+            function renderTrafficLogsPagination(total, currentPage, totalPages) {
+                const pagination = document.getElementById('traffic-logs-pagination');
+                if (!pagination) return;
+
+                if (totalPages <= 1) {
+                    pagination.innerHTML = '';
+                    return;
+                }
+
+                let html = '';
+
+                if (currentPage > 1) {
+                    html += `<button class="page-btn" onclick="window.loadTrafficLogs && window.loadTrafficLogs(${currentPage - 1})">上一页</button>`;
+                }
+
+                for (let i = 1; i <= totalPages; i++) {
+                    if (i === currentPage) {
+                        html += `<button class="page-btn active">${i}</button>`;
+                    } else if (i === 1 || i === totalPages || (i >= currentPage - 2 && i <= currentPage + 2)) {
+                        html += `<button class="page-btn" onclick="window.loadTrafficLogs && window.loadTrafficLogs(${i})">${i}</button>`;
+                    } else if (i === currentPage - 3 || i === currentPage + 3) {
+                        html += `<span class="page-btn">...</span>`;
+                    }
+                }
+
+                if (currentPage < totalPages) {
+                    html += `<button class="page-btn" onclick="window.loadTrafficLogs && window.loadTrafficLogs(${currentPage + 1})">下一页</button>`;
+                }
+
+                pagination.innerHTML = html;
+            }
+
+            // 刷新流量统计（全局作用域）
+            window.refreshTrafficStats = function() {
+                if (typeof window.loadTrafficStats === 'function') {
+                    window.loadTrafficStats();
+                }
+                if (typeof window.loadTrafficLogs === 'function') {
+                    window.loadTrafficLogs(1);
+                }
+            }
+
+            // 导出流量日志
+            function exportTrafficLogs() {
+                const startTime = document.getElementById('traffic-start-time')?.value || '';
+                const endTime = document.getElementById('traffic-end-time')?.value || '';
+
+                let url = '/api/traffic/export?';
+                if (startTime) url += 'start_time=' + encodeURIComponent(startTime) + '&';
+                if (endTime) url += 'end_time=' + encodeURIComponent(endTime) + '&';
+
+                window.open(url, '_blank');
+                showMessage('正在导出流量日志...', 'success');
+            }
+
+            // 显示删除流量日志模态框
+            function showDeleteTrafficLogsModal() {
+                const modalBody = document.getElementById('modal-body');
+                modalBody.innerHTML = `
+                    <div class="form-group">
+                        <label>删除选项：</label>
+                        <select id="delete-traffic-option" class="form-control">
+                            <option value="ids">按ID删除</option>
+                            <option value="before">删除指定时间之前的记录</option>
+                            <option value="all">删除所有记录</option>
+                        </select>
+                    </div>
+                    <div id="delete-traffic-options" class="form-group">
+                        <label>请输入要删除的ID（用逗号分隔）：</label>
+                        <input type="text" id="delete-traffic-ids" class="form-control" placeholder="例如: 1,2,3">
+                    </div>
+                    <div class="form-group" style="display: none;">
+                        <label>删除此时间之前的记录：</label>
+                        <input type="datetime-local" id="delete-traffic-before" class="form-control">
+                    </div>
+                    <div style="margin-top: 20px;">
+                        <button class="btn btn-danger" onclick="confirmDeleteTrafficLogs()">确认删除</button>
+                        <button class="btn btn-secondary" onclick="window.closeModal && window.closeModal()">取消</button>
+                    </div>
+                `;
+
+                document.getElementById('delete-traffic-option').addEventListener('change', function() {
+                    const option = this.value;
+                    document.getElementById('delete-traffic-ids').parentElement.style.display = 
+                        option === 'ids' ? 'block' : 'none';
+                    document.getElementById('delete-traffic-before').parentElement.style.display = 
+                        option === 'before' ? 'block' : 'none';
+                });
+
+                // 确保关闭按钮可以工作
+                const closeBtn = document.querySelector('.close-modal');
+                if (closeBtn) {
+                    closeBtn.onclick = function() {
+                        window.closeModal && window.closeModal();
+                    };
+                }
+
+                document.getElementById('modal-title').textContent = '删除流量日志';
+                if (typeof window.showModal === 'function') {
+                    window.showModal();
+                } else {
+                    document.getElementById('modal').style.display = 'flex';
+                }
+            }
+
+            // 确认删除流量日志
+            async function confirmDeleteTrafficLogs() {
+                const option = document.getElementById('delete-traffic-option').value;
+                let req = {};
+
+                if (option === 'ids') {
+                    const ids = document.getElementById('delete-traffic-ids').value.split(',').map(id => parseInt(id.trim())).filter(id => !isNaN(id));
+                    if (ids.length === 0) {
+                        showMessage('请输入有效的ID', 'error');
+                        return;
+                    }
+                    req.ids = ids;
+                } else if (option === 'before') {
+                    const before = document.getElementById('delete-traffic-before').value;
+                    if (!before) {
+                        showMessage('请选择时间', 'error');
+                        return;
+                    }
+                    req.before = before;
+                } else {
+                    req.all = true;
+                }
+
+                if (!confirm('确定要删除这些流量日志吗？此操作不可恢复！')) return;
+
+                try {
+                    const response = await fetch('/api/traffic/logs', {
+                        method: 'DELETE',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        credentials: 'include',
+                        body: JSON.stringify(req)
+                    });
+
+                    if (response.ok) {
+                        showMessage('删除成功', 'success');
+                        if (typeof window.closeModal === 'function') {
+                            window.closeModal();
+                        }
+                        if (typeof window.loadTrafficLogs === 'function') {
+                            window.loadTrafficLogs(1);
+                        }
+                    } else {
+                        const data = await response.json();
+                        showMessage('删除失败: ' + (data.error || '未知错误'), 'error');
+                    }
+                } catch (error) {
+                    console.error('删除流量日志错误:', error);
+                    showMessage('删除失败', 'error');
+                }
+            }
+
+            // 清理定时器逻辑已移到 loadPageData 函数内部处理
+            // closeModal 和 showModal 已在下方定义为全局函数
 
         // 消息提示 - 左下角Toast通知
         function showMessage(message, type) {
@@ -7553,10 +8255,20 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     // 初始化模态框关闭功能
-    document.querySelector('.close-modal').addEventListener('click', closeModal);
-    document.getElementById('modal').addEventListener('click', function(e) {
-        if (e.target === this) closeModal();
-    });
+    const closeModalBtn = document.querySelector('.close-modal');
+    if (closeModalBtn) {
+        closeModalBtn.addEventListener('click', function() {
+            window.closeModal && window.closeModal();
+        });
+    }
+    const modal = document.getElementById('modal');
+    if (modal) {
+        modal.addEventListener('click', function(e) {
+            if (e.target === this) {
+                window.closeModal && window.closeModal();
+            }
+        });
+    }
 
     // 加载第一个页面
     loadPage('dashboard');
