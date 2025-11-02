@@ -1018,6 +1018,131 @@
             position: relative;
         }
 
+        /* 单选按钮样式 */
+        .radio-input {
+            display: flex;
+            flex-direction: row;
+            gap: 10px;
+        }
+
+        .radio-input * {
+            box-sizing: border-box;
+            padding: 0;
+            margin: 0;
+        }
+
+        .radio-input label {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            padding: 0px 20px;
+            width: 220px;
+            cursor: pointer;
+            height: 50px;
+            position: relative;
+            z-index: 1;
+        }
+
+        .radio-input label input[type="radio"],
+        .radio-input label .text {
+            position: relative;
+            z-index: 2;
+        }
+
+        .radio-input label::before {
+            position: absolute;
+            content: "";
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 220px;
+            height: 45px;
+            z-index: 0;
+            transition: all 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+            border-radius: 10px;
+            border: 2px solid transparent;
+        }
+
+        .radio-input label:hover::before {
+            transition: all 0.2s ease;
+            background-color: rgba(42, 46, 60, 0.1);
+        }
+
+        .radio-input label:has(input:checked)::before {
+            background-color: rgba(67, 93, 216, 0.15);
+            border: 2px solid #435dd8;
+            height: 50px;
+        }
+
+        .radio-input label .text {
+            color: #444;
+        }
+
+        .radio-input label input[type="radio"] {
+            background-color: #e0e0e0;
+            appearance: none;
+            width: 17px;
+            height: 17px;
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .radio-input label input[type="radio"]:checked {
+            background-color: #435dd8;
+            -webkit-animation: pulse 0.7s forwards;
+            animation: pulse 0.7s forwards;
+        }
+
+        .radio-input label input[type="radio"]:before {
+            content: "";
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            transition: all 0.1s cubic-bezier(0.165, 0.84, 0.44, 1);
+            background-color: #fff;
+            transform: scale(0);
+        }
+
+        .radio-input label input[type="radio"]:checked::before {
+            transform: scale(1);
+        }
+
+        @keyframes pulse {
+            0% {
+                box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.4);
+            }
+            70% {
+                box-shadow: 0 0 0 8px rgba(255, 255, 255, 0);
+            }
+            100% {
+                box-shadow: 0 0 0 0 rgba(255, 255, 255, 0);
+            }
+        }
+
+        /* 暗黑主题下的单选按钮样式 */
+        body.dark-theme .radio-input label:hover::before {
+            background-color: #2a2e3c;
+        }
+
+        body.dark-theme .radio-input label:has(input:checked)::before {
+            background-color: #2d3750;
+            border: 2px solid #435dd8;
+        }
+
+        body.dark-theme .radio-input label .text {
+            color: #adbac7;
+        }
+
+        body.dark-theme .radio-input label input[type="radio"] {
+            background-color: #202030;
+        }
+
+        body.dark-theme .radio-input label input[type="radio"]:checked {
+            background-color: #435dd8;
+        }
+
         .cont-icon .sparkle {
             position: absolute;
             top: 50%;
@@ -2632,12 +2757,14 @@ code[class*="language-"] {
             <form id="settings-form">
                 <div class="form-group">
                     <label class="form-label">防开发者工具</label>
-                    <div>
-                        <label style="display: inline-flex; align-items: center; gap: 8px; margin-right: 20px;">
-                            <input type="radio" name="anti-devtools" value="true"> 启用
+                    <div class="radio-input">
+                        <label class="label">
+                            <input type="radio" id="anti-devtools-true" name="anti-devtools" value="true">
+                            <p class="text">启用</p>
                         </label>
-                        <label style="display: inline-flex; align-items: center; gap: 8px;">
-                            <input type="radio" name="anti-devtools" value="false"> 禁用
+                        <label class="label">
+                            <input type="radio" id="anti-devtools-false" name="anti-devtools" value="false" checked>
+                            <p class="text">禁用</p>
                         </label>
                     </div>
                 </div>
@@ -2645,12 +2772,14 @@ code[class*="language-"] {
                 <!-- 新增：JS混淆开关 -->
                 <div class="form-group">
                     <label class="form-label">JS混淆</label>
-                    <div>
-                        <label style="display: inline-flex; align-items: center; gap: 8px; margin-right: 20px;">
-                            <input type="radio" name="js-obfuscation" value="true"> 启用
+                    <div class="radio-input">
+                        <label class="label">
+                            <input type="radio" id="js-obfuscation-true" name="js-obfuscation" value="true">
+                            <p class="text">启用</p>
                         </label>
-                        <label style="display: inline-flex; align-items: center; gap: 8px;">
-                            <input type="radio" name="js-obfuscation" value="false"> 禁用
+                        <label class="label">
+                            <input type="radio" id="js-obfuscation-false" name="js-obfuscation" value="false" checked>
+                            <p class="text">禁用</p>
                         </label>
                     </div>
                     <small style="color: #666;">启用后会对前端JavaScript代码进行混淆，增强安全性</small>
@@ -4141,12 +4270,14 @@ async function loadStats() {
                     
                     <div class="form-group">
                         <label class="form-label">动作</label>
-                        <div>
-                            <label style="display: inline-flex; align-items: center; gap: 8px; margin-right: 20px;">
-                                <input type="radio" name="action" value="allow" checked> 允许
+                        <div class="radio-input">
+                            <label class="label">
+                                <input type="radio" id="action-allow" name="action" value="allow" checked>
+                                <p class="text">允许</p>
                             </label>
-                            <label style="display: inline-flex; align-items: center; gap: 8px;">
-                                <input type="radio" name="action" value="block"> 阻止
+                            <label class="label">
+                                <input type="radio" id="action-block" name="action" value="block">
+                                <p class="text">阻止</p>
                             </label>
                         </div>
                     </div>
@@ -4355,12 +4486,14 @@ async function loadStats() {
         <form id="cache-config-form">
             <div class="form-group">
                 <label class="form-label">启用缓存</label>
-                <div>
-                    <label style="display: inline-flex; align-items: center; gap: 8px; margin-right: 20px;">
-                        <input type="radio" name="enable" value="true" ${stats.enable ? 'checked' : ''}> 启用
+                <div class="radio-input">
+                    <label class="label">
+                        <input type="radio" id="cache-enable-true" name="enable" value="true" ${stats.enable ? 'checked' : ''}>
+                        <p class="text">启用</p>
                     </label>
-                    <label style="display: inline-flex; align-items: center; gap: 8px;">
-                        <input type="radio" name="enable" value="false" ${!stats.enable ? 'checked' : ''}> 禁用
+                    <label class="label">
+                        <input type="radio" id="cache-enable-false" name="enable" value="false" ${!stats.enable ? 'checked' : ''}>
+                        <p class="text">禁用</p>
                     </label>
                 </div>
             </div>
@@ -5485,15 +5618,18 @@ async function checkSingleSiteHealth(siteId) {
             
             <div class="form-group">
                 <label class="form-label">负载均衡算法</label>
-                <div>
-                    <label style="display: inline-flex; align-items: center; gap: 8px; margin-right: 20px;">
-                        <input type="radio" name="load_balance_algorithm" value="" checked> 不使用负载均衡
+                <div class="radio-input">
+                    <label class="label">
+                        <input type="radio" id="load-balance-none" name="load_balance_algorithm" value="" checked>
+                        <p class="text">不使用负载均衡</p>
                     </label>
-                    <label style="display: inline-flex; align-items: center; gap: 8px; margin-right: 20px;">
-                        <input type="radio" name="load_balance_algorithm" value="round_robin"> 轮询算法
+                    <label class="label">
+                        <input type="radio" id="load-balance-round-robin" name="load_balance_algorithm" value="round_robin">
+                        <p class="text">轮询算法</p>
                     </label>
-                    <label style="display: inline-flex; align-items: center; gap: 8px;">
-                        <input type="radio" name="load_balance_algorithm" value="weighted"> 权重算法
+                    <label class="label">
+                        <input type="radio" id="load-balance-weighted" name="load_balance_algorithm" value="weighted">
+                        <p class="text">权重算法</p>
                     </label>
                 </div>
             </div>
@@ -5513,12 +5649,14 @@ async function checkSingleSiteHealth(siteId) {
             
             <div class="form-group">
                 <label class="form-label">启用HTTPS</label>
-                <div>
-                    <label style="display: inline-flex; align-items: center; gap: 8px; margin-right: 20px;">
-                        <input type="radio" name="enable_https" value="true"> 启用
+                <div class="radio-input">
+                    <label class="label">
+                        <input type="radio" id="enable-https-true" name="enable_https" value="true">
+                        <p class="text">启用</p>
                     </label>
-                    <label style="display: inline-flex; align-items: center; gap: 8px;">
-                        <input type="radio" name="enable_https" value="false" checked> 禁用
+                    <label class="label">
+                        <input type="radio" id="enable-https-false" name="enable_https" value="false" checked>
+                        <p class="text">禁用</p>
                     </label>
                 </div>
             </div>
@@ -5758,15 +5896,18 @@ async function checkSingleSiteHealth(siteId) {
             
             <div class="form-group">
                 <label class="form-label">负载均衡算法</label>
-                <div>
-                    <label style="display: inline-flex; align-items: center; gap: 8px; margin-right: 20px;">
-                        <input type="radio" name="load_balance_algorithm" value="" ${!site.load_balance_algorithm ? 'checked' : ''}> 不使用负载均衡
+                <div class="radio-input">
+                    <label class="label">
+                        <input type="radio" id="edit-load-balance-none" name="load_balance_algorithm" value="" ${!site.load_balance_algorithm ? 'checked' : ''}>
+                        <p class="text">不使用负载均衡</p>
                     </label>
-                    <label style="display: inline-flex; align-items: center; gap: 8px; margin-right: 20px;">
-                        <input type="radio" name="load_balance_algorithm" value="round_robin" ${site.load_balance_algorithm === 'round_robin' ? 'checked' : ''}> 轮询算法
+                    <label class="label">
+                        <input type="radio" id="edit-load-balance-round-robin" name="load_balance_algorithm" value="round_robin" ${site.load_balance_algorithm === 'round_robin' ? 'checked' : ''}>
+                        <p class="text">轮询算法</p>
                     </label>
-                    <label style="display: inline-flex; align-items: center; gap: 8px;">
-                        <input type="radio" name="load_balance_algorithm" value="weighted" ${site.load_balance_algorithm === 'weighted' ? 'checked' : ''}> 权重算法
+                    <label class="label">
+                        <input type="radio" id="edit-load-balance-weighted" name="load_balance_algorithm" value="weighted" ${site.load_balance_algorithm === 'weighted' ? 'checked' : ''}>
+                        <p class="text">权重算法</p>
                     </label>
                 </div>
             </div>
@@ -6161,14 +6302,18 @@ async function disableRule(ruleId, ruleName) {
                 <form id="delete-logs-form">
                     <div class="form-group">
                         <label class="form-label">删除方式</label>
-                        <div>
-                            <label style="display: block; margin-bottom: 10px;">
-                                <input type="radio" name="delete_type" value="all" checked> 删除所有日志
+                        <div class="radio-input">
+                            <label class="label">
+                                <input type="radio" id="delete-type-all" name="delete_type" value="all" checked>
+                                <p class="text">删除所有日志</p>
                             </label>
-                            <label style="display: block; margin-bottom: 10px;">
-                                <input type="radio" name="delete_type" value="before"> 删除指定时间之前的日志
-                                <input type="date" name="before_date" class="form-control" style="margin-top: 5px;">
+                            <label class="label">
+                                <input type="radio" id="delete-type-before" name="delete_type" value="before">
+                                <p class="text">删除指定时间之前的日志</p>
                             </label>
+                        </div>
+                        <div id="before-date-container" style="display: none; margin-top: 10px;">
+                            <input type="date" name="before_date" class="form-control">
                         </div>
                     </div>
                     
@@ -6179,6 +6324,18 @@ async function disableRule(ruleId, ruleName) {
                 </form>
             `;
             
+            // 监听删除类型变化，显示/隐藏日期选择器
+            document.querySelectorAll('input[name="delete_type"]').forEach(radio => {
+                radio.addEventListener('change', function() {
+                    const dateContainer = document.getElementById('before-date-container');
+                    if (this.value === 'before') {
+                        dateContainer.style.display = 'block';
+                    } else {
+                        dateContainer.style.display = 'none';
+                    }
+                });
+            });
+
             document.getElementById('delete-logs-form').addEventListener('submit', function(e) {
                 e.preventDefault();
                 deleteLogs(new FormData(this));
