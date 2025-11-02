@@ -1,11 +1,11 @@
-id: "1"
-name: sql 注入
-description: sql
+id: "2"
+name: test
+description: test
 method: GET 
 relation: and
 judge:
     - position: uri
-      content: insert2
+      content: test
       rix: ""
       action: is
 enabled: true

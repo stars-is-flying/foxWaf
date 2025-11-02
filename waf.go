@@ -7386,32 +7386,39 @@ type CustomRuleJSON struct {
 func saveRuleToFile(rule CustomRule) error {
 	filePath := filepath.Join(customRuleDir, fmt.Sprintf("%s.yaml", rule.ID))
 
-	// 转换为序列化结构
-	ruleJSON := CustomRuleJSON{
-		ID:          rule.ID,
-		Name:        rule.Name,
-		Description: rule.Description,
-		Method:      rule.Method,
-		Relation:    rule.Relation,
-		Enabled:     rule.Enabled,
-		Judges:      make([]JudgeJSON, len(rule.Judges)),
+	// 手动构建 YAML，使用 judge 字段以保持一致性
+	var buf bytes.Buffer
+	buf.WriteString(fmt.Sprintf("id: \"%s\"\n", rule.ID))
+	buf.WriteString(fmt.Sprintf("name: %s\n", rule.Name))
+	if rule.Description != "" {
+		buf.WriteString(fmt.Sprintf("description: %s\n", rule.Description))
 	}
-
-	for i, judge := range rule.Judges {
-		ruleJSON.Judges[i] = JudgeJSON{
-			Position: judge.Position,
-			Content:  judge.Content,
-			Rix:      judge.Rix,
-			Action:   judge.Action,
+	buf.WriteString(fmt.Sprintf("method: %s \n", rule.Method))
+	if rule.Relation != "" {
+		buf.WriteString(fmt.Sprintf("relation: %s\n", rule.Relation))
+	}
+	buf.WriteString("judge:\n")
+	
+	for _, judge := range rule.Judges {
+		buf.WriteString(fmt.Sprintf("    - position: %s\n", judge.Position))
+		if judge.Content != "" {
+			buf.WriteString(fmt.Sprintf("      content: %s\n", judge.Content))
+		} else {
+			buf.WriteString("      content: \"\"\n")
+		}
+		if judge.Rix != "" {
+			buf.WriteString(fmt.Sprintf("      rix: %s\n", judge.Rix))
+		} else {
+			buf.WriteString("      rix: \"\"\n")
+		}
+		if judge.Action != "" {
+			buf.WriteString(fmt.Sprintf("      action: %s\n", judge.Action))
 		}
 	}
+	
+	buf.WriteString(fmt.Sprintf("enabled: %v\n", rule.Enabled))
 
-	data, err := yaml.Marshal(ruleJSON)
-	if err != nil {
-		return fmt.Errorf("序列化规则失败: %v", err)
-	}
-
-	if err := ioutil.WriteFile(filePath, data, 0644); err != nil {
+	if err := ioutil.WriteFile(filePath, buf.Bytes(), 0644); err != nil {
 		return fmt.Errorf("写入规则文件失败: %v", err)
 	}
 
