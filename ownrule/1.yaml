@@ -1,0 +1,11 @@
+id: "1"
+name: sql 注入
+description: sql
+method: GET
+relation: and
+judges:
+    - position: uri
+      content: insert
+      rix: ""
+      action: is
+enabled: true

@@ -735,13 +735,15 @@
 
         /* 暗黑主题下的toast样式 */
         body.dark-theme .toast-success {
-            background: linear-gradient(135deg, #2ed573 0%, #26d07c 100%);
+            background: linear-gradient(135deg, #238636 0%, #2ea043 100%);
             color: white;
+            border-left: 4px solid #56d364;
         }
 
         body.dark-theme .toast-error {
-            background: linear-gradient(135deg, #ff4757 0%, #ff3742 100%);
+            background: linear-gradient(135deg, #da3633 0%, #f85149 100%);
             color: white;
+            border-left: 4px solid #ff6b6b;
         }
 
         /* 主题切换按钮 */
@@ -774,31 +776,43 @@
 
         /* 暗黑主题样式 */
         body.dark-theme {
-            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 25%, #0f3460 50%, #0a2540 75%, #050816 100%);
-            color: #e0e0e0;
+            background: linear-gradient(135deg, #0d1117 0%, #161b22 25%, #1c2128 50%, #22272e 75%, #2d333b 100%);
+            color: #adbac7;
         }
 
         body.dark-theme .sidebar {
-            background: linear-gradient(145deg, #1e1e2e, #2a2a3e);
-            border-right: 1px solid rgba(255, 255, 255, 0.1);
+            background: linear-gradient(145deg, #161b22, #1c2128);
+            border-right: 1px solid rgba(108, 117, 125, 0.2);
+            box-shadow: 2px 0 15px rgba(0, 0, 0, 0.5);
         }
 
         body.dark-theme .sidebar-header {
-            background: linear-gradient(145deg, #252538, #2f2f44);
+            background: linear-gradient(145deg, #1c2128, #22272e);
+            border-bottom: 1px solid rgba(108, 117, 125, 0.15);
+        }
+
+        body.dark-theme .sidebar-header h1 {
+            color: #58a6ff;
+            background: linear-gradient(45deg, #58a6ff, #79c0ff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
         }
 
         body.dark-theme .nav-item {
-            color: #d0d0d0;
+            color: #adbac7;
         }
 
         body.dark-theme .nav-item:hover {
-            background: rgba(82, 16, 237, 0.2);
-            color: #fff;
+            background: rgba(88, 166, 255, 0.15);
+            color: #58a6ff;
+            transform: translateX(5px);
         }
 
         body.dark-theme .nav-item.active {
-            background: linear-gradient(145deg, #5210ed, #8b5cf6);
+            background: linear-gradient(145deg, #1f6feb, #58a6ff);
             color: #fff;
+            box-shadow: 0 4px 15px rgba(88, 166, 255, 0.3);
         }
 
         body.dark-theme .main-content {
@@ -806,159 +820,256 @@
         }
 
         body.dark-theme .content-header {
-            background: linear-gradient(145deg, #2a2a3e, #3a3a4e);
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: linear-gradient(145deg, #1c2128, #22272e);
+            border: 1px solid rgba(108, 117, 125, 0.2);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
         }
 
         body.dark-theme .content-header h2 {
-            color: #a78bfa;
+            color: #58a6ff;
+            background: linear-gradient(45deg, #58a6ff, #79c0ff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
         }
 
         body.dark-theme .content-header p {
-            color: #b0b0b0;
+            color: #768390;
+        }
+
+        body.dark-theme .content-body {
+            background: linear-gradient(145deg, #161b22, #1c2128);
+            border: 1px solid rgba(108, 117, 125, 0.2);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
         }
 
         body.dark-theme .card {
-            background: rgba(30, 30, 46, 0.8);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            color: #e0e0e0;
+            background: rgba(22, 27, 34, 0.95);
+            border: 1px solid rgba(108, 117, 125, 0.25);
+            color: #adbac7;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
         }
 
         body.dark-theme .card-header {
-            background: rgba(40, 40, 60, 0.8);
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            background: rgba(28, 33, 40, 0.95);
+            border-bottom: 1px solid rgba(108, 117, 125, 0.25);
         }
 
         body.dark-theme .card-title {
-            color: #a78bfa;
+            color: #58a6ff;
         }
 
         body.dark-theme .btn {
-            background: linear-gradient(145deg, #5210ed, #8b5cf6);
+            background: linear-gradient(145deg, #1f6feb, #58a6ff);
             color: #fff;
-            border: 1px solid rgba(255, 255, 255, 0.2);
+            border: 1px solid rgba(88, 166, 255, 0.3);
+            box-shadow: 0 2px 8px rgba(88, 166, 255, 0.2);
         }
 
         body.dark-theme .btn:hover {
-            background: linear-gradient(145deg, #6d28d9, #9f7aea);
+            background: linear-gradient(145deg, #388bfd, #79c0ff);
+            box-shadow: 0 4px 12px rgba(88, 166, 255, 0.3);
+            transform: translateY(-1px);
         }
 
         body.dark-theme .btn-secondary {
-            background: rgba(60, 60, 80, 0.8);
-            color: #e0e0e0;
+            background: rgba(48, 54, 61, 0.8);
+            color: #adbac7;
+            border: 1px solid rgba(108, 117, 125, 0.3);
+        }
+
+        body.dark-theme .btn-secondary:hover {
+            background: rgba(55, 62, 70, 0.9);
+            border-color: rgba(108, 117, 125, 0.5);
+        }
+
+        body.dark-theme .btn-danger {
+            background: linear-gradient(145deg, #da3633, #f85149);
+            color: #fff;
+            border: 1px solid rgba(248, 81, 73, 0.3);
+        }
+
+        body.dark-theme .btn-danger:hover {
+            background: linear-gradient(145deg, #f85149, #ff6b6b);
+            box-shadow: 0 4px 12px rgba(248, 81, 73, 0.3);
+        }
+
+        body.dark-theme .btn-success {
+            background: linear-gradient(145deg, #238636, #2ea043);
+            color: #fff;
+            border: 1px solid rgba(46, 160, 67, 0.3);
+        }
+
+        body.dark-theme .btn-success:hover {
+            background: linear-gradient(145deg, #2ea043, #3fb950);
+            box-shadow: 0 4px 12px rgba(46, 160, 67, 0.3);
         }
 
         body.dark-theme .metric-card {
-            background: rgba(30, 30, 46, 0.8);
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: rgba(22, 27, 34, 0.95);
+            border: 1px solid rgba(108, 117, 125, 0.25);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+
+        body.dark-theme .metric-card:hover {
+            border-color: rgba(88, 166, 255, 0.4);
+            box-shadow: 0 6px 16px rgba(88, 166, 255, 0.2);
         }
 
         body.dark-theme .metric-value {
-            color: #a78bfa;
+            color: #58a6ff;
         }
 
         body.dark-theme .metric-label {
-            color: #b0b0b0;
+            color: #768390;
         }
 
         body.dark-theme .form-control,
         body.dark-theme input,
         body.dark-theme select,
         body.dark-theme textarea {
-            background: rgba(40, 40, 60, 0.8);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            color: #e0e0e0;
+            background: rgba(22, 27, 34, 0.95);
+            border: 1px solid rgba(108, 117, 125, 0.3);
+            color: #adbac7;
         }
 
         body.dark-theme .form-control:focus,
         body.dark-theme input:focus,
         body.dark-theme select:focus,
         body.dark-theme textarea:focus {
-            border-color: #8b5cf6;
-            background: rgba(50, 50, 70, 0.8);
+            border-color: #58a6ff;
+            background: rgba(28, 33, 40, 0.95);
+            box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.15);
+            outline: none;
         }
 
         body.dark-theme .modal {
-            background: rgba(0, 0, 0, 0.8);
+            background: rgba(0, 0, 0, 0.85);
+            backdrop-filter: blur(4px);
         }
 
         body.dark-theme .modal-content {
-            background: rgba(30, 30, 46, 0.95);
-            border: 1px solid rgba(255, 255, 255, 0.2);
+            background: linear-gradient(145deg, #1c2128, #22272e);
+            border: 1px solid rgba(108, 117, 125, 0.3);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
         }
 
         body.dark-theme .modal-header {
-            background: rgba(40, 40, 60, 0.8);
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            background: rgba(28, 33, 40, 0.95);
+            border-bottom: 1px solid rgba(108, 117, 125, 0.25);
         }
 
         body.dark-theme .modal-title {
-            color: #a78bfa;
+            color: #58a6ff;
+        }
+
+        body.dark-theme .close-modal {
+            color: #adbac7;
+        }
+
+        body.dark-theme .close-modal:hover {
+            color: #58a6ff;
         }
 
         body.dark-theme .code-container {
-            background: rgba(20, 20, 30, 0.9);
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: rgba(13, 17, 23, 0.95);
+            border: 1px solid rgba(108, 117, 125, 0.25);
         }
 
         body.dark-theme .alert-success {
-            background: rgba(46, 213, 115, 0.2);
-            color: #2ed573;
-            border: 1px solid rgba(46, 213, 115, 0.3);
+            background: rgba(33, 134, 54, 0.2);
+            color: #56d364;
+            border: 1px solid rgba(46, 160, 67, 0.4);
         }
 
         body.dark-theme .alert-error {
-            background: rgba(255, 71, 87, 0.2);
-            color: #ff4757;
-            border: 1px solid rgba(255, 71, 87, 0.3);
+            background: rgba(218, 54, 51, 0.2);
+            color: #f85149;
+            border: 1px solid rgba(248, 81, 73, 0.4);
         }
 
         body.dark-theme .theme-toggle-btn {
-            background: rgba(82, 16, 237, 0.3);
-            border-color: rgba(139, 92, 246, 0.5);
+            background: rgba(48, 54, 61, 0.8);
+            border-color: rgba(108, 117, 125, 0.4);
         }
 
         body.dark-theme .theme-toggle-btn:hover {
-            background: rgba(82, 16, 237, 0.5);
-            border-color: rgba(139, 92, 246, 0.7);
+            background: rgba(55, 62, 70, 0.9);
+            border-color: rgba(88, 166, 255, 0.5);
+            box-shadow: 0 4px 12px rgba(88, 166, 255, 0.2);
         }
 
         body.dark-theme table {
-            background: rgba(30, 30, 46, 0.8);
-            color: #e0e0e0;
+            background: rgba(22, 27, 34, 0.95);
+            color: #adbac7;
+            border: 1px solid rgba(108, 117, 125, 0.25);
         }
 
         body.dark-theme table th {
-            background: rgba(40, 40, 60, 0.8);
-            color: #a78bfa;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            background: rgba(28, 33, 40, 0.95);
+            color: #58a6ff;
+            border-bottom: 1px solid rgba(108, 117, 125, 0.3);
         }
 
         body.dark-theme table td {
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            border-bottom: 1px solid rgba(108, 117, 125, 0.15);
         }
 
         body.dark-theme table tr:hover {
-            background: rgba(82, 16, 237, 0.1);
+            background: rgba(88, 166, 255, 0.08);
         }
 
         body.dark-theme .table-container {
-            background: rgba(30, 30, 46, 0.8);
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: rgba(22, 27, 34, 0.95);
+            border: 1px solid rgba(108, 117, 125, 0.25);
         }
 
         body.dark-theme .loading {
-            color: #b0b0b0;
+            color: #768390;
         }
 
         body.dark-theme h3,
         body.dark-theme h4,
         body.dark-theme h5 {
-            color: #a78bfa;
+            color: #58a6ff;
         }
 
         body.dark-theme p {
-            color: #b0b0b0;
+            color: #768390;
+        }
+
+        body.dark-theme .status-indicator {
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        body.dark-theme .status-active {
+            background: rgba(33, 134, 54, 0.2);
+            color: #56d364;
+            border: 1px solid rgba(46, 160, 67, 0.3);
+        }
+
+        body.dark-theme .status-inactive {
+            background: rgba(218, 54, 51, 0.2);
+            color: #f85149;
+            border: 1px solid rgba(248, 81, 73, 0.3);
+        }
+
+        body.dark-theme .chart-container {
+            background: rgba(13, 17, 23, 0.95);
+            border: 1px solid rgba(108, 117, 125, 0.25);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+            color: #adbac7;
+        }
+
+        body.dark-theme .chart-title {
+            color: #58a6ff;
+        }
+
+        body.dark-theme .dashboard-charts {
+            color: #adbac7;
         }
 
         /* 模态框 */
@@ -3218,23 +3329,26 @@ function displaySystemMonitor(data) {
 // 显示端口统计
 function displayPortStats(portStats) {
     const container = document.getElementById('port-stats-container');
+    const isDark = document.body.classList.contains('dark-theme');
+    const primaryColor = isDark ? '#58a6ff' : '#5210ed';
+    const textColor = isDark ? '#adbac7' : '#666';
     
     container.innerHTML = `
         <div style="text-align: center;">
-            <div style="font-size: 24px; font-weight: bold; color: #5210ed; margin-bottom: 10px;">
+            <div style="font-size: 24px; font-weight: bold; color: ${primaryColor}; margin-bottom: 10px;">
                 ${portStats.total_connections}
             </div>
-            <div style="font-size: 14px; color: #666; margin-bottom: 15px;">
+            <div style="font-size: 14px; color: ${textColor}; margin-bottom: 15px;">
                 总连接数
             </div>
             <div style="display: flex; justify-content: space-around; font-size: 12px;">
                 <div>
                     <div style="color: #2ed573; font-size: 18px;font-weight: bold;">80端口</div>
-                    <div style="font-weight: bold; font-size: 20px;">${portStats.port_80_rate}</div>
+                    <div style="font-weight: bold; font-size: 20px; color: ${textColor};">${portStats.port_80_rate}</div>
                 </div>
                 <div>
                     <div style="color: #1e90ff;font-size: 18px;font-weight: bold;">443端口</div>
-                    <div style="font-weight: bold;bold; font-size: 20px;">${portStats.port_443_rate}</div>
+                    <div style="font-weight: bold; font-size: 20px; color: ${textColor};">${portStats.port_443_rate}</div>
                 </div>
             </div>
         </div>
@@ -3245,19 +3359,23 @@ function displayPortStats(portStats) {
 function displayCPUStats(cpuStats) {
     const container = document.getElementById('cpu-stats-container');
     const usagePercent = parseFloat(cpuStats.usage_percent);
+    const isDark = document.body.classList.contains('dark-theme');
+    const primaryColor = isDark ? '#58a6ff' : '#5210ed';
+    const textColor = isDark ? '#768390' : '#666';
+    const secondaryTextColor = isDark ? '#768390' : '#888';
     
     container.innerHTML = `
         <div style="text-align: center;">
-            <div style="font-size: 24px; font-weight: bold; color: #5210ed; margin-bottom: 10px;">
+            <div style="font-size: 24px; font-weight: bold; color: ${primaryColor}; margin-bottom: 10px;">
                 ${usagePercent.toFixed(1)}%
             </div>
-            <div style="font-size: 14px; color: #666; margin-bottom: 15px;">
+            <div style="font-size: 14px; color: ${textColor}; margin-bottom: 15px;">
                 CPU使用率
             </div>
-            <div style="font-size: 12px; color: #888;">
+            <div style="font-size: 12px; color: ${secondaryTextColor};">
                 负载: ${cpuStats.load_average_1} | ${cpuStats.load_average_5} | ${cpuStats.load_average_15}
             </div>
-            <div style="font-size: 11px; color: #888;">
+            <div style="font-size: 11px; color: ${secondaryTextColor};">
                 ${cpuStats.cores} 核心
             </div>
         </div>
@@ -3268,19 +3386,23 @@ function displayCPUStats(cpuStats) {
 function displayMemoryStats(memoryStats) {
     const container = document.getElementById('memory-stats-container');
     const usagePercent = parseFloat(memoryStats.usage_percent);
+    const isDark = document.body.classList.contains('dark-theme');
+    const primaryColor = isDark ? '#58a6ff' : '#5210ed';
+    const textColor = isDark ? '#768390' : '#666';
+    const secondaryTextColor = isDark ? '#768390' : '#888';
     
     container.innerHTML = `
         <div style="text-align: center;">
-            <div style="font-size: 24px; font-weight: bold; color: #5210ed; margin-bottom: 10px;">
+            <div style="font-size: 24px; font-weight: bold; color: ${primaryColor}; margin-bottom: 10px;">
                 ${usagePercent.toFixed(1)}%
             </div>
-            <div style="font-size: 14px; color: #666; margin-bottom: 15px;">
+            <div style="font-size: 14px; color: ${textColor}; margin-bottom: 15px;">
                 内存使用率
             </div>
-            <div style="font-size: 12px; color: #666;">
+            <div style="font-size: 12px; color: ${textColor};">
                 已用: ${memoryStats.used}
             </div>
-            <div style="font-size: 11px; color: #888;">
+            <div style="font-size: 11px; color: ${secondaryTextColor};">
                 总共: ${memoryStats.total}
             </div>
         </div>
