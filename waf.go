@@ -3352,6 +3352,7 @@ func getCacheStatsHandler(c *gin.Context) {
 		CacheHits:   hits,
 		CachedFiles: cachedFiles,
 		CurrentSize: fmt.Sprintf("%.2f MB", float64(currentSize)/(1024*1024)),
+		MaxSize:     fmt.Sprintf("%.2f MB", float64(staticCacheConfig.MaxCacheSize)/(1024*1024)),
 	}
 
 	c.JSON(http.StatusOK, stats)

@@ -4572,7 +4572,22 @@ async function loadStats() {
                 const container = document.getElementById('cache-config-container');
 
                 // 修复：正确解析最大缓存大小
-                const maxSizeMB = stats.max_size ? parseInt(stats.max_size) : 100;
+                // 处理 max_size 可能是 "100.00 MB" 格式的字符串
+                let maxSizeMB = 100; // 默认值
+                if (stats.max_size) {
+                    if (typeof stats.max_size === 'string') {
+                        // 如果是字符串格式 "100.00 MB"，提取数字部分
+                        const match = stats.max_size.match(/([\d.]+)/);
+                        if (match) {
+                            maxSizeMB = Math.round(parseFloat(match[1]));
+                        } else {
+                            maxSizeMB = parseInt(stats.max_size) || 100;
+                        }
+                    } else {
+                        maxSizeMB = parseInt(stats.max_size) || 100;
+                    }
+                }
+                console.log('解析最大缓存大小:', stats.max_size, '->', maxSizeMB);
 
                 container.innerHTML = `
         <form id="cache-config-form">
