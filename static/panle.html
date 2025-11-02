@@ -39,13 +39,24 @@
             box-sizing: border-box;
         }
 
+        html {
+            overflow-x: hidden !important;
+            width: 100% !important;
+            height: 100%;
+            max-width: 100vw !important;
+        }
+
         body {
             background: linear-gradient(135deg, #c8f5f5 0%, #a8e6e6 25%, #88d7d7 50%, #68c8c8 75%, #48b9b9 100%);
             font-family: "Comic Sans MS", "Microsoft YaHei", sans-serif;
             color: #444;
             min-height: 100vh;
             display: flex;
-            transition: background 0.3s ease, color 0.3s ease;
+            overflow-x: hidden !important;
+            width: 100% !important;
+            max-width: 100vw !important;
+            transition: background 0.5s cubic-bezier(0.4, 0, 0.2, 1), 
+                        color 0.5s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
         /* 侧边栏样式 */
@@ -60,12 +71,17 @@
             position: fixed;
             height: 100vh;
             z-index: 100;
+            transition: background 0.5s cubic-bezier(0.4, 0, 0.2, 1), 
+                        border-color 0.5s cubic-bezier(0.4, 0, 0.2, 1),
+                        box-shadow 0.5s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
         .sidebar-header {
             padding: 30px 20px;
             text-align: center;
             border-bottom: 1px solid rgba(255, 255, 255, 0.3);
+            transition: background 0.5s cubic-bezier(0.4, 0, 0.2, 1), 
+                        border-color 0.5s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
         .sidebar-header .fox {
@@ -87,6 +103,12 @@
             flex: 1;
             padding: 20px 0;
             overflow-y: auto;
+            /* 防止内容溢出导致滚动条闪烁 */
+            overflow-x: hidden;
+            /* 优化滚动性能 */
+            -webkit-overflow-scrolling: touch;
+            /* 为导航项提供稳定的容器 */
+            position: relative;
         }
 
         .nav-item {
@@ -94,24 +116,79 @@
             margin: 5px 15px;
             border-radius: 12px;
             cursor: pointer;
-            transition: all 0.3s ease;
             display: flex;
             align-items: center;
             gap: 12px;
             color: #666;
             text-decoration: none;
+            position: relative;
+            /* 固定布局，防止抖动 */
+            min-height: 48px;
+            box-sizing: border-box;
+            /* 隔离变换，不影响其他元素 */
+            isolation: isolate;
+            backface-visibility: hidden;
+            -webkit-font-smoothing: antialiased;
+            /* 文字和内容保持不动，只让背景变化 */
+            transition: background 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94),
+                        color 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94),
+                        box-shadow 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+            /* 确保文字不移动 */
+            transform: none;
+        }
+
+        /* 使用伪元素创建凸起效果，不影响文字 */
+        .nav-item::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            border-radius: 12px;
+            background: transparent;
+            box-shadow: none;
+            transition: box-shadow 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94),
+                        transform 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+            z-index: -1;
+            pointer-events: none;
         }
 
         .nav-item:hover {
             background: rgba(255, 255, 255, 0.6);
-            transform: translateX(5px);
             color: #5210ed;
+            /* 文字保持不动 */
+            transform: none;
+        }
+
+        /* hover时伪元素凸起 */
+        .nav-item:hover::before {
+            transform: translateY(-2px);
+            box-shadow: 0 3px 10px rgba(82, 16, 237, 0.12);
         }
 
         .nav-item.active {
             background: linear-gradient(45deg, #110d77, #5210ed);
             color: white;
+            /* 文字保持不动 */
+            transform: none;
+        }
+
+        /* active状态的基础阴影 */
+        .nav-item.active::before {
+            transform: translateY(-1px);
             box-shadow: 0 4px 15px rgba(82, 16, 237, 0.3);
+        }
+
+        .nav-item.active:hover {
+            /* 文字保持不动 */
+            transform: none;
+        }
+
+        /* active hover时伪元素进一步凸起 */
+        .nav-item.active:hover::before {
+            transform: translateY(-3px);
+            box-shadow: 0 5px 18px rgba(82, 16, 237, 0.35);
         }
 
         .nav-item .icon {
@@ -131,6 +208,96 @@
             margin-left: 280px;
             padding: 30px;
             min-height: 100vh;
+            position: relative;
+        }
+
+        /* 内容容器电影级过渡动画 */
+        #content-container {
+            will-change: opacity, transform, filter;
+            transform-style: preserve-3d;
+            perspective: 1000px;
+            /* 默认过渡效果 */
+            transition: opacity 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94),
+                        transform 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94),
+                        filter 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+        }
+
+        /* 标题和描述的平滑过渡 */
+        .content-header h2,
+        .content-header p {
+            transition: opacity 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94),
+                        transform 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+        }
+
+        /* 电影级淡入动画 - 带模糊和轻微缩放 */
+        @keyframes fadeInSlide {
+            0% {
+                opacity: 0;
+                transform: translateY(20px) scale(0.98);
+                filter: blur(8px);
+            }
+            50% {
+                filter: blur(4px);
+            }
+            100% {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+                filter: blur(0);
+            }
+        }
+
+        /* 电影级淡出动画 - 带模糊和轻微缩放 */
+        @keyframes fadeOutSlide {
+            0% {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+                filter: blur(0);
+            }
+            50% {
+                filter: blur(4px);
+            }
+            100% {
+                opacity: 0;
+                transform: translateY(-20px) scale(0.98);
+                filter: blur(8px);
+            }
+        }
+
+        /* 淡出状态 */
+        .content-fade-out {
+            animation: fadeOutSlide 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+        }
+
+        /* 标题淡入动画 */
+        @keyframes titleFadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* 标题淡出动画 */
+        @keyframes titleFadeOut {
+            from {
+                opacity: 1;
+                transform: translateY(0);
+            }
+            to {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+        }
+
+        .title-fade-out {
+            animation: titleFadeOut 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+        }
+
+        .title-fade-in {
+            animation: titleFadeIn 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
         }
 
         .content-header {
@@ -145,6 +312,10 @@
             justify-content: space-between;
             align-items: center;
             position: relative;
+            transition: background 0.5s cubic-bezier(0.4, 0, 0.2, 1), 
+                        border-color 0.5s cubic-bezier(0.4, 0, 0.2, 1),
+                        box-shadow 0.5s cubic-bezier(0.4, 0, 0.2, 1),
+                        color 0.5s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
         .content-header h2 {
@@ -165,6 +336,10 @@
             backdrop-filter: blur(10px);
             border: 1px solid rgba(255, 255, 255, 0.4);
             min-height: 500px;
+            transition: background 0.5s cubic-bezier(0.4, 0, 0.2, 1), 
+                        border-color 0.5s cubic-bezier(0.4, 0, 0.2, 1),
+                        box-shadow 0.5s cubic-bezier(0.4, 0, 0.2, 1),
+                        color 0.5s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
         /* 动画效果 */
@@ -215,7 +390,11 @@
             display: flex;
             align-items: center;
             gap: 15px;
-            transition: all 0.3s ease;
+            transition: all 0.3s ease, 
+                        background 0.5s cubic-bezier(0.4, 0, 0.2, 1),
+                        border-color 0.5s cubic-bezier(0.4, 0, 0.2, 1),
+                        box-shadow 0.5s cubic-bezier(0.4, 0, 0.2, 1),
+                        color 0.5s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
         .metric-card:hover {
@@ -747,32 +926,198 @@
         }
 
         /* 主题切换按钮 */
-        .theme-toggle-btn {
-            background: rgba(255, 255, 255, 0.5);
-            border: 2px solid rgba(82, 16, 237, 0.3);
-            border-radius: 50%;
-            width: 50px;
-            height: 50px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+        .toggle-cont {
+            --primary: #54a8fc;
+            --light: #d9d9d9;
+            --dark: #121212;
+            --gray: #414344;
+            position: relative;
+            z-index: 10;
+            width: fit-content;
+            height: 28px;
+            border-radius: 9999px;
+        }
+
+        .toggle-cont .toggle-input {
+            display: none;
+        }
+
+        .toggle-cont .toggle-label {
+            --gap: 3px;
+            --width: 28px;
             cursor: pointer;
-            font-size: 24px;
-            transition: all 0.3s ease;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-            padding: 0;
+            position: relative;
+            display: inline-block;
+            padding: 0.25rem;
+            width: calc((var(--width) + var(--gap)) * 2);
+            height: 100%;
+            background-color: var(--dark);
+            border: 1px solid #777777;
+            border-bottom: 0;
+            border-radius: 9999px;
+            box-sizing: content-box;
+            transition: all 0.3s ease-in-out;
         }
 
-        .theme-toggle-btn:hover {
-            background: rgba(82, 16, 237, 0.1);
-            border-color: rgba(82, 16, 237, 0.5);
-            transform: scale(1.1);
-            box-shadow: 0 6px 16px rgba(82, 16, 237, 0.2);
+        .toggle-label::before {
+            content: "";
+            position: absolute;
+            z-index: -10;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: calc(100% + 0.75rem);
+            height: calc(100% + 0.75rem);
+            background-color: var(--gray);
+            border: 1px solid #777777;
+            border-bottom: 0;
+            border-radius: 9999px;
+            transition: all 0.3s ease-in-out;
         }
 
-        .theme-toggle-btn:active {
-            transform: scale(0.95);
+        .toggle-label::after {
+            content: "";
+            position: absolute;
+            z-index: -10;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 100%;
+            height: 100%;
+            background-image: radial-gradient(
+                circle at 50% -100%,
+                rgb(58, 155, 252) 0%,
+                rgba(12, 12, 12, 1) 80%
+            );
+            border-radius: 9999px;
         }
+
+        .toggle-cont .toggle-label .cont-icon {
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+            width: var(--width);
+            height: 28px;
+            background-image: radial-gradient(
+                circle at 50% 0%,
+                #666666 0%,
+                var(--gray) 100%
+            );
+            border: 1px solid #aaaaaa;
+            border-bottom: 0;
+            border-radius: 9999px;
+            box-shadow: inset 0 -0.15rem 0.15rem var(--primary),
+                inset 0 0 0.5rem 0.75rem var(--second);
+            transition: transform 0.3s ease-in-out;
+        }
+
+        .cont-icon {
+            overflow: clip;
+            position: relative;
+        }
+
+        .cont-icon .sparkle {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            display: block;
+            width: calc(var(--width) * 1px);
+            aspect-ratio: 1;
+            background-color: var(--light);
+            border-radius: 50%;
+            transform-origin: 50% 50%;
+            rotate: calc(1deg * var(--deg));
+            transform: translate(-50%, -50%);
+            animation: sparkle calc(100s / var(--duration)) linear
+                calc(0s / var(--duration)) infinite;
+        }
+
+        @keyframes sparkle {
+            to {
+                width: calc(var(--width) * 0.5px);
+                transform: translate(2000%, -50%);
+            }
+        }
+
+        .cont-icon .icon {
+            width: 0.7rem;
+            fill: var(--light);
+        }
+
+        .toggle-cont:has(.toggle-input:checked) {
+            --checked: true;
+        }
+
+        @container style(--checked: true) {
+            .toggle-cont .toggle-label {
+                background-color: #41434400;
+                border: 1px solid #3d6970;
+                border-bottom: 0;
+            }
+
+            .toggle-cont .toggle-label::before {
+                box-shadow: 0 0.5rem 1.5rem -1rem #0080ff;
+            }
+
+            .toggle-cont .toggle-label .cont-icon {
+                overflow: visible;
+                background-image: radial-gradient(
+                    circle at 50% 0%,
+                    #045ab1 0%,
+                    var(--primary) 100%
+                );
+                border: 1px solid var(--primary);
+                border-bottom: 0;
+                transform: translateX(calc((var(--gap) * 2) + 100%)) rotate(-225deg);
+            }
+
+            .toggle-cont .toggle-label .cont-icon .sparkle {
+                z-index: -10;
+                width: calc(var(--width) * 1.5px);
+                background-color: #acacac;
+                animation: sparkle calc(100s / var(--duration)) linear
+                    calc(10s / var(--duration)) infinite;
+            }
+
+            @keyframes sparkle {
+                to {
+                    width: calc(var(--width) * 1px);
+                    transform: translate(5000%, -50%);
+                }
+            }
+        }
+
+        /* 为所有可能变化的元素添加过渡动画 - 防止抖动 */
+        .sidebar,
+        .sidebar-header,
+        .content-header,
+        .content-body,
+        .card,
+        .card-header,
+        .nav-item,
+        .btn,
+        .metric-card,
+        .form-control,
+        input,
+        select,
+        textarea,
+        table,
+        .modal-content,
+        .main-content {
+            transition: background 0.5s cubic-bezier(0.4, 0, 0.2, 1), 
+                        background-color 0.5s cubic-bezier(0.4, 0, 0.2, 1),
+                        background-image 0.5s cubic-bezier(0.4, 0, 0.2, 1),
+                        border-color 0.5s cubic-bezier(0.4, 0, 0.2, 1),
+                        box-shadow 0.5s cubic-bezier(0.4, 0, 0.2, 1),
+                        color 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        h1, h2, h3, h4, h5, h6, p, span, div, label, th, td {
+            transition: color 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
 
         /* 暗黑主题样式 */
         body.dark-theme {
@@ -806,7 +1151,25 @@
         body.dark-theme .nav-item:hover {
             background: rgba(88, 166, 255, 0.15);
             color: #58a6ff;
-            transform: translateX(5px);
+            /* 文字保持不动 */
+            transform: none;
+        }
+
+        /* 暗黑主题 hover时伪元素凸起 */
+        body.dark-theme .nav-item:hover::before {
+            transform: translateY(-2px);
+            box-shadow: 0 3px 10px rgba(88, 166, 255, 0.18);
+        }
+
+        body.dark-theme .nav-item.active:hover {
+            /* 文字保持不动 */
+            transform: none;
+        }
+
+        /* 暗黑主题 active hover时伪元素进一步凸起 */
+        body.dark-theme .nav-item.active:hover::before {
+            transform: translateY(-3px);
+            box-shadow: 0 5px 18px rgba(88, 166, 255, 0.3);
         }
 
         body.dark-theme .nav-item.active {
@@ -988,16 +1351,6 @@
             border: 1px solid rgba(248, 81, 73, 0.4);
         }
 
-        body.dark-theme .theme-toggle-btn {
-            background: rgba(48, 54, 61, 0.8);
-            border-color: rgba(108, 117, 125, 0.4);
-        }
-
-        body.dark-theme .theme-toggle-btn:hover {
-            background: rgba(55, 62, 70, 0.9);
-            border-color: rgba(88, 166, 255, 0.5);
-            box-shadow: 0 4px 12px rgba(88, 166, 255, 0.2);
-        }
 
         body.dark-theme table {
             background: rgba(22, 27, 34, 0.95);
@@ -1942,9 +2295,40 @@ code[class*="language-"] {
                 <h2 id="page-title">数据概览</h2>
                 <p id="page-description">欢迎来到小狐狸WAF控制台</p>
             </div>
-            <button id="theme-toggle" class="theme-toggle-btn" onclick="toggleTheme()" title="切换主题">
-                <span id="theme-icon">🌙</span>
-            </button>
+            <div class="toggle-cont">
+                <input class="toggle-input" id="toggle" name="toggle" type="checkbox" />
+                <label class="toggle-label" for="toggle">
+                    <div class="cont-icon">
+                        <span style="--width: 2; --deg: 25; --duration: 11" class="sparkle"></span>
+                        <span style="--width: 1; --deg: 100; --duration: 18" class="sparkle"></span>
+                        <span style="--width: 1; --deg: 280; --duration: 5" class="sparkle"></span>
+                        <span style="--width: 2; --deg: 200; --duration: 3" class="sparkle"></span>
+                        <span style="--width: 2; --deg: 30; --duration: 20" class="sparkle"></span>
+                        <span style="--width: 2; --deg: 300; --duration: 9" class="sparkle"></span>
+                        <span style="--width: 1; --deg: 250; --duration: 4" class="sparkle"></span>
+                        <span style="--width: 2; --deg: 210; --duration: 8" class="sparkle"></span>
+                        <span style="--width: 2; --deg: 100; --duration: 9" class="sparkle"></span>
+                        <span style="--width: 1; --deg: 15; --duration: 13" class="sparkle"></span>
+                        <span style="--width: 1; --deg: 75; --duration: 18" class="sparkle"></span>
+                        <span style="--width: 2; --deg: 65; --duration: 6" class="sparkle"></span>
+                        <span style="--width: 2; --deg: 50; --duration: 7" class="sparkle"></span>
+                        <span style="--width: 1; --deg: 320; --duration: 5" class="sparkle"></span>
+                        <span style="--width: 1; --deg: 220; --duration: 5" class="sparkle"></span>
+                        <span style="--width: 1; --deg: 215; --duration: 2" class="sparkle"></span>
+                        <span style="--width: 2; --deg: 135; --duration: 9" class="sparkle"></span>
+                        <span style="--width: 2; --deg: 45; --duration: 4" class="sparkle"></span>
+                        <span style="--width: 1; --deg: 78; --duration: 16" class="sparkle"></span>
+                        <span style="--width: 1; --deg: 89; --duration: 19" class="sparkle"></span>
+                        <span style="--width: 2; --deg: 65; --duration: 14" class="sparkle"></span>
+                        <span style="--width: 2; --deg: 97; --duration: 1" class="sparkle"></span>
+                        <span style="--width: 1; --deg: 174; --duration: 10" class="sparkle"></span>
+                        <span style="--width: 1; --deg: 236; --duration: 5" class="sparkle"></span>
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 30 30" class="icon">
+                            <path d="M0.96233 28.61C1.36043 29.0081 1.96007 29.1255 2.47555 28.8971L10.4256 25.3552C13.2236 24.11 16.4254 24.1425 19.2107 25.4401L27.4152 29.2747C27.476 29.3044 27.5418 29.3023 27.6047 29.32C27.6563 29.3348 27.7079 29.3497 27.761 29.3574C27.843 29.3687 27.9194 29.3758 28 29.3688C28.1273 29.3617 28.2531 29.3405 28.3726 29.2945C28.4447 29.262 28.5162 29.2287 28.5749 29.1842C28.6399 29.1446 28.6993 29.0994 28.7509 29.0477L28.9008 28.8582C28.9468 28.7995 28.9793 28.7274 29.0112 28.656C29.0599 28.5322 29.0811 28.4036 29.0882 28.2734C29.0939 28.1957 29.0868 28.1207 29.0769 28.0415C29.0705 27.9955 29.0585 27.9524 29.0472 27.9072C29.0295 27.8343 29.0302 27.7601 28.9984 27.6901L25.1638 19.4855C23.8592 16.7073 23.8273 13.5048 25.0726 10.7068L28.6145 2.75679C28.8429 2.24131 28.7318 1.63531 28.3337 1.2372C27.9165 0.820011 27.271 0.721743 26.7491 0.9961L19.8357 4.59596C16.8418 6.15442 13.2879 6.18696 10.2615 4.70062L1.80308 0.520214C1.7055 0.474959 1.60722 0.441742 1.50964 0.421943C1.44459 0.409215 1.37882 0.395769 1.3074 0.402133C1.14406 0.395769 0.981436 0.428275 0.818095 0.499692C0.77284 0.519491 0.719805 0.545671 0.67455 0.578198C0.596061 0.617088 0.524653 0.675786 0.4596 0.74084C0.394546 0.805894 0.335843 0.877306 0.296245 0.956502C0.263718 1.00176 0.237561 1.05477 0.217762 1.10003C0.152708 1.24286 0.126545 1.40058 0.120181 1.54978C0.120181 1.61483 0.126527 1.6735 0.132891 1.73219C0.15269 1.85664 0.178881 1.97332 0.237571 2.08434L4.41798 10.5427C5.91139 13.5621 5.8725 17.1238 4.3204 20.1099L0.720514 27.0233C0.440499 27.5536 0.545137 28.1928 0.96233 28.61Z"></path>
+                        </svg>
+                    </div>
+                </label>
+            </div>
         </div>
 
         <div class="content-body" id="content-container">
@@ -2533,17 +2917,117 @@ async function loadBlockedRules() {
             });
         });
 
-        // 修改页面加载函数，在dashboard页面加载系统监控数据
+        // 修改页面加载函数，在dashboard页面加载系统监控数据 - 无缝电影级平滑过渡
 function loadPage(pageId) {
     currentPage = pageId;
     const page = pageContents[pageId];
     if (page) {
-        document.getElementById('page-title').textContent = page.title;
-        document.getElementById('page-description').textContent = page.description;
-        document.getElementById('content-container').innerHTML = page.content;
+        const contentContainer = document.getElementById('content-container');
+        const pageTitle = document.getElementById('page-title');
+        const pageDescription = document.getElementById('page-description');
+        
+        // 如果有内容，先淡出旧内容（立即开始，不等待）
+        if (contentContainer.innerHTML.trim() !== '') {
+            // 立即开始淡出（使用transition，平滑过渡）
+            contentContainer.style.opacity = '0';
+            contentContainer.style.transform = 'translateY(-15px) scale(0.98)';
+            contentContainer.style.filter = 'blur(6px)';
+            
+            pageTitle.style.opacity = '0';
+            pageTitle.style.transform = 'translateY(-5px)';
+            
+            pageDescription.style.opacity = '0';
+            pageDescription.style.transform = 'translateY(-5px)';
+            
+            // 在下一个动画帧立即更新内容并开始淡入（无缝衔接）
+            requestAnimationFrame(() => {
+                // 更新标题和描述文本
+                pageTitle.textContent = page.title;
+                pageDescription.textContent = page.description;
+                
+                // 更新内容
+                contentContainer.innerHTML = page.content;
+                
+                // 确保过渡样式已设置
+                contentContainer.style.transition = 'opacity 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94), transform 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94), filter 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94)';
+                pageTitle.style.transition = 'opacity 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94), transform 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94)';
+                pageDescription.style.transition = 'opacity 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94), transform 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94)';
+                
+                // 设置新内容的初始状态（从下方淡入）
+                contentContainer.style.opacity = '0';
+                contentContainer.style.transform = 'translateY(15px) scale(0.98)';
+                contentContainer.style.filter = 'blur(6px)';
+                
+                pageTitle.style.opacity = '0';
+                pageTitle.style.transform = 'translateY(-5px)';
+                
+                pageDescription.style.opacity = '0';
+                pageDescription.style.transform = 'translateY(-5px)';
+                
+                // 触发重排，确保样式应用
+                void contentContainer.offsetWidth;
+                
+                // 立即开始淡入动画（无缝衔接）
+                requestAnimationFrame(() => {
+                    contentContainer.style.opacity = '1';
+                    contentContainer.style.transform = 'translateY(0) scale(1)';
+                    contentContainer.style.filter = 'blur(0)';
+                    
+                    pageTitle.style.opacity = '1';
+                    pageTitle.style.transform = 'translateY(0)';
+                    
+                    pageDescription.style.opacity = '1';
+                    pageDescription.style.transform = 'translateY(0)';
+                });
+                
+                // 加载页面特定数据
+                loadPageData(pageId);
+            });
+        } else {
+            // 首次加载，直接执行电影级淡入
+            pageTitle.textContent = page.title;
+            pageDescription.textContent = page.description;
+            contentContainer.innerHTML = page.content;
+            
+            // 设置过渡样式
+            contentContainer.style.transition = 'opacity 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94), transform 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94), filter 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94)';
+            pageTitle.style.transition = 'opacity 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94), transform 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94)';
+            pageDescription.style.transition = 'opacity 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94), transform 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94)';
+            
+            // 设置初始状态
+            contentContainer.style.opacity = '0';
+            contentContainer.style.transform = 'translateY(20px) scale(0.98)';
+            contentContainer.style.filter = 'blur(8px)';
+            
+            pageTitle.style.opacity = '0';
+            pageTitle.style.transform = 'translateY(-10px)';
+            
+            pageDescription.style.opacity = '0';
+            pageDescription.style.transform = 'translateY(-10px)';
+            
+            // 触发重排
+            void contentContainer.offsetWidth;
+            
+            // 立即开始淡入
+            requestAnimationFrame(() => {
+                contentContainer.style.opacity = '1';
+                contentContainer.style.transform = 'translateY(0) scale(1)';
+                contentContainer.style.filter = 'blur(0)';
+                pageTitle.style.opacity = '1';
+                pageTitle.style.transform = 'translateY(0)';
+                pageDescription.style.opacity = '1';
+                pageDescription.style.transform = 'translateY(0)';
+            });
+            
+            loadPageData(pageId);
+        }
+    }
+}
 
-        // 加载页面特定数据
-        switch (pageId) {
+        // 提取页面数据加载逻辑
+function loadPageData(pageId) {
+    // 加载页面特定数据
+    switch (pageId) {
             case 'dashboard':
                 loadStats(); // 这会同时加载基本统计和系统监控
                 break;
@@ -2580,8 +3064,9 @@ function loadPage(pageId) {
             case 'custom_rules':
                 loadCustomRules();
                 break;
+            default:
+                break;
         }
-    }
 }
 
 // 加载自定义规则
@@ -6853,21 +7338,26 @@ async function showLogDetail(logId) {
             }, 3000);
         }
 
-        // 主题切换功能
+        // 主题切换功能 - 优化为平滑过渡
         function toggleTheme() {
             const body = document.body;
-            const themeIcon = document.getElementById('theme-icon');
+            const toggleInput = document.getElementById('toggle');
             
-            if (body.classList.contains('dark-theme')) {
-                // 切换到明亮主题
-                body.classList.remove('dark-theme');
-                themeIcon.textContent = '🌙';
-                localStorage.setItem('theme', 'light');
-            } else {
-                // 切换到暗黑主题
-                body.classList.add('dark-theme');
-                themeIcon.textContent = '☀️';
-                localStorage.setItem('theme', 'dark');
+            if (toggleInput) {
+                // 使用 requestAnimationFrame 确保平滑切换
+                requestAnimationFrame(() => {
+                    if (toggleInput.checked) {
+                        // 切换到暗黑主题
+                        body.classList.add('dark-theme');
+                        document.documentElement.classList.add('dark-theme');
+                        localStorage.setItem('theme', 'dark');
+                    } else {
+                        // 切换到明亮主题
+                        body.classList.remove('dark-theme');
+                        document.documentElement.classList.remove('dark-theme');
+                        localStorage.setItem('theme', 'light');
+                    }
+                });
             }
         }
 
@@ -6875,17 +7365,15 @@ async function showLogDetail(logId) {
         function loadTheme() {
             const savedTheme = localStorage.getItem('theme');
             const body = document.body;
-            const themeIcon = document.getElementById('theme-icon');
+            const toggleInput = document.getElementById('toggle');
             
-            if (savedTheme === 'dark') {
-                body.classList.add('dark-theme');
-                if (themeIcon) {
-                    themeIcon.textContent = '☀️';
-                }
-            } else {
-                body.classList.remove('dark-theme');
-                if (themeIcon) {
-                    themeIcon.textContent = '🌙';
+            if (toggleInput) {
+                if (savedTheme === 'dark') {
+                    body.classList.add('dark-theme');
+                    toggleInput.checked = true;
+                } else {
+                    body.classList.remove('dark-theme');
+                    toggleInput.checked = false;
                 }
             }
         }
@@ -6895,6 +7383,12 @@ async function showLogDetail(logId) {
 document.addEventListener('DOMContentLoaded', function() {
     // 加载主题（在检查登录之前，因为主题应该在所有页面都生效）
     loadTheme();
+    
+    // 监听checkbox变化
+    const toggleInput = document.getElementById('toggle');
+    if (toggleInput) {
+        toggleInput.addEventListener('change', toggleTheme);
+    }
     
     // 检查是否在登录页面，如果是则跳过初始化
     if (window.location.pathname.includes('login') || document.querySelector('.login-box')) {
@@ -6943,4 +7437,5 @@ document.addEventListener('DOMContentLoaded', function() {
     <div id="toast-container"></div>
 </body>
 
+</html>
 </html>
