@@ -7367,12 +7367,23 @@ func getTrafficStatsHandler(c *gin.Context) {
 		stats.AvgResponseTime = avgTime.Float64
 	}
 
-	// 缓存命中率
+	// 缓存命中率计算
+	// 问题：很多应该被缓存的请求被标记为BYPASS，导致命中率计算不准确
+	// 解决方案：使用所有GET 200请求作为分母（因为这些请求理论上都应该考虑缓存）
 	var cacheHits, totalCacheRequests sql.NullInt64
+	// 计算缓存命中数（HIT）
 	db.QueryRow("SELECT COUNT(*) FROM traffic_logs WHERE cache_status = 'HIT'").Scan(&cacheHits)
-	db.QueryRow("SELECT COUNT(*) FROM traffic_logs WHERE cache_status IN ('HIT', 'MISS')").Scan(&totalCacheRequests)
+	// 使用所有GET请求且状态码为200的请求作为分母（包括HIT、MISS、BYPASS）
+	// 因为这些请求理论上都应该考虑缓存
+	db.QueryRow("SELECT COUNT(*) FROM traffic_logs WHERE method = 'GET' AND status_code = 200").Scan(&totalCacheRequests)
+
 	if totalCacheRequests.Valid && totalCacheRequests.Int64 > 0 {
 		stats.CacheHitRate = float64(cacheHits.Int64) / float64(totalCacheRequests.Int64) * 100
+		stdlog.Printf("缓存命中率统计: HIT=%d, 可缓存请求(GET 200)=%d, 命中率=%.2f%%",
+			cacheHits.Int64, totalCacheRequests.Int64, stats.CacheHitRate)
+	} else {
+		stats.CacheHitRate = 0
+		stdlog.Printf("缓存命中率统计: 无数据，HIT=%d", cacheHits.Int64)
 	}
 
 	// 状态码统计
