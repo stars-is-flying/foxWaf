@@ -1,9 +1,9 @@
 id: "1"
 name: sql 注入
 description: sql
-method: GET
+method: GET 
 relation: and
-judges:
+judge:
     - position: uri
       content: insert
       rix: ""

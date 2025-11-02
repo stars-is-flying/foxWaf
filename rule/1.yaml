@@ -3,7 +3,7 @@ name: test
 description: ""
 method: GET
 relation: or
-judges:
+judge:
     - position: uri
       content: test
       rix: test1

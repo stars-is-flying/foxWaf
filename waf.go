@@ -7230,6 +7230,22 @@ func loadCustomRules() {
 			continue
 		}
 
+		// 兼容性处理：如果 Judges 为空，尝试从 judge 字段读取
+		if len(ruleJSON.Judges) == 0 {
+			var tempMap map[string]interface{}
+			if err := yaml.Unmarshal(data, &tempMap); err == nil {
+				if judgeData, ok := tempMap["judge"]; ok {
+					// 将 judge 数据转换为 JSON 再解析
+					judgeBytes, _ := json.Marshal(judgeData)
+					var judges []JudgeJSON
+					if err := yaml.Unmarshal(judgeBytes, &judges); err == nil {
+						ruleJSON.Judges = judges
+						stdlog.Printf("从 judge 字段加载自定义规则: %s\n", file.Name())
+					}
+				}
+			}
+		}
+
 		// 转换为运行时结构
 		rule := CustomRule{
 			ID:          ruleJSON.ID,
