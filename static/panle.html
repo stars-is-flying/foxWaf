@@ -369,11 +369,118 @@
             font-size: 14px;
             transition: all 0.3s ease;
         }
+        
+        /* 修复滑动条在Edge和Chrome中的边界问题 - 可以滑动到最左和最右 */
+        input[type="range"].range-slider,
+        input[type="range"].form-control {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 100%;
+            height: 8px;
+            border-radius: 5px;
+            background: rgba(82, 16, 237, 0.1);
+            outline: none;
+            padding: 0;
+            margin: 10px 0;
+            cursor: pointer;
+        }
+        
+        /* Webkit (Chrome, Safari, Edge) 滑动条轨道 - 占满整个宽度 */
+        input[type="range"].range-slider::-webkit-slider-runnable-track,
+        input[type="range"].form-control::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 8px;
+            border-radius: 5px;
+            background: rgba(82, 16, 237, 0.2);
+        }
+        
+        /* Webkit 滑动条滑块 - 可以滑动到轨道的最边缘 */
+        input[type="range"].range-slider::-webkit-slider-thumb,
+        input[type="range"].form-control::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #5210ed, #8b5cf6);
+            cursor: pointer;
+            border: 2px solid white;
+            box-shadow: 0 2px 8px rgba(82, 16, 237, 0.3);
+            margin-top: -6px;
+        }
+        
+        input[type="range"].range-slider::-webkit-slider-thumb:hover,
+        input[type="range"].form-control::-webkit-slider-thumb:hover {
+            background: linear-gradient(135deg, #6d28d9, #9d71f6);
+            box-shadow: 0 4px 12px rgba(82, 16, 237, 0.5);
+            transform: scale(1.1);
+        }
+        
+        /* Firefox 滑动条轨道 - 占满整个宽度 */
+        input[type="range"].range-slider::-moz-range-track,
+        input[type="range"].form-control::-moz-range-track {
+            width: 100%;
+            height: 8px;
+            border-radius: 5px;
+            background: rgba(82, 16, 237, 0.2);
+            border: none;
+        }
+        
+        /* Firefox 滑动条滑块 - 可以滑动到轨道的最边缘 */
+        input[type="range"].range-slider::-moz-range-thumb,
+        input[type="range"].form-control::-moz-range-thumb {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #5210ed, #8b5cf6);
+            cursor: pointer;
+            border: 2px solid white;
+            box-shadow: 0 2px 8px rgba(82, 16, 237, 0.3);
+        }
+        
+        input[type="range"].range-slider::-moz-range-thumb:hover,
+        input[type="range"].form-control::-moz-range-thumb:hover {
+            background: linear-gradient(135deg, #6d28d9, #9d71f6);
+            box-shadow: 0 4px 12px rgba(82, 16, 237, 0.5);
+            transform: scale(1.1);
+        }
+        
+        /* Firefox 移除焦点轮廓 */
+        input[type="range"].range-slider::-moz-focus-outer,
+        input[type="range"].form-control::-moz-focus-outer {
+            border: 0;
+        }
+        
+        /* 确保普通输入框不受影响 */
+        input[type="text"].form-control,
+        input[type="number"].form-control,
+        input[type="email"].form-control,
+        input[type="password"].form-control,
+        textarea.form-control,
+        select.form-control {
+            padding: 12px 15px;
+        }
 
         .form-control:focus {
             outline: none;
             border-color: #5210ed;
             box-shadow: 0 0 0 3px rgba(82, 16, 237, 0.1);
+        }
+        
+        /* 滑动条焦点样式 */
+        input[type="range"].range-slider:focus,
+        input[type="range"].form-control:focus {
+            outline: none;
+        }
+        
+        input[type="range"].range-slider:focus::-webkit-slider-thumb,
+        input[type="range"].form-control:focus::-webkit-slider-thumb {
+            box-shadow: 0 0 0 4px rgba(82, 16, 237, 0.2), 0 2px 8px rgba(82, 16, 237, 0.3);
+        }
+        
+        input[type="range"].range-slider:focus::-moz-range-thumb,
+        input[type="range"].form-control:focus::-moz-range-thumb {
+            box-shadow: 0 0 0 4px rgba(82, 16, 237, 0.2), 0 2px 8px rgba(82, 16, 237, 0.3);
         }
 
         .btn {
@@ -1967,7 +2074,7 @@ code[class*="language-"] {
                 
                 <div class="form-group">
                     <label class="form-label">规则匹配率 (%)</label>
-                    <input type="range" id="rule-match-rate" min="0" max="100" value="100" class="form-control">
+                    <input type="range" id="rule-match-rate" min="0" max="100" step="1" value="100" class="form-control range-slider">
                     <div id="rule-match-rate-value" style="text-align: center; margin-top: 5px;">100%</div>
                 </div>
                 
