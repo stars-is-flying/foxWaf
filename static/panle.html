@@ -2729,15 +2729,6 @@ code[class*="language-"] {
 
                     <div class="card">
                         <div class="card-header">
-                            <h3 class="card-title">📈 流量趋势</h3>
-                        </div>
-                        <div id="traffic-chart-container" style="padding: 20px;">
-                            <canvas id="traffic-chart" width="400" height="200"></canvas>
-                        </div>
-                    </div>
-
-                    <div class="card">
-                        <div class="card-header">
                             <h3 class="card-title">🏆 流量排行榜</h3>
                         </div>
                         <div id="traffic-rankings-container">
@@ -2761,6 +2752,7 @@ code[class*="language-"] {
                         <div class="form-group">
                             <div style="display: flex; gap: 10px; flex-wrap: wrap;">
                                 <input type="text" id="traffic-domain-filter" class="form-control" placeholder="域名" style="width: 200px;">
+                                <input type="text" id="traffic-path-filter" class="form-control" placeholder="路径" style="width: 240px;">
                                 <input type="text" id="traffic-status-filter" class="form-control" placeholder="状态码" style="width: 120px;">
                                 <input type="text" id="traffic-ip-filter" class="form-control" placeholder="客户端IP" style="width: 150px;">
                                 <input type="datetime-local" id="traffic-start-time" class="form-control" style="width: 200px;">
@@ -7582,7 +7574,7 @@ async function showLogDetail(logId) {
             // ==================== 流量统计功能 ====================
             let currentTrafficLogsPage = 1;
             let currentTrafficLogsPageSize = 50;
-            let trafficChart = null;
+            
 
             // 加载流量统计（全局作用域）
             window.loadTrafficStats = async function() {
@@ -7607,7 +7599,6 @@ async function showLogDetail(logId) {
                         console.log('第一个24小时统计示例:', stats.hourly_stats[0]);
                     }
                     displayTrafficStats(stats);
-                    drawTrafficChart(stats);
                     displayTrafficRankings(stats);
                 } catch (error) {
                     console.error('加载流量统计错误:', error);
@@ -7660,124 +7651,7 @@ async function showLogDetail(logId) {
                 container.innerHTML = html;
             }
 
-            // 绘制流量趋势图
-            function drawTrafficChart(stats) {
-                const canvas = document.getElementById('traffic-chart');
-                if (!canvas) {
-                    console.error('traffic-chart canvas 不存在');
-                    return;
-                }
-
-                const ctx = canvas.getContext('2d');
-                const hourlyStats = stats.hourly_stats || [];
-                
-                console.log('绘制流量趋势图，hourly_stats:', hourlyStats, '长度:', hourlyStats.length);
-
-                // 清空画布
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-                if (hourlyStats.length === 0) {
-                    console.log('hourly_stats 为空，显示暂无数据');
-                    ctx.fillStyle = '#666';
-                    ctx.font = '14px Arial';
-                    ctx.fillText('暂无数据', canvas.width / 2 - 40, canvas.height / 2);
-                    return;
-                }
-
-                // 设置画布大小
-                canvas.width = canvas.parentElement.offsetWidth - 40;
-                canvas.height = 300;
-
-                const padding = 40;
-                const chartWidth = canvas.width - padding * 2;
-                const chartHeight = canvas.height - padding * 2;
-
-                const maxCount = Math.max(...hourlyStats.map(h => h.count), 1);
-                const stepX = chartWidth / (hourlyStats.length - 1 || 1);
-                const scaleY = chartHeight / maxCount;
-
-                // 绘制坐标轴
-                ctx.strokeStyle = '#ddd';
-                ctx.lineWidth = 1;
-                ctx.beginPath();
-                ctx.moveTo(padding, padding);
-                ctx.lineTo(padding, canvas.height - padding);
-                ctx.lineTo(canvas.width - padding, canvas.height - padding);
-                ctx.stroke();
-
-                // 绘制网格线
-                ctx.strokeStyle = '#f0f0f0';
-                for (let i = 0; i <= 5; i++) {
-                    const y = padding + (chartHeight / 5) * i;
-                    ctx.beginPath();
-                    ctx.moveTo(padding, y);
-                    ctx.lineTo(canvas.width - padding, y);
-                    ctx.stroke();
-                }
-
-                // 绘制折线
-                ctx.strokeStyle = '#5210ed';
-                ctx.lineWidth = 2;
-                ctx.beginPath();
-                hourlyStats.forEach((stat, index) => {
-                    const x = padding + stepX * index;
-                    const y = canvas.height - padding - stat.count * scaleY;
-                    if (index === 0) {
-                        ctx.moveTo(x, y);
-                    } else {
-                        ctx.lineTo(x, y);
-                    }
-                });
-                ctx.stroke();
-
-                // 绘制数据点
-                ctx.fillStyle = '#5210ed';
-                hourlyStats.forEach((stat, index) => {
-                    const x = padding + stepX * index;
-                    const y = canvas.height - padding - stat.count * scaleY;
-                    ctx.beginPath();
-                    ctx.arc(x, y, 4, 0, Math.PI * 2);
-                    ctx.fill();
-                });
-
-                // 绘制标签
-                ctx.fillStyle = '#666';
-                ctx.font = '12px Arial';
-                hourlyStats.forEach((stat, index) => {
-                    if (index % 3 === 0 || index === hourlyStats.length - 1) { // 每3个小时显示一个标签，最后一个也显示
-                        const x = padding + stepX * index;
-                        // 处理时间格式：可能是字符串 "2025-11-02 18:00:00" 或日期对象
-                        let timeStr = '';
-                        if (typeof stat.hour === 'string') {
-                            // 字符串格式，直接解析
-                            const hourMatch = stat.hour.match(/(\d{2}):(\d{2})/);
-                            if (hourMatch) {
-                                timeStr = hourMatch[1] + ':' + hourMatch[2];
-                            } else {
-                                timeStr = stat.hour.substring(11, 16); // 提取 HH:MM
-                            }
-                        } else if (stat.hour instanceof Date) {
-                            timeStr = stat.hour.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-                        } else {
-                            timeStr = String(stat.hour);
-                        }
-                        ctx.fillText(timeStr, x - 20, canvas.height - padding + 20);
-                    }
-                });
-                
-                // 绘制数值标签
-                ctx.fillStyle = '#5210ed';
-                ctx.font = '10px Arial';
-                hourlyStats.forEach((stat, index) => {
-                    if (index % 3 === 0 || index === hourlyStats.length - 1) {
-                        const x = padding + stepX * index;
-                        const y = canvas.height - padding - stat.count * scaleY;
-                        ctx.fillText(stat.count, x - 10, y - 10);
-                    }
-                });
-                
-                console.log('流量趋势图绘制完成，共', hourlyStats.length, '个数据点');
-            }
+			// 已删除：流量趋势图
 
             // 显示流量排行榜
             function displayTrafficRankings(stats) {
@@ -7918,6 +7792,7 @@ async function showLogDetail(logId) {
                 currentTrafficLogsPage = page;
                 
                 const domain = document.getElementById('traffic-domain-filter')?.value || '';
+                const pathFilter = document.getElementById('traffic-path-filter')?.value || '';
                 const statusCode = document.getElementById('traffic-status-filter')?.value || '';
                 const clientIP = document.getElementById('traffic-ip-filter')?.value || '';
                 const startTime = document.getElementById('traffic-start-time')?.value || '';
@@ -7929,6 +7804,7 @@ async function showLogDetail(logId) {
                 });
 
                 if (domain) params.append('domain', domain);
+                if (pathFilter) params.append('path', pathFilter);
                 if (statusCode) params.append('status_code', statusCode);
                 if (clientIP) params.append('client_ip', clientIP);
                 if (startTime) params.append('start_time', startTime);
@@ -7978,6 +7854,7 @@ async function showLogDetail(logId) {
                 };
 
                 html = `
+                    <div class="table-container table-scroll-container">
                     <table class="table">
                         <thead>
                             <tr>
@@ -8014,6 +7891,7 @@ async function showLogDetail(logId) {
                             `).join('')}
                         </tbody>
                     </table>
+                    </div>
                 `;
 
                 container.innerHTML = html;

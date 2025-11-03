@@ -7586,6 +7586,7 @@ func getTrafficLogsHandler(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "50"))
 	domain := c.Query("domain")
+	pathFilter := c.Query("path")
 	statusCode := c.Query("status_code")
 	clientIP := c.Query("client_ip")
 	startTime := c.Query("start_time")
@@ -7607,6 +7608,10 @@ func getTrafficLogsHandler(c *gin.Context) {
 	if domain != "" {
 		where += " AND domain = ?"
 		args = append(args, domain)
+	}
+	if pathFilter != "" {
+		where += " AND path LIKE ?"
+		args = append(args, "%"+pathFilter+"%")
 	}
 	if statusCode != "" {
 		where += " AND status_code = ?"
