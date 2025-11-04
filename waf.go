@@ -8844,6 +8844,11 @@ func getSettingsHandler(c *gin.Context) {
 }
 
 func ReadConfig() {
+	// 设置默认值：当配置文件缺少某些键时不影响功能
+	cfg = Config{
+		IsWriteDbAuto: true, // 缺省开启数据库写入（攻击日志等）
+	}
+
 	confFile, err := os.ReadFile("conf.yaml")
 	if err != nil {
 		panic(fmt.Errorf("读取 conf.yaml 失败: %v", err))
