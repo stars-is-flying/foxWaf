@@ -1,0 +1,55 @@
+# 数据库文件
+waf.db
+*.db
+
+# 日志文件
+*.log
+waf.log
+
+# 编译产物
+waf
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# 测试二进制文件
+*.test
+
+# 输出目录
+/dist/
+/build/
+
+# 缓存目录
+static_cache/
+
+# 临时文件
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+
+# IDE 配置
+.vscode/
+.idea/
+*.iml
+
+# 操作系统文件
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Go 相关
+# 如果使用 vendor 目录，取消注释下面一行
+# vendor/
+
+# 环境变量文件
+.env
+.env.local
+
