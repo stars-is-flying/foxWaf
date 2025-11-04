@@ -2620,13 +2620,8 @@ code[class*="language-"] {
 
             
             
-            <div class="refresh-section">
-                <button class="refresh-btn" onclick="refreshAllStats()">
-                    <span class="refresh-icon">🔄</span> 刷新数据
-                </button>
-                <div class="last-update">
-                    最后更新: <span id="last-update">${new Date().toLocaleTimeString()}</span>
-                </div>
+            <div class="last-update" style="text-align: center; padding: 10px; color: #666; font-size: 14px;">
+                最后更新: <span id="last-update">${new Date().toLocaleTimeString()}</span>
             </div>
         </div>
     `
@@ -2662,9 +2657,6 @@ code[class*="language-"] {
                 <div class="card">
             <div class="card-header">
                 <h3 class="card-title">📊 CC攻击统计</h3>
-                <button class="btn" onclick="refreshCCStats()">
-                    <span>🔄</span> 刷新
-                </button>
             </div>
             <div id="cc-stats-container">
                             <section class="loader">
@@ -2742,9 +2734,6 @@ code[class*="language-"] {
                 <div>
                     <button class="btn btn-secondary" onclick="clearCache()">
                         <span>🗑️</span> 清空缓存
-                    </button>
-                    <button class="btn" onclick="refreshCacheStats()">
-                        <span>🔄</span> 刷新
                     </button>
                 </div>
             </div>
@@ -2827,9 +2816,6 @@ code[class*="language-"] {
                     <div class="card">
                         <div class="card-header">
                             <h3 class="card-title">📊 流量概览</h3>
-                            <button class="btn" onclick="window.refreshTrafficStats && window.refreshTrafficStats()">
-                                <span>🔄</span> 刷新
-                            </button>
                         </div>
                         <div id="traffic-stats-container">
                             <section class="loader">
@@ -3042,9 +3028,6 @@ code[class*="language-"] {
             <div class="card">
                 <div class="card-header">
                     <h3 class="card-title">🚫 被禁用的规则列表</h3>
-                    <button class="btn" onclick="loadBlockedRules()">
-                        <span>🔄</span> 刷新
-                    </button>
                 </div>
                 <div id="blocked-rules-container">
                             <section class="loader">
@@ -3374,22 +3357,68 @@ function loadPageData(pageId) {
     // 加载页面特定数据
     switch (pageId) {
             case 'dashboard':
+                // 清理旧的定时器
+                if (window.dashboardInterval) {
+                    clearInterval(window.dashboardInterval);
+                    window.dashboardInterval = null;
+                }
                 loadStats(); // 这会同时加载基本统计和系统监控
+                // 设置定时刷新 - 每3秒自动刷新
+                window.dashboardInterval = setInterval(() => {
+                    if (currentPage === 'dashboard') {
+                        loadStats();
+                    }
+                }, 3000); // 每3秒刷新一次
                 break;
             case 'acl':
+                // 清理旧的定时器
+                if (window.aclInterval) {
+                    clearInterval(window.aclInterval);
+                    window.aclInterval = null;
+                }
                 loadACLRules();
+                // 设置定时刷新 - 每3秒自动刷新
+                window.aclInterval = setInterval(() => {
+                    if (currentPage === 'acl') {
+                        loadACLRules();
+                    }
+                }, 3000); // 每3秒刷新一次
                 break;
             case 'cache':
+                // 清理旧的定时器
+                if (window.cacheInterval) {
+                    clearInterval(window.cacheInterval);
+                    window.cacheInterval = null;
+                }
                 loadCacheStats();
                 loadCacheConfig();
                 window.loadCacheFiles(1);
+                // 设置定时刷新 - 每3秒自动刷新
+                window.cacheInterval = setInterval(() => {
+                    if (currentPage === 'cache') {
+                        loadCacheStats();
+                        window.loadCacheFiles(1);
+                    }
+                }, 3000); // 每3秒刷新一次
                 break;
             case 'sites':
+                // 清理旧的定时器
+                if (window.sitesInterval) {
+                    clearInterval(window.sitesInterval);
+                    window.sitesInterval = null;
+                }
                 loadSites();
                 // 确保健康状态已加载
                 if (!window.siteHealthData || Object.keys(window.siteHealthData).length === 0) {
                     loadSiteHealthStatus();
                 }
+                // 设置定时刷新 - 每3秒自动刷新
+                window.sitesInterval = setInterval(() => {
+                    if (currentPage === 'sites') {
+                        loadSites();
+                        loadSiteHealthStatus();
+                    }
+                }, 3000); // 每3秒刷新一次
                 break;
             case 'traffic':
                 // 清理旧的定时器
@@ -3404,30 +3433,80 @@ function loadPageData(pageId) {
                 if (typeof window.loadTrafficLogs === 'function') {
                     window.loadTrafficLogs(1);
                 }
-                // 设置定时刷新
+                // 设置定时刷新 - 每3秒自动刷新
                 window.trafficStatsInterval = setInterval(() => {
-                    if (currentPage === 'traffic' && typeof window.loadTrafficStats === 'function') {
-                        window.loadTrafficStats();
+                    if (currentPage === 'traffic') {
+                        if (typeof window.loadTrafficStats === 'function') {
+                            window.loadTrafficStats();
+                        }
+                        if (typeof window.loadTrafficLogs === 'function') {
+                            window.loadTrafficLogs(1);
+                        }
                     }
-                }, 30000); // 每30秒刷新一次
+                }, 3000); // 每3秒刷新一次
                 break;
             case 'logs':
+                // 清理旧的定时器
+                if (window.attackLogsInterval) {
+                    clearInterval(window.attackLogsInterval);
+                    window.attackLogsInterval = null;
+                }
                 loadAttackLogs(1);
+                // 设置定时刷新 - 每3秒自动刷新
+                window.attackLogsInterval = setInterval(() => {
+                    if (currentPage === 'logs') {
+                        loadAttackLogs(1);
+                    }
+                }, 3000); // 每3秒刷新一次
                 break;
             case 'settings':
                 loadSettings();
                 break;
             case 'cc':
+                // 清理旧的定时器
+                if (window.ccStatsInterval) {
+                    clearInterval(window.ccStatsInterval);
+                    window.ccStatsInterval = null;
+                }
                 loadCCRules();
                 loadCCStats();
                 loadCCAttackLogs(1);
+                // 设置定时刷新 - 每3秒自动刷新
+                window.ccStatsInterval = setInterval(() => {
+                    if (currentPage === 'cc') {
+                        loadCCStats();
+                        loadCCAttackLogs(1);
+                    }
+                }, 3000); // 每3秒刷新一次
                 break;
             case 'blocked_rules':
+                // 清理旧的定时器
+                if (window.blockedRulesInterval) {
+                    clearInterval(window.blockedRulesInterval);
+                    window.blockedRulesInterval = null;
+                }
                 loadBlockedRules();
+                // 设置定时刷新 - 每3秒自动刷新
+                window.blockedRulesInterval = setInterval(() => {
+                    if (currentPage === 'blocked_rules') {
+                        loadBlockedRules();
+                    }
+                }, 3000); // 每3秒刷新一次
                 break;
             // 在 loadPage 函数的 switch 语句中添加
             case 'custom_rules':
+                // 清理旧的定时器
+                if (window.customRulesInterval) {
+                    clearInterval(window.customRulesInterval);
+                    window.customRulesInterval = null;
+                }
                 loadCustomRules();
+                // 设置定时刷新 - 每3秒自动刷新
+                window.customRulesInterval = setInterval(() => {
+                    if (currentPage === 'custom_rules') {
+                        loadCustomRules();
+                    }
+                }, 3000); // 每3秒刷新一次
                 break;
             default:
                 break;
@@ -4343,7 +4422,10 @@ async function loadStats() {
         }
 
         // 更新最后更新时间
-        document.getElementById('last-update').textContent = new Date().toLocaleTimeString();
+        const lastUpdateEl = document.getElementById('last-update');
+        if (lastUpdateEl) {
+            lastUpdateEl.textContent = new Date().toLocaleTimeString();
+        }
 
     } catch (error) {
         console.error('获取数据错误:', error);
@@ -4365,11 +4447,16 @@ async function loadStats() {
                         }
                     }
 
-        // 刷新统计数据
+        // 刷新统计数据（已废弃，改为自动刷新）
         function refreshStats() {
                 loadStats();
                 // 同时刷新健康状态以获取最新的站点存活数据
                 loadSiteHealthStatus();
+                // 更新最后更新时间
+                const lastUpdateEl = document.getElementById('last-update');
+                if (lastUpdateEl) {
+                    lastUpdateEl.textContent = new Date().toLocaleTimeString();
+                }
             }
 
         // 加载ACL规则
@@ -5067,10 +5154,15 @@ async function toggleSiteStatus(siteId, newStatus) {
     }, 0);
 }
 
-// 刷新所有统计数据
+// 刷新所有统计数据（已废弃，改为自动刷新）
 function refreshAllStats() {
     loadStats();
     loadSiteHealthStatus();
+    // 更新最后更新时间
+    const lastUpdateEl = document.getElementById('last-update');
+    if (lastUpdateEl) {
+        lastUpdateEl.textContent = new Date().toLocaleTimeString();
+    }
 }
     // 管理站点证书
         function manageSiteCertificate(siteId, domain) {
@@ -8324,12 +8416,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // 加载第一个页面
     loadPage('dashboard');
 
-    // 每3秒自动刷新统计数据（数据概览页面）
-    setInterval(() => {
-        if (currentPage === 'dashboard') {
-            loadStats();
-        }
-    }, 3000);
+    // 定时刷新已集成到loadPageData函数中，无需单独设置
 
     // 初始加载健康状态
     console.log('初始化：开始加载健康状态');
