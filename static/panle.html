@@ -2031,8 +2031,9 @@
     max-height: 500px;
     overflow-y: auto;
     margin-bottom: 15px;
-    border-radius: 12px;
+    border-radius: 16px;
     border: 1px solid rgba(82, 16, 237, 0.1);
+    padding: 0;
 }
 
 /* 美化滚动条 */
@@ -2065,10 +2066,18 @@
 /* 表格样式调整 */
 .table-scroll-container table {
     margin-bottom: 0;
+    width: 100%;
+    border-collapse: collapse;
 }
 
 .table-scroll-container table th {
     position: relative;
+}
+
+/* 确保表格最后一列延伸到容器边缘 */
+.table-scroll-container table th:last-child,
+.table-scroll-container table td:last-child {
+    padding-right: 23px; /* 为8px滚动条+左右间距留出空间，确保内容不被遮挡 */
 }
 
 /* 分页信息样式 */
@@ -7813,100 +7822,106 @@ async function showLogDetail(logId) {
                     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px;">
                         <div>
                             <h4 style="margin-bottom: 10px; color: #5210ed;">🌐 热门域名</h4>
-                            <table class="table">
-                                <thead>
-                                    <tr>
-                                        <th>域名</th>
-                                        <th>请求数</th>
-                                        <th>流量</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    ${(stats.top_domains && stats.top_domains.length > 0) ? stats.top_domains.slice(0, 5).map(d => `
+                            <div class="table-container">
+                                <table class="table">
+                                    <thead>
                                         <tr>
-                                            <td>${d.domain || '-'}</td>
-                                            <td>${(d.requests || 0).toLocaleString()}</td>
-                                            <td>${formatBytes(d.bytes || 0)}</td>
+                                            <th>域名</th>
+                                            <th>请求数</th>
+                                            <th>流量</th>
                                         </tr>
-                                    `).join('') : '<tr><td colspan="3" style="text-align: center; color: #999;">暂无数据</td></tr>'}
-                                </tbody>
-                            </table>
+                                    </thead>
+                                    <tbody>
+                                        ${(stats.top_domains && stats.top_domains.length > 0) ? stats.top_domains.slice(0, 5).map(d => `
+                                            <tr>
+                                                <td>${d.domain || '-'}</td>
+                                                <td>${(d.requests || 0).toLocaleString()}</td>
+                                                <td>${formatBytes(d.bytes || 0)}</td>
+                                            </tr>
+                                        `).join('') : '<tr><td colspan="3" style="text-align: center; color: #999;">暂无数据</td></tr>'}
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                         
                         <div>
                             <h4 style="margin-bottom: 10px; color: #5210ed;">📍 热门路径</h4>
-                            <table class="table">
-                                <thead>
-                                    <tr>
-                                        <th>路径</th>
-                                        <th>请求数</th>
-                                        <th>流量</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    ${(stats.top_paths && stats.top_paths.length > 0) ? stats.top_paths.slice(0, 5).map(p => {
-                                        const path = p.path || '-';
-                                        return `
+                            <div class="table-container">
+                                <table class="table">
+                                    <thead>
                                         <tr>
-                                            <td>${path.length > 30 ? path.substring(0, 30) + '...' : path}</td>
-                                            <td>${(p.requests || 0).toLocaleString()}</td>
-                                            <td>${formatBytes(p.bytes || 0)}</td>
+                                            <th>路径</th>
+                                            <th>请求数</th>
+                                            <th>流量</th>
                                         </tr>
-                                    `;
-                                    }).join('') : '<tr><td colspan="3" style="text-align: center; color: #999;">暂无数据</td></tr>'}
-                                </tbody>
-                            </table>
+                                    </thead>
+                                    <tbody>
+                                        ${(stats.top_paths && stats.top_paths.length > 0) ? stats.top_paths.slice(0, 5).map(p => {
+                                            const path = p.path || '-';
+                                            return `
+                                            <tr>
+                                                <td>${path.length > 30 ? path.substring(0, 30) + '...' : path}</td>
+                                                <td>${(p.requests || 0).toLocaleString()}</td>
+                                                <td>${formatBytes(p.bytes || 0)}</td>
+                                            </tr>
+                                        `;
+                                        }).join('') : '<tr><td colspan="3" style="text-align: center; color: #999;">暂无数据</td></tr>'}
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                         
                         <div>
                             <h4 style="margin-bottom: 10px; color: #5210ed;">👤 热门IP</h4>
-                            <table class="table">
-                                <thead>
-                                    <tr>
-                                        <th>IP地址</th>
-                                        <th>请求数</th>
-                                        <th>流量</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    ${(() => {
-                                        console.log('检查top_ips:', stats.top_ips, '类型:', typeof stats.top_ips, '是数组:', Array.isArray(stats.top_ips));
-                                        if (!stats.top_ips) {
-                                            console.log('stats.top_ips 不存在，返回暂无数据');
-                                            return '<tr><td colspan="3" style="text-align: center; color: #999; padding: 20px;">暂无数据</td></tr>';
-                                        }
-                                        if (!Array.isArray(stats.top_ips)) {
-                                            console.log('stats.top_ips 不是数组:', stats.top_ips, '类型:', typeof stats.top_ips);
-                                            return '<tr><td colspan="3" style="text-align: center; color: #999; padding: 20px;">数据格式错误</td></tr>';
-                                        }
-                                        if (stats.top_ips.length === 0) {
-                                            console.log('stats.top_ips 数组为空');
-                                            return '<tr><td colspan="3" style="text-align: center; color: #999; padding: 20px;">暂无数据</td></tr>';
-                                        }
-                                        console.log('开始渲染热门IP，共', stats.top_ips.length, '条，数据:', stats.top_ips);
-                                        const ipRows = stats.top_ips.slice(0, 5).map((ip, idx) => {
-                                            console.log(`处理IP ${idx + 1}:`, ip, '所有键:', Object.keys(ip));
-                                            // 直接使用JSON标签的小写字段名（与后端结构体JSON标签一致）
-                                            const ipAddress = ip.ip || '-';
-                                            const requests = Number(ip.requests || 0);
-                                            const bytes = Number(ip.bytes || 0);
-                                            console.log(`解析后 - IP ${idx + 1}: 地址=${ipAddress}, 请求数=${requests}, 流量=${bytes}`);
-                                            if (!ipAddress || ipAddress === '-') {
-                                                console.warn(`IP ${idx + 1} 的地址为空，原始数据:`, ip);
+                            <div class="table-container">
+                                <table class="table">
+                                    <thead>
+                                        <tr>
+                                            <th>IP地址</th>
+                                            <th>请求数</th>
+                                            <th>流量</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        ${(() => {
+                                            console.log('检查top_ips:', stats.top_ips, '类型:', typeof stats.top_ips, '是数组:', Array.isArray(stats.top_ips));
+                                            if (!stats.top_ips) {
+                                                console.log('stats.top_ips 不存在，返回暂无数据');
+                                                return '<tr><td colspan="3" style="text-align: center; color: #999; padding: 20px;">暂无数据</td></tr>';
                                             }
-                                            return `
-                                            <tr>
-                                                <td>${String(ipAddress)}</td>
-                                                <td>${requests.toLocaleString()}</td>
-                                                <td>${formatBytes(bytes)}</td>
-                                            </tr>
-                                        `;
-                                        }).join('');
-                                        console.log('生成的IP行HTML:', ipRows.substring(0, 100));
-                                        return ipRows || '<tr><td colspan="3" style="text-align: center; color: #999; padding: 20px;">无法解析数据</td></tr>';
-                                    })()}
-                                </tbody>
-                            </table>
+                                            if (!Array.isArray(stats.top_ips)) {
+                                                console.log('stats.top_ips 不是数组:', stats.top_ips, '类型:', typeof stats.top_ips);
+                                                return '<tr><td colspan="3" style="text-align: center; color: #999; padding: 20px;">数据格式错误</td></tr>';
+                                            }
+                                            if (stats.top_ips.length === 0) {
+                                                console.log('stats.top_ips 数组为空');
+                                                return '<tr><td colspan="3" style="text-align: center; color: #999; padding: 20px;">暂无数据</td></tr>';
+                                            }
+                                            console.log('开始渲染热门IP，共', stats.top_ips.length, '条，数据:', stats.top_ips);
+                                            const ipRows = stats.top_ips.slice(0, 5).map((ip, idx) => {
+                                                console.log(`处理IP ${idx + 1}:`, ip, '所有键:', Object.keys(ip));
+                                                // 直接使用JSON标签的小写字段名（与后端结构体JSON标签一致）
+                                                const ipAddress = ip.ip || '-';
+                                                const requests = Number(ip.requests || 0);
+                                                const bytes = Number(ip.bytes || 0);
+                                                console.log(`解析后 - IP ${idx + 1}: 地址=${ipAddress}, 请求数=${requests}, 流量=${bytes}`);
+                                                if (!ipAddress || ipAddress === '-') {
+                                                    console.warn(`IP ${idx + 1} 的地址为空，原始数据:`, ip);
+                                                }
+                                                return `
+                                                <tr>
+                                                    <td>${String(ipAddress)}</td>
+                                                    <td>${requests.toLocaleString()}</td>
+                                                    <td>${formatBytes(bytes)}</td>
+                                                </tr>
+                                            `;
+                                            }).join('');
+                                            console.log('生成的IP行HTML:', ipRows.substring(0, 100));
+                                            return ipRows || '<tr><td colspan="3" style="text-align: center; color: #999; padding: 20px;">无法解析数据</td></tr>';
+                                        })()}
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                     </div>
                 `;
