@@ -7181,7 +7181,6 @@ async function showLogDetail(logId) {
                 <label class="form-label">防护动作</label>
                 <select name="action" class="form-control" required>
                     <option value="block">拦截请求</option>
-                    <option value="challenge">挑战验证</option>
                 </select>
             </div>
             
@@ -7288,7 +7287,6 @@ async function showLogDetail(logId) {
                             <label class="form-label">防护动作</label>
                             <select name="action" class="form-control" required>
                                 <option value="block" ${rule.action === 'block' ? 'selected' : ''}>拦截请求</option>
-                                <option value="challenge" ${rule.action === 'challenge' ? 'selected' : ''}>挑战验证</option>
                             </select>
                         </div>
                         
