@@ -3113,12 +3113,51 @@ DIRECT_PROXY:
 	// 设置重要属性
 	proxyReq.Host = siteHost
 
+	// 解析上游服务器URL以获取scheme和host
+	var upstreamScheme string
+	var upstreamHost string
+	if targetURLParsed, err := url.Parse(targetURL); err == nil {
+		upstreamScheme = targetURLParsed.Scheme
+		upstreamHost = targetURLParsed.Host
+		// 如果host包含端口，保留端口
+		if upstreamHost == "" {
+			upstreamHost = siteHost
+		}
+	} else {
+		// 如果解析失败，使用siteHost作为fallback
+		upstreamHost = siteHost
+		if strings.HasPrefix(targetURL, "https://") {
+			upstreamScheme = "https"
+		} else {
+			upstreamScheme = "http"
+		}
+	}
+
 	// 拷贝请求头（优化版）
 	for k, v := range req.Header {
 		if k == "Accept-Encoding" {
 			continue
 		}
-		proxyReq.Header[k] = v
+		// 处理Referer头：将host替换为上游服务器的host
+		if strings.ToLower(k) == "referer" && len(v) > 0 && v[0] != "" {
+			if refererURL, err := url.Parse(v[0]); err == nil {
+				// 保持原有的scheme，如果原始Referer没有scheme则使用上游的scheme
+				newScheme := refererURL.Scheme
+				if newScheme == "" {
+					newScheme = upstreamScheme
+				}
+				// 替换host为上游服务器的host
+				refererURL.Scheme = newScheme
+				refererURL.Host = upstreamHost
+				// 更新Referer头
+				proxyReq.Header.Set("Referer", refererURL.String())
+			} else {
+				// 如果解析失败，保持原值
+				proxyReq.Header[k] = v
+			}
+		} else {
+			proxyReq.Header[k] = v
+		}
 	}
 
 	transport := &http.Transport{
@@ -3203,11 +3242,49 @@ DIRECT_PROXY:
 				}
 
 				altProxyReq.Host = altHost
+
+				// 解析重试的上游服务器URL以获取scheme和host
+				var altUpstreamScheme string
+				var altUpstreamHost string
+				if altURLParsed, err := url.Parse(altURL); err == nil {
+					altUpstreamScheme = altURLParsed.Scheme
+					altUpstreamHost = altURLParsed.Host
+					if altUpstreamHost == "" {
+						altUpstreamHost = altHost
+					}
+				} else {
+					altUpstreamHost = altHost
+					if strings.HasPrefix(altURL, "https://") {
+						altUpstreamScheme = "https"
+					} else {
+						altUpstreamScheme = "http"
+					}
+				}
+
 				for k, v := range req.Header {
 					if k == "Accept-Encoding" {
 						continue
 					}
-					altProxyReq.Header[k] = v
+					// 处理Referer头：将host替换为上游服务器的host
+					if strings.ToLower(k) == "referer" && len(v) > 0 && v[0] != "" {
+						if refererURL, err := url.Parse(v[0]); err == nil {
+							// 保持原有的scheme，如果原始Referer没有scheme则使用上游的scheme
+							newScheme := refererURL.Scheme
+							if newScheme == "" {
+								newScheme = altUpstreamScheme
+							}
+							// 替换host为上游服务器的host
+							refererURL.Scheme = newScheme
+							refererURL.Host = altUpstreamHost
+							// 更新Referer头
+							altProxyReq.Header.Set("Referer", refererURL.String())
+						} else {
+							// 如果解析失败，保持原值
+							altProxyReq.Header[k] = v
+						}
+					} else {
+						altProxyReq.Header[k] = v
+					}
 				}
 
 				// 尝试发送请求
