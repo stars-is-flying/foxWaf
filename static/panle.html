@@ -786,18 +786,53 @@
         }
 
         /* 加载动画 */
-        .loading {
-            display: inline-block;
-            width: 20px;
-            height: 20px;
-            border: 3px solid rgba(255, 255, 255, 0.3);
-            border-radius: 50%;
-            border-top-color: #fff;
-            animation: spin 1s ease-in-out infinite;
+        .loader {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-direction: row;
+            padding: 20px 10px;
         }
 
-        @keyframes spin {
-            to { transform: rotate(360deg); }
+        .slider {
+            overflow: hidden;
+            background-color: white;
+            margin: 0 4px;
+            height: 40px;
+            width: 10px;
+            border-radius: 20px;
+            box-shadow: 6px 6px 10px rgba(0, 0, 0, 0.1), -6px -6px 12px #fff,
+                inset -3px -3px 6px rgba(0, 0, 255, 0.1),
+                inset 3px 3px 6px rgba(0, 0, 0, 0.1);
+            position: relative;
+        }
+
+        .slider::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            height: 10px;
+            width: 10px;
+            border-radius: 100%;
+            box-shadow: inset 0px 0px 0px rgba(0, 0, 0, 0.3), 0px 200px 0 180px #2697f3,
+                inset 0px 0px 0px rgba(0, 0, 0, 0.1);
+            animation: animate_2 2.5s ease-in-out infinite;
+            animation-delay: calc(-0.5s * var(--i));
+        }
+
+        @keyframes animate_2 {
+            0% {
+                transform: translateY(120px);
+                filter: hue-rotate(0deg);
+            }
+            50% {
+                transform: translateY(0);
+            }
+            100% {
+                transform: translateY(120px);
+                filter: hue-rotate(180deg);
+            }
         }
 
         /* 消息提示 */
@@ -1509,8 +1544,16 @@
             border: 1px solid rgba(108, 117, 125, 0.25);
         }
 
-        body.dark-theme .loading {
-            color: #768390;
+        body.dark-theme .slider {
+            background-color: rgba(22, 27, 34, 0.95);
+            box-shadow: 6px 6px 10px rgba(0, 0, 0, 0.3), -6px -6px 12px rgba(108, 117, 125, 0.1),
+                inset -3px -3px 6px rgba(88, 166, 255, 0.15),
+                inset 3px 3px 6px rgba(0, 0, 0, 0.2);
+        }
+
+        body.dark-theme .slider::before {
+            box-shadow: inset 0px 0px 0px rgba(0, 0, 0, 0.5), 0px 200px 0 180px #58a6ff,
+                inset 0px 0px 0px rgba(0, 0, 0, 0.2);
         }
 
         body.dark-theme h3,
@@ -2538,21 +2581,39 @@ code[class*="language-"] {
                 <div class="chart-container">
                     <div class="chart-title">📊 端口请求速率</div>
                     <div id="port-stats-container">
-                        <div class="loading">加载中...</div>
+                        <section class="loader">
+                            <div class="slider" style="--i:0"></div>
+                            <div class="slider" style="--i:1"></div>
+                            <div class="slider" style="--i:2"></div>
+                            <div class="slider" style="--i:3"></div>
+                            <div class="slider" style="--i:4"></div>
+                        </section>
                     </div>
                 </div>
                 
                 <div class="chart-container">
                     <div class="chart-title">💻 CPU使用率</div>
                     <div id="cpu-stats-container">
-                        <div class="loading">加载中...</div>
+                        <section class="loader">
+                            <div class="slider" style="--i:0"></div>
+                            <div class="slider" style="--i:1"></div>
+                            <div class="slider" style="--i:2"></div>
+                            <div class="slider" style="--i:3"></div>
+                            <div class="slider" style="--i:4"></div>
+                        </section>
                     </div>
                 </div>
                 
                 <div class="chart-container">
                     <div class="chart-title">💾 内存使用率</div>
                     <div id="memory-stats-container">
-                        <div class="loading">加载中...</div>
+                        <section class="loader">
+                            <div class="slider" style="--i:0"></div>
+                            <div class="slider" style="--i:1"></div>
+                            <div class="slider" style="--i:2"></div>
+                            <div class="slider" style="--i:3"></div>
+                            <div class="slider" style="--i:4"></div>
+                        </section>
                     </div>
                 </div>
             </div>
@@ -2582,7 +2643,13 @@ code[class*="language-"] {
                             </button>
                         </div>
                         <div id="acl-rules-container">
-                            <div class="loading">加载中...</div>
+                            <section class="loader">
+                            <div class="slider" style="--i:0"></div>
+                            <div class="slider" style="--i:1"></div>
+                            <div class="slider" style="--i:2"></div>
+                            <div class="slider" style="--i:3"></div>
+                            <div class="slider" style="--i:4"></div>
+                        </section>
                         </div>
                     </div>
                 `
@@ -2600,7 +2667,13 @@ code[class*="language-"] {
                 </button>
             </div>
             <div id="cc-stats-container">
-                <div class="loading">加载中...</div>
+                            <section class="loader">
+                                <div class="slider" style="--i:0"></div>
+                                <div class="slider" style="--i:1"></div>
+                                <div class="slider" style="--i:2"></div>
+                                <div class="slider" style="--i:3"></div>
+                                <div class="slider" style="--i:4"></div>
+                            </section>
             </div>
         </div>
 
@@ -2613,7 +2686,13 @@ code[class*="language-"] {
                 </button>
             </div>
             <div id="cc-rules-container">
-                <div class="loading">加载中...</div>
+                            <section class="loader">
+                                <div class="slider" style="--i:0"></div>
+                                <div class="slider" style="--i:1"></div>
+                                <div class="slider" style="--i:2"></div>
+                                <div class="slider" style="--i:3"></div>
+                                <div class="slider" style="--i:4"></div>
+                            </section>
             </div>
         </div>
 
@@ -2639,7 +2718,13 @@ code[class*="language-"] {
             </div>
             
             <div id="cc-logs-container">
-                <div class="loading">加载中...</div>
+                            <section class="loader">
+                                <div class="slider" style="--i:0"></div>
+                                <div class="slider" style="--i:1"></div>
+                                <div class="slider" style="--i:2"></div>
+                                <div class="slider" style="--i:3"></div>
+                                <div class="slider" style="--i:4"></div>
+                            </section>
             </div>
             
             <div id="cc-logs-pagination" class="pagination"></div>
@@ -2664,7 +2749,13 @@ code[class*="language-"] {
                 </div>
             </div>
             <div id="cache-stats-container">
-                <div class="loading">加载中...</div>
+                            <section class="loader">
+                                <div class="slider" style="--i:0"></div>
+                                <div class="slider" style="--i:1"></div>
+                                <div class="slider" style="--i:2"></div>
+                                <div class="slider" style="--i:3"></div>
+                                <div class="slider" style="--i:4"></div>
+                            </section>
             </div>
         </div>
         
@@ -2678,7 +2769,13 @@ code[class*="language-"] {
                 </div>
             </div>
             <div id="cache-files-container">
-                <div class="loading">加载中...</div>
+                            <section class="loader">
+                                <div class="slider" style="--i:0"></div>
+                                <div class="slider" style="--i:1"></div>
+                                <div class="slider" style="--i:2"></div>
+                                <div class="slider" style="--i:3"></div>
+                                <div class="slider" style="--i:4"></div>
+                            </section>
             </div>
             <!-- 添加分页容器 -->
             <div id="cache-files-pagination" class="pagination"></div>
@@ -2689,7 +2786,13 @@ code[class*="language-"] {
                 <h3 class="card-title">⚙️ 缓存配置</h3>
             </div>
             <div id="cache-config-container">
-                <div class="loading">加载中...</div>
+                            <section class="loader">
+                                <div class="slider" style="--i:0"></div>
+                                <div class="slider" style="--i:1"></div>
+                                <div class="slider" style="--i:2"></div>
+                                <div class="slider" style="--i:3"></div>
+                                <div class="slider" style="--i:4"></div>
+                            </section>
             </div>
         </div>
     `
@@ -2706,7 +2809,13 @@ code[class*="language-"] {
                             </button>
                         </div>
                         <div id="sites-container">
-                            <div class="loading">加载中...</div>
+                            <section class="loader">
+                            <div class="slider" style="--i:0"></div>
+                            <div class="slider" style="--i:1"></div>
+                            <div class="slider" style="--i:2"></div>
+                            <div class="slider" style="--i:3"></div>
+                            <div class="slider" style="--i:4"></div>
+                        </section>
                         </div>
                     </div>
                 `
@@ -2723,7 +2832,13 @@ code[class*="language-"] {
                             </button>
                         </div>
                         <div id="traffic-stats-container">
-                            <div class="loading">加载中...</div>
+                            <section class="loader">
+                            <div class="slider" style="--i:0"></div>
+                            <div class="slider" style="--i:1"></div>
+                            <div class="slider" style="--i:2"></div>
+                            <div class="slider" style="--i:3"></div>
+                            <div class="slider" style="--i:4"></div>
+                        </section>
                         </div>
                     </div>
 
@@ -2732,7 +2847,13 @@ code[class*="language-"] {
                             <h3 class="card-title">🏆 流量排行榜</h3>
                         </div>
                         <div id="traffic-rankings-container">
-                            <div class="loading">加载中...</div>
+                            <section class="loader">
+                            <div class="slider" style="--i:0"></div>
+                            <div class="slider" style="--i:1"></div>
+                            <div class="slider" style="--i:2"></div>
+                            <div class="slider" style="--i:3"></div>
+                            <div class="slider" style="--i:4"></div>
+                        </section>
                         </div>
                     </div>
 
@@ -2764,7 +2885,13 @@ code[class*="language-"] {
                         </div>
                         
                         <div id="traffic-logs-container">
-                            <div class="loading">加载中...</div>
+                            <section class="loader">
+                            <div class="slider" style="--i:0"></div>
+                            <div class="slider" style="--i:1"></div>
+                            <div class="slider" style="--i:2"></div>
+                            <div class="slider" style="--i:3"></div>
+                            <div class="slider" style="--i:4"></div>
+                        </section>
                         </div>
                         
                         <div id="traffic-logs-pagination" class="pagination"></div>
@@ -2807,7 +2934,13 @@ code[class*="language-"] {
                         </div>
                         
                         <div id="logs-container">
-                            <div class="loading">加载中...</div>
+                            <section class="loader">
+                            <div class="slider" style="--i:0"></div>
+                            <div class="slider" style="--i:1"></div>
+                            <div class="slider" style="--i:2"></div>
+                            <div class="slider" style="--i:3"></div>
+                            <div class="slider" style="--i:4"></div>
+                        </section>
                         </div>
                         
                         <div id="logs-pagination" class="pagination"></div>
@@ -2914,7 +3047,13 @@ code[class*="language-"] {
                     </button>
                 </div>
                 <div id="blocked-rules-container">
-                    <div class="loading">加载中...</div>
+                            <section class="loader">
+                                <div class="slider" style="--i:0"></div>
+                                <div class="slider" style="--i:1"></div>
+                                <div class="slider" style="--i:2"></div>
+                                <div class="slider" style="--i:3"></div>
+                                <div class="slider" style="--i:4"></div>
+                            </section>
                 </div>
             </div>
         `
@@ -2940,7 +3079,13 @@ custom_rules: {
                 </div>
             </div>
             <div id="custom-rules-container">
-                <div class="loading">加载中...</div>
+                            <section class="loader">
+                                <div class="slider" style="--i:0"></div>
+                                <div class="slider" style="--i:1"></div>
+                                <div class="slider" style="--i:2"></div>
+                                <div class="slider" style="--i:3"></div>
+                                <div class="slider" style="--i:4"></div>
+                            </section>
             </div>
         </div>
 
@@ -4934,7 +5079,13 @@ function refreshAllStats() {
         <div style="margin-bottom: 20px;">
             <h4>当前证书信息</h4>
             <div id="current-cert-info">
-                <div class="loading">加载中...</div>
+                            <section class="loader">
+                                <div class="slider" style="--i:0"></div>
+                                <div class="slider" style="--i:1"></div>
+                                <div class="slider" style="--i:2"></div>
+                                <div class="slider" style="--i:3"></div>
+                                <div class="slider" style="--i:4"></div>
+                            </section>
             </div>
         </div>
         
@@ -5203,7 +5354,7 @@ function getSiteHealthStatus(siteId) {
                 console.error('缓存文件容器不存在');
                 return;
             }
-            container.innerHTML = '<div class="loading">加载中...</div>';
+            container.innerHTML = '<section class="loader"><div class="slider" style="--i:0"></div><div class="slider" style="--i:1"></div><div class="slider" style="--i:2"></div><div class="slider" style="--i:3"></div><div class="slider" style="--i:4"></div></section>';
 
             // 获取站点筛选器
             const siteFilter = document.getElementById('cache-site-filter');
