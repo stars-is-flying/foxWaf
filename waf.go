@@ -8905,5 +8905,13 @@ func main() {
 	go statsPrinter()
 	go StartGinAPI()
 	go startHealthChecker()
+
+	// 输出 Panel 访问路径（Gin 固定运行在 :8080）
+	fmt.Println("\n=================== 管理面板访问路径 ===================")
+	fmt.Printf("本地访问地址:   http://localhost:8080/%s\n", cfg.Secure)
+	fmt.Printf("本机环回地址: http://127.0.0.1:8080/%s\n", cfg.Secure)
+	fmt.Printf("远程访问样例:  http://<你的服务器IP>:8080/%s\n", cfg.Secure)
+	fmt.Println("======================================================")
+
 	ReverseProxy()
 }
