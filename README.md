@@ -37,7 +37,7 @@ go mod tidy
 ```
 
 3. **配置项目**
-   
+
    编辑 `conf.yaml` 配置文件：
 ```yaml
 Server:
@@ -344,28 +344,22 @@ go build -o waf waf.go
 - **规则导出**：导出规则到文件
 - **刷新规则**：从规则文件重新加载规则
 
-**规则配置参数**：
-- **规则名称**：规则的标识名称
-- **规则ID**：规则的唯一标识符
-- **HTTP 方法**：匹配的 HTTP 方法（GET、POST、ANY 等）
-- **匹配关系**：多个判断条件的关系（AND 或 OR）
-- **判断条件**：规则的匹配条件（位置、内容、正则表达式等）
-- **规则描述**：规则的说明信息
+**规则配置参数（YAML）**：
+- 规则文件以 `.yaml` 保存到 `rule/` 目录，面板会读取并显示
+- 字段：`id`、`name`、`description`、`method`、`relation`、`judge[]`（包含 `position`、`content`、`rix`）
 
-**判断条件配置**：
-- **位置（position）**：检测位置，如 `uri`、`header`、`body`、`param` 等
-- **内容（content）**：匹配的文本内容
-- **正则表达式（rix）**：可选的正则表达式匹配
-
-**使用方法**：
+**使用方法（两种方式）**：
 1. 点击左侧菜单的「规则管理」
-2. 添加规则：
+2. 方式A：在面板中添加/编辑：
    - 点击「添加规则」按钮
    - 填写规则信息
    - 添加判断条件（可添加多个）
    - 选择匹配关系（AND 或 OR）
    - 点击「保存」
-3. 编辑规则：
+3. 方式B：通过文件添加：
+   - 在 `rule/` 目录创建 `.yaml` 文件并按规范填入内容
+   - 回到面板点击「刷新规则」
+4. 编辑规则：
    - 在规则列表中点击「编辑」按钮
    - 修改配置后保存
 4. 导入规则：
@@ -377,21 +371,20 @@ go build -o waf waf.go
    - 系统会生成 ZIP 格式的规则文件
    - 下载保存
 
-**示例**：
-```json
-{
-  "name": "SQL注入检测",
-  "id": "sql-injection-001",
-  "method": "any",
-  "relation": "or",
-  "judge": [
-    {
-      "position": "uri",
-      "content": "union select",
-      "rix": "(?i)union\\s+select"
-    }
-  ]
-}
+**示例（YAML）**：
+```yaml
+id: "sql-injection-001"
+name: SQL注入检测
+description: 检测常见 SQL 注入关键字
+method: ANY
+relation: or
+judge:
+  - position: uri
+    content: union select
+    rix: (?i)union\s+select
+  - position: parameter_value
+    content: or 1=1
+    rix: (?i)or\s+1=1
 ```
 
 ---
