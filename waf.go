@@ -2899,12 +2899,12 @@ func handler(w http.ResponseWriter, req *http.Request) {
 				if sites[i].LoadBalanceAlgorithm != "" && len(sites[i].UpstreamServers) > 0 {
 					selectedServer := selectUpstreamServer(&sites[i])
 					if selectedServer != nil {
-						targetURL = selectedServer.URL
+						targetURL = strings.TrimSpace(selectedServer.URL)
 					} else {
-						targetURL = sites[i].TargetURL
+						targetURL = strings.TrimSpace(sites[i].TargetURL)
 					}
 				} else {
-					targetURL = sites[i].TargetURL
+					targetURL = strings.TrimSpace(sites[i].TargetURL)
 				}
 				break
 			}
@@ -2981,18 +2981,26 @@ func handler(w http.ResponseWriter, req *http.Request) {
 			if sites[i].LoadBalanceAlgorithm != "" && len(sites[i].UpstreamServers) > 0 {
 				selectedServer := selectUpstreamServer(&sites[i])
 				if selectedServer != nil {
-					targetURL = selectedServer.URL
+					targetURL = strings.TrimSpace(selectedServer.URL)
 				} else {
 					// 如果没有可用的上游服务器，回退到原来的target_url
-					targetURL = sites[i].TargetURL
+					targetURL = strings.TrimSpace(sites[i].TargetURL)
 				}
 			} else {
 				// 未启用负载均衡，使用原来的target_url
-				targetURL = sites[i].TargetURL
+				targetURL = strings.TrimSpace(sites[i].TargetURL)
 			}
 
 			if targetURL != "" {
-				siteHost = strings.Split(targetURL, "://")[1]
+				// 解析URL以获取host
+				if parsedURL, err := url.Parse(targetURL); err == nil {
+					siteHost = parsedURL.Host
+				} else {
+					// 如果解析失败，尝试简单的字符串分割
+					if parts := strings.Split(targetURL, "://"); len(parts) > 1 {
+						siteHost = strings.Split(parts[1], "/")[0]
+					}
+				}
 			}
 			break
 		}
@@ -3131,6 +3139,42 @@ DIRECT_PROXY:
 	}
 
 	// 第四步：构造代理请求 - 小体用内存，大体保持原始流式
+	// 确保targetURL已清理和验证
+	targetURL = strings.TrimSpace(targetURL)
+	if targetURL == "" {
+		stdlog.Printf("目标URL为空")
+		domain = host
+		path = req.URL.Path
+		statusCode = http.StatusBadGateway
+		requestSize = req.ContentLength
+		if requestSize <= 0 {
+			requestSize = int64(len(requestBody))
+		}
+		responseSize = int64(len(proxyErrorPage))
+		cacheStatus = "BYPASS"
+		w.WriteHeader(http.StatusBadGateway)
+		w.Write([]byte(proxyErrorPage))
+		return
+	}
+
+	// 验证URL格式
+	_, err := url.Parse(targetURL)
+	if err != nil {
+		stdlog.Printf("目标URL格式无效: %v", err)
+		domain = host
+		path = req.URL.Path
+		statusCode = http.StatusBadGateway
+		requestSize = req.ContentLength
+		if requestSize <= 0 {
+			requestSize = int64(len(requestBody))
+		}
+		responseSize = int64(len(proxyErrorPage))
+		cacheStatus = "BYPASS"
+		w.WriteHeader(http.StatusBadGateway)
+		w.Write([]byte(proxyErrorPage))
+		return
+	}
+
 	var bodyReader io.Reader
 	if skipWAF {
 		// 使用原始 req.Body 流式转发，避免内存化
@@ -3141,9 +3185,20 @@ DIRECT_PROXY:
 		bodyReader = nil
 	}
 
-	proxyReq, err := http.NewRequest(req.Method, targetURL+req.RequestURI, bodyReader)
+	// 构建完整的请求URL
+	requestURL := targetURL + req.RequestURI
+	proxyReq, err := http.NewRequest(req.Method, requestURL, bodyReader)
 	if err != nil {
 		stdlog.Printf("创建反向代理请求失败: %v", err)
+		domain = host
+		path = req.URL.Path
+		statusCode = http.StatusBadGateway
+		requestSize = req.ContentLength
+		if requestSize <= 0 {
+			requestSize = int64(len(requestBody))
+		}
+		responseSize = int64(len(proxyErrorPage))
+		cacheStatus = "BYPASS"
 		w.WriteHeader(http.StatusBadGateway)
 		w.Write([]byte(proxyErrorPage))
 		return
@@ -4541,9 +4596,12 @@ func addSiteHandler(c *gin.Context) {
 		}
 	}
 
+	// 清理URL：去除前后空格
+	targetURL := strings.TrimSpace(req.TargetURL)
+
 	// 插入站点数据库
 	insertSite := `INSERT INTO sites (name, domain, target_url, enable_https, cert_id, status) VALUES (?, ?, ?, ?, ?, ?)`
-	_, err := db.Exec(insertSite, req.Name, req.Domain, req.TargetURL, boolToInt(req.EnableHTTPS), certID, 1)
+	_, err := db.Exec(insertSite, req.Name, req.Domain, targetURL, boolToInt(req.EnableHTTPS), certID, 1)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("写入站点失败: %v", err)})
 		return
@@ -4553,7 +4611,7 @@ func addSiteHandler(c *gin.Context) {
 	newSite := Site{
 		Name:        req.Name,
 		Domain:      req.Domain,
-		TargetURL:   req.TargetURL,
+		TargetURL:   targetURL,
 		EnableHTTPS: req.EnableHTTPS,
 		Status:      1,
 	}
@@ -4792,13 +4850,16 @@ func updateSiteHandler(c *gin.Context) {
 			for _, us := range upstreamList {
 				if usMap, ok := us.(map[string]interface{}); ok {
 					updateReq.UpstreamServers = append(updateReq.UpstreamServers, UpstreamServerAdd{
-						URL:    getString(usMap, "url"),
+						URL:    strings.TrimSpace(getString(usMap, "url")), // 清理URL
 						Weight: getInt(usMap, "weight"),
 					})
 				}
 			}
 		}
 	}
+
+	// 清理target_url
+	updateReq.TargetURL = strings.TrimSpace(updateReq.TargetURL)
 
 	// 验证必需字段
 	if updateReq.ID == 0 || updateReq.Name == "" || updateReq.Domain == "" {
@@ -6554,40 +6615,74 @@ func getCertificate(clientHello *tls.ClientHelloInfo) (*tls.Certificate, error) 
 	// 从 SNI 获取域名
 	serverName := clientHello.ServerName
 
+	// 如果SNI为空，尝试使用默认证书
+	if serverName == "" {
+		aclManager.mutex.RLock()
+		defer aclManager.mutex.RUnlock()
+		for domain, cert := range certificateMap {
+			stdlog.Printf("SNI为空，使用默认证书: %s", domain)
+			return &cert, nil
+		}
+		stdlog.Printf("SNI为空且没有可用证书")
+		return nil, fmt.Errorf("SNI为空且没有可用证书")
+	}
+
 	// 检查该域名是否启用了 HTTPS
 	enableHTTPS := false
-	for _, site := range sites {
-		if matchDomain(site.Domain, serverName) && site.Status == 1 {
-			enableHTTPS = site.EnableHTTPS
+	var matchedSite *Site
+	aclManager.mutex.RLock()
+	for i := range sites {
+		if matchDomain(sites[i].Domain, serverName) && sites[i].Status == 1 {
+			matchedSite = &sites[i]
+			enableHTTPS = sites[i].EnableHTTPS
 			break
 		}
 	}
+	aclManager.mutex.RUnlock()
 
-	// 如果该域名禁用了 HTTPS，返回错误
-	if !enableHTTPS {
-		return nil, fmt.Errorf("HTTPS is disabled for domain: %s", serverName)
+	// 如果找到了站点但禁用了 HTTPS，记录警告但尝试使用默认证书
+	if matchedSite != nil && !enableHTTPS {
+		stdlog.Printf("警告: 站点 %s 的HTTPS已禁用，尝试使用默认证书", serverName)
+		// 不直接返回错误，尝试使用默认证书
 	}
 
-	if cert, ok := certificateMap[serverName]; ok {
-		stdlog.Printf("使用证书: %s", serverName)
-		return &cert, nil
-	}
-
-	// 如果没有找到精确匹配，尝试通配符匹配
-	for domain, cert := range certificateMap {
-		if matchesWildcard(serverName, domain) {
-			stdlog.Printf("使用通配符证书: %s -> %s", serverName, domain)
+	// 如果找到了站点且启用了HTTPS，尝试匹配证书
+	if matchedSite != nil && enableHTTPS {
+		aclManager.mutex.RLock()
+		// 精确匹配站点配置的域名
+		if cert, ok := certificateMap[matchedSite.Domain]; ok {
+			stdlog.Printf("使用站点配置的证书: %s (SNI: %s)", matchedSite.Domain, serverName)
+			aclManager.mutex.RUnlock()
 			return &cert, nil
 		}
+		// 尝试精确匹配SNI域名
+		if cert, ok := certificateMap[serverName]; ok {
+			stdlog.Printf("使用SNI匹配的证书: %s", serverName)
+			aclManager.mutex.RUnlock()
+			return &cert, nil
+		}
+		// 尝试通配符匹配
+		for domain, cert := range certificateMap {
+			if matchesWildcard(serverName, domain) {
+				stdlog.Printf("使用通配符证书: %s -> %s", serverName, domain)
+				aclManager.mutex.RUnlock()
+				return &cert, nil
+			}
+		}
+		aclManager.mutex.RUnlock()
 	}
 
-	// 返回默认证书（第一个证书）
-	for _, cert := range certificateMap {
-		stdlog.Printf("使用默认证书 for: %s", serverName)
+	// 如果没找到匹配的站点或证书，尝试使用默认证书
+	aclManager.mutex.RLock()
+	defer aclManager.mutex.RUnlock()
+	for domain, cert := range certificateMap {
+		stdlog.Printf("使用默认证书: %s (请求域: %s)", domain, serverName)
 		return &cert, nil
 	}
 
-	return nil, nil
+	// 如果没有任何证书，返回错误
+	stdlog.Printf("错误: 没有可用证书 (SNI: %s)", serverName)
+	return nil, fmt.Errorf("没有可用证书")
 }
 
 func ReverseProxy() {
