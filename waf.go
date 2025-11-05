@@ -1866,13 +1866,29 @@ var siteHealthMap = make(map[int]*SiteHealth)
 var healthMutex sync.RWMutex
 
 // 检查单个URL的健康状态
-func checkURLHealth(url, domain string) UpstreamServerHealth {
+func checkURLHealth(urlStr, domain string) UpstreamServerHealth {
 	result := UpstreamServerHealth{
-		URL:     url,
+		URL:     urlStr,
 		IsAlive: false,
 	}
 
 	start := time.Now()
+
+	// 清理URL：去除前后空格
+	urlStr = strings.TrimSpace(urlStr)
+	if urlStr == "" {
+		result.ErrorMsg = "URL为空"
+		result.Latency = time.Since(start).Milliseconds()
+		return result
+	}
+
+	// 验证URL格式
+	_, err := url.Parse(urlStr)
+	if err != nil {
+		result.ErrorMsg = fmt.Sprintf("URL格式无效: %v", err)
+		result.Latency = time.Since(start).Milliseconds()
+		return result
+	}
 
 	// 创建HTTP客户端，设置超时
 	client := &http.Client{
@@ -1883,7 +1899,7 @@ func checkURLHealth(url, domain string) UpstreamServerHealth {
 	hostHeader := extractFirstDomain(domain)
 
 	// 先尝试HEAD请求
-	req, err := http.NewRequest("HEAD", url, nil)
+	req, err := http.NewRequest("HEAD", urlStr, nil)
 	if err != nil {
 		result.ErrorMsg = fmt.Sprintf("创建HEAD请求失败: %v", err)
 		result.Latency = time.Since(start).Milliseconds()
@@ -1899,7 +1915,7 @@ func checkURLHealth(url, domain string) UpstreamServerHealth {
 	resp, err := client.Do(req)
 	if err != nil {
 		// HEAD失败，尝试GET请求
-		req, err = http.NewRequest("GET", url, nil)
+		req, err = http.NewRequest("GET", urlStr, nil)
 		if err != nil {
 			result.ErrorMsg = fmt.Sprintf("创建GET请求失败: %v", err)
 			result.Latency = time.Since(start).Milliseconds()
@@ -1969,7 +1985,24 @@ func checkSiteHealthEnhanced(site Site) *SiteHealth {
 	} else {
 		// 没有负载均衡，检查target_url
 		start := time.Now()
-		testURL := site.TargetURL
+		testURL := strings.TrimSpace(site.TargetURL)
+
+		// 验证URL是否为空
+		if testURL == "" {
+			health.IsAlive = false
+			health.ErrorMsg = "目标URL为空"
+			health.Latency = 0
+			return health
+		}
+
+		// 验证URL格式
+		_, err := url.Parse(testURL)
+		if err != nil {
+			health.IsAlive = false
+			health.ErrorMsg = fmt.Sprintf("目标URL格式无效: %v", err)
+			health.Latency = 0
+			return health
+		}
 
 		// 创建HTTP客户端，设置超时
 		client := &http.Client{

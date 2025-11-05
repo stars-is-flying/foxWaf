@@ -2,6 +2,9 @@
 waf.db
 *.db
 
+# 编译文件
+waf
+
 # 日志文件
 *.log
 waf.log
