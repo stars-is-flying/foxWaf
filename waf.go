@@ -6224,12 +6224,8 @@ func initDb() {
 		}
 	}
 
-	_, _ = db.Exec("DROP TABLE IF EXISTS attacks;")
-	_, _ = db.Exec("DROP TABLE IF EXISTS sites;")
-	_, _ = db.Exec("DROP TABLE IF EXISTS certificates;")
-
 	createTable := `
-    CREATE TABLE attacks (
+    CREATE TABLE IF NOT EXISTS attacks (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         method TEXT,
         url TEXT,
@@ -6293,32 +6289,39 @@ func initDb() {
 		panic(fmt.Errorf("建表upstream_servers失败: %v", err))
 	}
 
-	// 生成测试证书并插入数据库
+	// 生成测试证书并插入数据库（如果不存在）
 	certID, err := generateAndInsertTestCertificate()
 	if err != nil {
-		panic(fmt.Errorf("生成测试证书失败: %v", err))
+		// 如果证书已存在，尝试查找现有证书
+		var existingCertID int64
+		err2 := db.QueryRow("SELECT id FROM certificates WHERE name = ?", "kabubu.com测试证书").Scan(&existingCertID)
+		if err2 != nil {
+			panic(fmt.Errorf("生成测试证书失败且找不到现有证书: %v", err))
+		}
+		certID = existingCertID
 	}
 
-	// 插入启用 HTTPS 的测试站点
-	insertSite := `INSERT INTO sites (name, domain, target_url, enable_https, cert_id, status)
+	// 插入启用 HTTPS 的测试站点（如果不存在）
+	insertSite := `INSERT OR IGNORE INTO sites (name, domain, target_url, enable_https, cert_id, status)
 	VALUES (?, ?, ?, ?, ?, ?)`
 	_, err = db.Exec(insertSite, "测试HTTPS站点", "kabubu.com", "http://127.0.0.1:8888", 1, certID, 1)
 	if err != nil {
-		panic(fmt.Errorf("插入站点失败: %v", err))
+		// 忽略重复插入错误
+		stdlog.Printf("插入站点警告: %v", err)
 	}
 
 	_, err = db.Exec(insertSite, "宝塔", "baota.com", "http://127.0.0.1:32262", 1, certID, 1)
 	if err != nil {
-		panic(fmt.Errorf("插入站点失败: %v", err))
+		// 忽略重复插入错误
+		stdlog.Printf("插入站点警告: %v", err)
 	}
 
-	// 再插入一个 HTTP 站点作为对比
+	// 再插入一个 HTTP 站点作为对比（如果不存在）
 	_, err = db.Exec(insertSite, "测试HTTP站点", "http.kabubu.com", "http://127.0.0.1:8889", 0, nil, 1)
 	if err != nil {
-		panic(fmt.Errorf("插入HTTP站点失败: %v", err))
+		// 忽略重复插入错误
+		stdlog.Printf("插入站点警告: %v", err)
 	}
-
-	fmt.Println("测试站点 kabubu.com (HTTPS) 和 http.kabubu.com (HTTP) 已添加")
 
 	// 从数据库加载站点配置
 	rows, err := db.Query("SELECT id, name, domain, target_url, enable_https, cert_id, status, COALESCE(load_balance_algorithm, ''), created_at, updated_at FROM sites")
@@ -6469,9 +6472,17 @@ func generateSelfSignedCert(domain string) (certPEM []byte, keyPEM []byte, err e
 	return certPEM, keyPEM, nil
 }
 
-// 生成测试证书并插入数据库
+// 生成测试证书并插入数据库（如果不存在）
 func generateAndInsertTestCertificate() (int64, error) {
-	// 生成自签名证书（用于测试）
+	// 先检查证书是否已存在
+	var existingCertID int64
+	err := db.QueryRow("SELECT id FROM certificates WHERE name = ?", "kabubu.com测试证书").Scan(&existingCertID)
+	if err == nil {
+		// 证书已存在，返回现有证书ID
+		return existingCertID, nil
+	}
+
+	// 证书不存在，生成新的自签名证书（用于测试）
 	certPEM, keyPEM, err := generateSelfSignedCert("kabubu.com")
 	if err != nil {
 		return 0, err
