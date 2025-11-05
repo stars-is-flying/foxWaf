@@ -299,22 +299,22 @@ func (o *JSObfuscator) Obfuscate(jsCode string) string {
 
 // 配置相关结构体
 type ServerConfig struct {
-	Addr string `yaml:"addr"`
-	Port int    `yaml:"port"`
+	Addr string `yaml:"Addr"`
+	Port int    `yaml:"Port"`
 }
 
 type DatabaseConfig struct {
-	Host          string `yaml:"host"`
-	Port          int    `yaml:"port"`
-	User          string `yaml:"user"`
-	Password      string `yaml:"password"`
-	DBName        string `yaml:"dbname"`
+	Host          string `yaml:"Host"`
+	Port          int    `yaml:"Port"`
+	User          string `yaml:"User"`
+	Password      string `yaml:"Password"`
+	DBName        string `yaml:"DBName"`
 	EncryptionKey string `yaml:"encryption_key"`
 }
 
 type Config struct {
-	Server        ServerConfig   `yaml:"server"`
-	Database      DatabaseConfig `yaml:"database"`
+	Server        ServerConfig   `yaml:"Server"`
+	Database      DatabaseConfig `yaml:"Database"`
 	IsWriteDbAuto bool           `yaml:"isWriteDbAuto"`
 	Secure        string         `yaml:"secureentry"`
 }
@@ -5302,8 +5302,10 @@ func StartGinAPI() {
 		ctx.String(http.StatusNotFound, string(notFound))
 	})
 
-	stdlog.Println("Gin API 启动在 :8080")
-	if err := r.Run(":8080"); err != nil {
+	// 从配置文件读取 Panel 监听地址
+	panelAddr := fmt.Sprintf("%s:%d", cfg.Server.Addr, cfg.Server.Port)
+	stdlog.Printf("Gin API 启动在 %s", panelAddr)
+	if err := r.Run(panelAddr); err != nil {
 		stdlog.Fatalf("Gin 启动失败: %v", err)
 	}
 }
@@ -6131,32 +6133,95 @@ func initDb() {
 	// SQLite3 数据库文件路径
 	dbPath := "./waf.db"
 	var err error
-
-	// 构建连接字符串，支持加密
 	var connectionString string
+
+	// 检查数据库文件是否存在
+	dbExists := false
+	if _, err := os.Stat(dbPath); err == nil {
+		dbExists = true
+	}
+
+	// 如果配置了加密密钥，先尝试加密连接
 	if cfg.Database.EncryptionKey != "" {
-		// 使用加密连接
 		connectionString = fmt.Sprintf("%s?_pragma_key=%s&_pragma_cipher_page_size=4096", dbPath, cfg.Database.EncryptionKey)
-		fmt.Println("使用加密数据库连接")
+		fmt.Println("尝试使用加密数据库连接")
+
+		db, err = sql.Open("sqlite3", connectionString)
+		if err == nil {
+			// 优化连接池配置
+			db.SetMaxOpenConns(50)
+			db.SetMaxIdleConns(10)
+			db.SetConnMaxLifetime(time.Hour)
+			db.SetConnMaxIdleTime(10 * time.Minute)
+
+			// 尝试 ping，如果失败则可能是非加密数据库
+			if err := db.Ping(); err != nil {
+				db.Close()
+				// 如果数据库文件已存在，尝试非加密方式
+				if dbExists {
+					fmt.Println("加密连接失败，尝试使用非加密数据库连接")
+					connectionString = dbPath
+					db, err = sql.Open("sqlite3", connectionString)
+					if err != nil {
+						panic(fmt.Errorf("连接 SQLite3 失败: %v", err))
+					}
+
+					// 优化连接池配置
+					db.SetMaxOpenConns(50)
+					db.SetMaxIdleConns(10)
+					db.SetConnMaxLifetime(time.Hour)
+					db.SetConnMaxIdleTime(10 * time.Minute)
+
+					if err := db.Ping(); err != nil {
+						panic(fmt.Errorf("ping数据库失败: %w", err))
+					}
+				} else {
+					panic(fmt.Errorf("ping加密数据库失败: %w", err))
+				}
+			} else {
+				fmt.Println("使用加密数据库连接成功")
+			}
+		} else {
+			// 打开失败，如果数据库不存在，尝试创建加密数据库
+			if !dbExists {
+				panic(fmt.Errorf("连接 SQLite3 失败: %v", err))
+			}
+			// 如果数据库存在但加密连接失败，尝试非加密
+			fmt.Println("加密连接失败，尝试使用非加密数据库连接")
+			connectionString = dbPath
+			db, err = sql.Open("sqlite3", connectionString)
+			if err != nil {
+				panic(fmt.Errorf("连接 SQLite3 失败: %v", err))
+			}
+
+			// 优化连接池配置
+			db.SetMaxOpenConns(50)
+			db.SetMaxIdleConns(10)
+			db.SetConnMaxLifetime(time.Hour)
+			db.SetConnMaxIdleTime(10 * time.Minute)
+
+			if err := db.Ping(); err != nil {
+				panic(fmt.Errorf("ping数据库失败: %w", err))
+			}
+		}
 	} else {
-		// 使用非加密连接
+		// 没有配置加密密钥，使用非加密连接
 		connectionString = dbPath
 		fmt.Println("使用非加密数据库连接")
-	}
+		db, err = sql.Open("sqlite3", connectionString)
+		if err != nil {
+			panic(fmt.Errorf("连接 SQLite3 失败: %v", err))
+		}
 
-	db, err = sql.Open("sqlite3", connectionString)
-	if err != nil {
-		panic(fmt.Errorf("连接 SQLite3 失败: %v", err))
-	}
+		// 优化连接池配置
+		db.SetMaxOpenConns(50)
+		db.SetMaxIdleConns(10)
+		db.SetConnMaxLifetime(time.Hour)
+		db.SetConnMaxIdleTime(10 * time.Minute)
 
-	// 优化连接池配置
-	db.SetMaxOpenConns(50)                  // 减少最大连接数
-	db.SetMaxIdleConns(10)                  // 减少空闲连接数
-	db.SetConnMaxLifetime(time.Hour)        // 连接最大生命周期
-	db.SetConnMaxIdleTime(10 * time.Minute) // 空闲连接超时
-
-	if err := db.Ping(); err != nil {
-		panic(fmt.Errorf("ping数据库失败: %w", err))
+		if err := db.Ping(); err != nil {
+			panic(fmt.Errorf("ping数据库失败: %w", err))
+		}
 	}
 
 	_, _ = db.Exec("DROP TABLE IF EXISTS attacks;")
@@ -8985,11 +9050,15 @@ func main() {
 	go StartGinAPI()
 	go startHealthChecker()
 
-	// 输出 Panel 访问路径（Gin 固定运行在 :8080）
+	// 输出 Panel 访问路径（从配置文件读取监听地址）
 	fmt.Println("\n=================== 管理面板访问路径 ===================")
-	fmt.Printf("本地访问地址:   http://localhost:8080/%s\n", cfg.Secure)
-	fmt.Printf("本机环回地址: http://127.0.0.1:8080/%s\n", cfg.Secure)
-	fmt.Printf("远程访问样例:  http://<你的服务器IP>:8080/%s\n", cfg.Secure)
+	fmt.Printf("本地访问地址:   http://localhost:%d/%s\n", cfg.Server.Port, cfg.Secure)
+	fmt.Printf("本机环回地址: http://127.0.0.1:%d/%s\n", cfg.Server.Port, cfg.Secure)
+	if cfg.Server.Addr == "0.0.0.0" {
+		fmt.Printf("远程访问样例:  http://<你的服务器IP>:%d/%s\n", cfg.Server.Port, cfg.Secure)
+	} else {
+		fmt.Printf("访问地址:      http://%s:%d/%s\n", cfg.Server.Addr, cfg.Server.Port, cfg.Secure)
+	}
 	fmt.Println("======================================================")
 
 	ReverseProxy()

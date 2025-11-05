@@ -1,6 +1,6 @@
 Server:
   Addr: "0.0.0.0"
-  Port: 8080
+  Port: 8081
 Database:
   DBName: "waf.db"
   encryption_key: "MySecretKey123!@#"
