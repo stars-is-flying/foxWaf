@@ -5857,7 +5857,13 @@ async function checkSingleSiteHealth(siteId) {
             
             <div class="form-group">
                 <label class="form-label">域名</label>
-                <input type="text" name="domain" class="form-control" placeholder="例如: example.com" required>
+                <div id="domain-inputs-container"></div>
+                <button type="button" class="btn" style="margin-top: 10px;" onclick="addDomainInput()">+ 添加域名</button>
+                <small style="color: #666; display: block; margin-top: 5px;">
+                    支持格式：<br>
+                    • 单个域名：example.com<br>
+                    • 通配符：*.example.com (匹配 a.example.com, b.example.com 等)
+                </small>
             </div>
             
             <div class="form-group">
@@ -5981,6 +5987,22 @@ async function checkSingleSiteHealth(siteId) {
                 });
             }
             
+            // 添加域名输入框函数
+            window.addDomainInput = function(value = '') {
+                const container = document.getElementById('domain-inputs-container');
+                if (!container) return;
+                
+                const div = document.createElement('div');
+                div.className = 'domain-input-item';
+                div.style.cssText = 'display: flex; gap: 10px; margin-bottom: 10px; align-items: center;';
+                
+                div.innerHTML = `
+                    <input type="text" class="form-control" placeholder="例如: example.com 或 *.example.com" value="${escapeHtml(value)}" style="flex: 1;" required>
+                    <button type="button" class="btn btn-danger" onclick="this.parentElement.remove()">删除</button>
+                `;
+                container.appendChild(div);
+            };
+
             // 添加上游服务器函数
             window.addUpstreamServer = function() {
                 const list = document.getElementById('upstream-servers-list');
@@ -6016,10 +6038,28 @@ async function checkSingleSiteHealth(siteId) {
                 });
             });
 
+            // 初始化域名输入框（添加第一个）
+            addDomainInput();
+
             // 表单提交
             document.getElementById('add-site-form').addEventListener('submit', function (e) {
                 e.preventDefault();
-                addSiteWithCertificate(new FormData(this));
+                // 合并多个域名输入框的值
+                const domainInputs = document.querySelectorAll('#domain-inputs-container input[type="text"]');
+                const domains = Array.from(domainInputs)
+                    .map(input => input.value.trim())
+                    .filter(domain => domain !== '');
+                
+                if (domains.length === 0) {
+                    showMessage('请至少添加一个域名', 'error');
+                    return;
+                }
+                
+                // 创建新的 FormData 并设置合并后的域名
+                const formData = new FormData(this);
+                formData.set('domain', domains.join('\n'));
+                
+                addSiteWithCertificate(formData);
             });
 
             showModal();
@@ -6135,7 +6175,13 @@ async function checkSingleSiteHealth(siteId) {
             
             <div class="form-group">
                 <label class="form-label">域名</label>
-                <input type="text" name="domain" class="form-control" placeholder="例如: example.com" value="${escapeHtml(site.domain)}" required>
+                <div id="edit-domain-inputs-container"></div>
+                <button type="button" class="btn" style="margin-top: 10px;" onclick="addEditDomainInput()">+ 添加域名</button>
+                <small style="color: #666; display: block; margin-top: 5px;">
+                    支持格式：<br>
+                    • 单个域名：example.com<br>
+                    • 通配符：*.example.com (匹配 a.example.com, b.example.com 等)
+                </small>
             </div>
             
             <div class="form-group">
@@ -6227,6 +6273,38 @@ async function checkSingleSiteHealth(siteId) {
                     });
                 }
                 
+                // 添加编辑域名的输入框函数
+                window.addEditDomainInput = function(value = '') {
+                    const container = document.getElementById('edit-domain-inputs-container');
+                    if (!container) return;
+                    
+                    const div = document.createElement('div');
+                    div.className = 'domain-input-item';
+                    div.style.cssText = 'display: flex; gap: 10px; margin-bottom: 10px; align-items: center;';
+                    
+                    div.innerHTML = `
+                        <input type="text" class="form-control" placeholder="例如: example.com 或 *.example.com" value="${escapeHtml(value)}" style="flex: 1;" required>
+                        <button type="button" class="btn btn-danger" onclick="this.parentElement.remove()">删除</button>
+                    `;
+                    container.appendChild(div);
+                };
+
+                // 初始化编辑表单的域名输入框（从已有域名解析）
+                const domainContainer = document.getElementById('edit-domain-inputs-container');
+                if (domainContainer && site.domain) {
+                    // 分割多个域名（支持换行符、逗号、分号）
+                    const domains = site.domain.split(/[\n,;]/).map(d => d.trim()).filter(d => d !== '');
+                    if (domains.length > 0) {
+                        domains.forEach(domain => {
+                            addEditDomainInput(domain);
+                        });
+                    } else {
+                        addEditDomainInput();
+                    }
+                } else if (domainContainer) {
+                    addEditDomainInput();
+                }
+
                 // 添加上游服务器函数
                 window.addUpstreamServerEdit = function() {
                     const list = document.getElementById('upstream-servers-list');
@@ -6248,7 +6326,22 @@ async function checkSingleSiteHealth(siteId) {
                 // 表单提交
                 document.getElementById('edit-site-form').addEventListener('submit', function (e) {
                     e.preventDefault();
-                    updateSite(new FormData(this));
+                    // 合并多个域名输入框的值
+                    const domainInputs = document.querySelectorAll('#edit-domain-inputs-container input[type="text"]');
+                    const domains = Array.from(domainInputs)
+                        .map(input => input.value.trim())
+                        .filter(domain => domain !== '');
+                    
+                    if (domains.length === 0) {
+                        showMessage('请至少添加一个域名', 'error');
+                        return;
+                    }
+                    
+                    // 创建新的 FormData 并设置合并后的域名
+                    const formData = new FormData(this);
+                    formData.set('domain', domains.join('\n'));
+                    
+                    updateSite(formData);
                 });
 
                 showModal();

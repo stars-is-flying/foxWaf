@@ -1879,6 +1879,9 @@ func checkURLHealth(url, domain string) UpstreamServerHealth {
 		Timeout: 5 * time.Second,
 	}
 
+	// 提取第一个有效域名作为 Host 头（去除换行符、逗号等）
+	hostHeader := extractFirstDomain(domain)
+
 	// 先尝试HEAD请求
 	req, err := http.NewRequest("HEAD", url, nil)
 	if err != nil {
@@ -1889,8 +1892,8 @@ func checkURLHealth(url, domain string) UpstreamServerHealth {
 
 	// 添加请求头
 	req.Header.Set("User-Agent", "LittleFox-WAF-HealthCheck/1.0")
-	if domain != "" {
-		req.Header.Set("Host", domain)
+	if hostHeader != "" {
+		req.Header.Set("Host", hostHeader)
 	}
 
 	resp, err := client.Do(req)
@@ -1904,8 +1907,8 @@ func checkURLHealth(url, domain string) UpstreamServerHealth {
 		}
 
 		req.Header.Set("User-Agent", "LittleFox-WAF-HealthCheck/1.0")
-		if domain != "" {
-			req.Header.Set("Host", domain)
+		if hostHeader != "" {
+			req.Header.Set("Host", hostHeader)
 		}
 
 		resp, err = client.Do(req)
@@ -1973,6 +1976,9 @@ func checkSiteHealthEnhanced(site Site) *SiteHealth {
 			Timeout: 5 * time.Second,
 		}
 
+		// 提取第一个有效域名作为 Host 头（去除换行符、逗号等）
+		hostHeader := extractFirstDomain(site.Domain)
+
 		// println(testURL)
 		// 先尝试HEAD请求
 		req, err := http.NewRequest("HEAD", testURL, nil)
@@ -1985,8 +1991,8 @@ func checkSiteHealthEnhanced(site Site) *SiteHealth {
 
 		// 添加请求头
 		req.Header.Set("User-Agent", "LittleFox-WAF-HealthCheck/1.0")
-		if site.Domain != "" {
-			req.Header.Set("Host", site.Domain)
+		if hostHeader != "" {
+			req.Header.Set("Host", hostHeader)
 		}
 
 		resp, err := client.Do(req)
@@ -2002,8 +2008,8 @@ func checkSiteHealthEnhanced(site Site) *SiteHealth {
 			}
 
 			req.Header.Set("User-Agent", "LittleFox-WAF-HealthCheck/1.0")
-			if site.Domain != "" {
-				req.Header.Set("Host", site.Domain)
+			if hostHeader != "" {
+				req.Header.Set("Host", hostHeader)
 			}
 
 			resp, err = client.Do(req)
@@ -2855,7 +2861,7 @@ func handler(w http.ResponseWriter, req *http.Request) {
 		var targetURL string
 
 		for i := range sites {
-			if strings.EqualFold(sites[i].Domain, host) && sites[i].Status == 1 {
+			if matchDomain(sites[i].Domain, host) && sites[i].Status == 1 {
 				// 负载均衡选择上游服务器
 				if sites[i].LoadBalanceAlgorithm != "" && len(sites[i].UpstreamServers) > 0 {
 					selectedServer := selectUpstreamServer(&sites[i])
@@ -2933,7 +2939,7 @@ func handler(w http.ResponseWriter, req *http.Request) {
 	var currentSite *Site // 保存当前站点信息，用于后续重试
 
 	for i := range sites {
-		if strings.EqualFold(sites[i].Domain, host) && sites[i].Status == 1 {
+		if matchDomain(sites[i].Domain, host) && sites[i].Status == 1 {
 			currentSite = &sites[i]
 			enableHTTPS = sites[i].EnableHTTPS
 			siteDomain = sites[i].Domain
@@ -5373,6 +5379,74 @@ func statsPrinter() {
 	}
 }
 
+// ------------------- 域名匹配函数 -------------------
+// matchDomain 检查请求的 host 是否匹配站点配置的域名
+// 支持：
+// 1. 精确匹配：example.com
+// 2. 通配符匹配：*.example.com (匹配 a.example.com, b.example.com 等)
+// 3. 多域名匹配：域名可以是换行符或逗号分隔的多个域名
+func matchDomain(domainConfig, requestHost string) bool {
+	// 移除端口号（如果有）
+	if idx := strings.Index(requestHost, ":"); idx != -1 {
+		requestHost = requestHost[:idx]
+	}
+	requestHost = strings.ToLower(strings.TrimSpace(requestHost))
+
+	// 分割多个域名（支持换行符和逗号分隔）
+	domains := strings.FieldsFunc(domainConfig, func(r rune) bool {
+		return r == '\n' || r == ',' || r == ';'
+	})
+
+	for _, domain := range domains {
+		domain = strings.ToLower(strings.TrimSpace(domain))
+		if domain == "" {
+			continue
+		}
+
+		// 精确匹配
+		if domain == requestHost {
+			return true
+		}
+
+		// 通配符匹配：*.example.com
+		if strings.HasPrefix(domain, "*.") {
+			wildcardSuffix := domain[2:] // 去掉 "*."
+			if strings.HasSuffix(requestHost, "."+wildcardSuffix) || requestHost == wildcardSuffix {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// ------------------- 提取第一个有效域名 -------------------
+// extractFirstDomain 从多域名配置中提取第一个有效域名（用于健康检查的 Host 头）
+func extractFirstDomain(domainConfig string) string {
+	if domainConfig == "" {
+		return ""
+	}
+
+	// 分割多个域名（支持换行符和逗号分隔）
+	domains := strings.FieldsFunc(domainConfig, func(r rune) bool {
+		return r == '\n' || r == ',' || r == ';'
+	})
+
+	for _, domain := range domains {
+		domain = strings.TrimSpace(domain)
+		if domain != "" {
+			// 移除通配符前缀（*.example.com -> example.com）
+			if strings.HasPrefix(domain, "*.") {
+				domain = domain[2:]
+			}
+			// 转换为小写并返回第一个有效域名
+			return strings.ToLower(domain)
+		}
+	}
+
+	return ""
+}
+
 // ------------------- 工具函数 -------------------
 func MultiDecode(raw string) string {
 	for i := 0; i < maxUrlDepth; i++ {
@@ -5530,7 +5604,7 @@ func (p *websocketProxy) serveWS(w http.ResponseWriter, req *http.Request) {
 
 	// 只检查站点是否存在，不经过 WAF、ACL、CC
 	for i := range sites {
-		if strings.EqualFold(sites[i].Domain, host) && sites[i].Status == 1 {
+		if matchDomain(sites[i].Domain, host) && sites[i].Status == 1 {
 			// 负载均衡选择上游服务器
 			if sites[i].LoadBalanceAlgorithm != "" && len(sites[i].UpstreamServers) > 0 {
 				selectedServer := selectUpstreamServer(&sites[i])
@@ -6374,7 +6448,7 @@ func getCertificate(clientHello *tls.ClientHelloInfo) (*tls.Certificate, error) 
 	// 检查该域名是否启用了 HTTPS
 	enableHTTPS := false
 	for _, site := range sites {
-		if strings.EqualFold(site.Domain, serverName) && site.Status == 1 {
+		if matchDomain(site.Domain, serverName) && site.Status == 1 {
 			enableHTTPS = site.EnableHTTPS
 			break
 		}
