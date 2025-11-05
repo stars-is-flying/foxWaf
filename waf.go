@@ -3450,8 +3450,18 @@ DIRECT_PROXY:
 		}
 	}
 
-	// 更新 Content-Length
-	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(finalBody)))
+	// 检查是否需要写入响应体
+	// HEAD请求和某些状态码不允许有响应体
+	shouldWriteBody := req.Method != "HEAD" &&
+		resp.StatusCode != http.StatusNoContent &&
+		resp.StatusCode != http.StatusNotModified &&
+		resp.StatusCode != http.StatusSwitchingProtocols &&
+		resp.StatusCode != 101 // WebSocket upgrade
+
+	// 更新 Content-Length（仅在有响应体时）
+	if shouldWriteBody {
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", len(finalBody)))
+	}
 
 	// 缓存处理
 	if shouldCache && staticCacheConfig.Enable {
@@ -3464,11 +3474,19 @@ DIRECT_PROXY:
 		w.Header().Set("X-Cache", "BYPASS")
 	}
 
-	// 设置状态码并写入响应
+	// 设置状态码
 	w.WriteHeader(resp.StatusCode)
-	_, err = w.Write(finalBody)
-	if err != nil {
-		stdlog.Printf("写入响应失败: %v", err)
+
+	// 只在允许的情况下写入响应体
+	if shouldWriteBody {
+		_, err = w.Write(finalBody)
+		if err != nil {
+			// 检查是否是HTTP/2流关闭错误，这种情况下可以忽略
+			if !strings.Contains(err.Error(), "stream closed") &&
+				!strings.Contains(err.Error(), "request method or response status code does not allow body") {
+				stdlog.Printf("写入响应失败: %v", err)
+			}
+		}
 	}
 
 	// 记录流量统计
@@ -5783,7 +5801,13 @@ func (p *websocketProxy) proxyWebSocket(w http.ResponseWriter, req *http.Request
 				w.Header()[k] = v
 			}
 			w.WriteHeader(resp.StatusCode)
-			io.Copy(w, resp.Body)
+			// 检查是否需要写入响应体
+			if resp.StatusCode != http.StatusNoContent &&
+				resp.StatusCode != http.StatusNotModified &&
+				resp.StatusCode != http.StatusSwitchingProtocols &&
+				resp.StatusCode != 101 {
+				io.Copy(w, resp.Body)
+			}
 			resp.Body.Close()
 		} else {
 			http.Error(w, "WebSocket 代理错误", http.StatusBadGateway)
